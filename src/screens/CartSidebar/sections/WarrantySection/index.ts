@@ -1,0 +1,1 @@
+export { WarrantySection } from "./WarrantySection";

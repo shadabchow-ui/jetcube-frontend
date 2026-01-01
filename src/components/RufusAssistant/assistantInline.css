@@ -1,0 +1,71 @@
+/* Inline PDP block (chips + input), modeled after Amazon’s “Ask Rufus” strip */
+.asstInline{
+  margin-top: 18px;
+  padding: 12px 14px;
+  border: 1px solid #e5e7eb;
+  border-radius: 14px;
+  background: #ffffff;
+}
+
+.asstInlineHead{
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+.asstInlineLabel{
+  font-weight: 800;
+  font-size: 13px;
+  color: #111827;
+}
+
+.asstInlineHint{
+  font-size: 12px;
+  color: #6b7280;
+}
+
+.asstInlineChips{
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.asstChip{
+  font-size: 12px;
+  border: 1px solid #dbeafe;
+  background: #eff6ff;
+  color: #1d4ed8;
+  border-radius: 999px;
+  padding: 6px 10px;
+  cursor: pointer;
+}
+.asstChip:hover{
+  background: #dbeafe;
+}
+
+.asstInlineInputRow{
+  display: flex;
+  gap: 8px;
+}
+
+.asstInlineInput{
+  flex: 1;
+  border: 1px solid #e5e7eb;
+  border-radius: 12px;
+  padding: 9px 10px;
+  font-size: 13px;
+  outline: none;
+}
+.asstInlineInput:focus{ border-color: #9ca3af; }
+
+.asstInlineBtn{
+  border: 1px solid #111827;
+  background: #111827;
+  color: #ffffff;
+  border-radius: 12px;
+  padding: 9px 12px;
+  font-weight: 800;
+  cursor: pointer;
+}

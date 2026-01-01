@@ -1,0 +1,46 @@
+{
+  "nodes": [
+    {
+      "id": "src/layouts/MainLayout.tsx",
+      "label": "MainLayout",
+      "routes": [
+        "/"
+      ],
+      "isRoot": true
+    }
+  ],
+  "edges": [
+    {
+      "id": "src/screens/Shop/sections/NavigationSection/NavigationSection.tsx:441:12-to-src/layouts/MainLayout.tsx",
+      "source": "src/layouts/MainLayout.tsx",
+      "target": "src/layouts/MainLayout.tsx",
+      "data": {
+        "viaRoute": "/",
+        "trigger": {
+          "element": "<Link to=\"/\" className=\"flex items-center\">\n              <img src={logo} alt=\"JETCUBE\" className=\"h-[38px] w-auto\" />\n            </Link>",
+          "line": 441,
+          "endLine": 443,
+          "column": 12,
+          "endColumn": 19,
+          "sourceFile": "src/screens/Shop/sections/NavigationSection/NavigationSection.tsx"
+        }
+      }
+    },
+    {
+      "id": "src/screens/Shop/sections/FooterSection/FooterSection.tsx:120:12-to-src/layouts/MainLayout.tsx",
+      "source": "src/layouts/MainLayout.tsx",
+      "target": "src/layouts/MainLayout.tsx",
+      "data": {
+        "viaRoute": "/",
+        "trigger": {
+          "element": "<Link to=\"/\" className=\"flex items-center select-none\">\n              <img\n                src={logo}\n                alt=\"JETCUBE\"\n                className=\"h-[28px] w-auto opacity-90\"\n              />\n            </Link>",
+          "line": 120,
+          "endLine": 126,
+          "column": 12,
+          "endColumn": 19,
+          "sourceFile": "src/screens/Shop/sections/FooterSection/FooterSection.tsx"
+        }
+      }
+    }
+  ]
+}

@@ -1,0 +1,177 @@
+/* =========================================================
+   Global Reset
+   ========================================================= */
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+}
+
+/* =========================================================
+   Amazon-style Global Typography
+   ========================================================= */
+
+html,
+body {
+  font-family: "Amazon Ember", Inter, system-ui, -apple-system,
+    BlinkMacSystemFont, "Segoe UI",
+    Roboto, Helvetica, Arial, sans-serif;
+
+  font-size: 14px;
+  /* Amazon base */
+  line-height: 1.45;
+  /* Amazon global rhythm */
+  color: #0F1111;
+  /* Amazon primary text */
+
+  background-color: #FFFFFF;
+
+  /* Text clarity (critical) */
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+}
+
+/* =========================================================
+   Headings (Amazon-accurate)
+   ========================================================= */
+
+/* Product title */
+.pdp-title {
+  font-size: 24px;
+  font-weight: 400;
+  /* NOT bold on Amazon */
+  line-height: 32px;
+  margin: 0 0 8px 0;
+  color: #0F1111;
+}
+
+/* Section headers (About this item, Details, etc.) */
+.section-title {
+  font-size: 16px;
+  font-weight: 700;
+  line-height: 24px;
+  margin: 16px 0 8px 0;
+  color: #0F1111;
+}
+
+/* =========================================================
+   Body Text
+   ========================================================= */
+
+.body-text {
+  font-size: 14px;
+  font-weight: 400;
+  line-height: 20px;
+  /* Amazon uses px here */
+  margin: 0 0 8px 0;
+  color: #0F1111;
+}
+
+/* Bullet text */
+.bullet-text {
+  font-size: 14px;
+  line-height: 20px;
+  color: #0F1111;
+}
+
+/* Lists (Amazon spacing) */
+ul,
+ol {
+  margin: 0 0 8px 20px;
+  padding: 0;
+}
+
+/* =========================================================
+   Secondary / Meta Text
+   ========================================================= */
+
+.secondary-text {
+  font-size: 12px;
+  line-height: 16px;
+  color: #565959;
+  /* Amazon gray */
+}
+
+/* Ratings, stock, delivery text */
+.meta-text {
+  font-size: 12px;
+  line-height: 16px;
+  color: #565959;
+}
+
+/* =========================================================
+   Price
+   ========================================================= */
+
+.price {
+  font-size: 28px;
+  font-weight: 400;
+  line-height: 32px;
+  color: #0F1111;
+}
+
+/* =========================================================
+   Links (Amazon colors)
+   ========================================================= */
+
+a {
+  color: #007185;
+  /* Amazon link blue */
+  text-decoration: none;
+}
+
+a:hover {
+  color: #C7511F;
+  /* Amazon hover */
+  text-decoration: underline;
+}
+
+/* =========================================================
+   Buttons (Amazon-style text)
+   ========================================================= */
+
+button,
+.button {
+  font-family: inherit;
+  font-size: 14px;
+  font-weight: 400;
+  /* Amazon buttons are not bold */
+  line-height: 20px;
+  cursor: pointer;
+}
+
+/* =========================================================
+   Utility Classes
+   ========================================================= */
+
+.text-center {
+  text-align: center;
+}
+
+.text-right {
+  text-align: right;
+}
+
+.text-muted {
+  color: #565959;
+}
+
+/* =========================================================
+   DO NOT SCALE TEXT (important)
+   ========================================================= */
+/*
+Avoid applying:
+  transform
+  zoom
+  scale()
+to any container that wraps text.
+This will blur text on all browsers.
+*/

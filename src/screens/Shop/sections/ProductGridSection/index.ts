@@ -1,0 +1,1 @@
+export { ProductGridSection } from "./ProductGridSection";
