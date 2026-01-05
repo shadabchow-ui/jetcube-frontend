@@ -1,63 +1,85 @@
 import json
 import re
+import sys
 from pathlib import Path
-from collections import OrderedDict
 
-BASE_DIR = Path("/Applications/product/static/indexes")
-PRODUCT_INDEX = BASE_DIR / "_index.json"
-OUTPUT_PATH = BASE_DIR / "_category_urls.json"
+# Auto-detect: this file lives in .../static/indexes/
+BASE_DIR = Path(__file__).resolve().parents[1]  # .../static
+INDEXES_DIR = BASE_DIR / "indexes"
+PRODUCT_INDEX = INDEXES_DIR / "_index.json"
+OUTPUT_PATH = INDEXES_DIR / "_category_urls.json"
 
-def slugify(text: str) -> str:
-    text = text.lower().strip()
-    text = text.replace("&", "and")
-    text = re.sub(r"[^a-z0-9]+", "-", text)
-    text = re.sub(r"-+", "-", text)
-    return text.strip("-")
+def _as_str(x) -> str:
+    try:
+        if x is None:
+            return ""
+        return str(x).strip()
+    except Exception:
+        return ""
 
-def build_url(category_key: str) -> str:
-    parts = [p.strip() for p in category_key.split(" > ")]
-    dept = parts[0]
-    return "/c/" + "/".join(slugify(p) for p in parts)
+def slugify(s: str, max_len: int = 80) -> str:
+    s = _as_str(s).lower()
+    if not s:
+        return "other"
+    s = s.replace("&", " and ")
+    s = s.replace("’", "").replace("'", "")
+    s = re.sub(r"[^a-z0-9]+", "-", s)
+    s = re.sub(r"-{2,}", "-", s).strip("-")
+    if not s:
+        s = "other"
+    return s[:max_len].strip("-")
 
 def rebuild():
     if not PRODUCT_INDEX.exists():
-        raise FileNotFoundError(f"Missing product index: {PRODUCT_INDEX}")
+        print(f"❌ Product index not found: {PRODUCT_INDEX}")
+        sys.exit(1)
 
+    print(f"📦 Using product index: {PRODUCT_INDEX}")
     with open(PRODUCT_INDEX, "r", encoding="utf-8") as f:
         products = json.load(f)
 
-    category_map = OrderedDict()
+    # Collect unique category keys from products
+    unique_keys = set()
+    for p in products:
+        keys = p.get("category_keys", [])
+        if isinstance(keys, list):
+            for k in keys:
+                k = _as_str(k)
+                if k:
+                    unique_keys.add(k)
 
-    for product in products:
-        keys = product.get("category_keys", [])
-        if not isinstance(keys, list):
+    items = []
+    for key in sorted(unique_keys):
+        parts = [x.strip() for x in key.split(" > ") if x.strip()]
+        if not parts:
             continue
 
-        for key in keys:
-            key = key.strip()
-            if not key or key in category_map:
-                continue
+        top = parts[0]               # e.g. "Clothing, Shoes & Jewelry"
+        leaf = parts[-1]             # e.g. "Boots"
+        dept_slug = slugify(top, 60) # -> "clothing-shoes-and-jewelry"
+        leaf_slug = slugify(leaf, 60)
 
-            parts = [p.strip() for p in key.split(" > ")]
+        # IMPORTANT: NavigationSection groups by /c/{dept}/...
+        url = f"/c/{dept_slug}/{leaf_slug}"
 
-            category_map[key] = {
-                "category_key": key,
-                "category": parts[-1],
-                "dept": parts[0],
-                "url": build_url(key),
-                "depth": len(parts),
-                "count": 0
-            }
+        items.append({
+            "category_key": key,
+            "category": leaf,
+            "dept": top,
+            "url": url,
+            "depth": len(parts),
+            # count gets filled by rebuild_category_counts.py
+            "count": 0
+        })
 
-    categories = list(category_map.values())
-    categories.sort(key=lambda x: (x["dept"], x["depth"], x["category_key"]))
-
+    OUTPUT_PATH.parent.mkdir(parents=True, exist_ok=True)
     with open(OUTPUT_PATH, "w", encoding="utf-8") as f:
-        json.dump(categories, f, indent=2, ensure_ascii=False)
+        json.dump(items, f, indent=2, ensure_ascii=False)
 
-    print(f"✅ Created _category_urls.json")
-    print(f"📄 Categories written: {len(categories)}")
+    print("✅ Created _category_urls.json")
+    print(f"📄 Categories written: {len(items)}")
     print(f"📁 Output: {OUTPUT_PATH}")
 
 if __name__ == "__main__":
     rebuild()
+

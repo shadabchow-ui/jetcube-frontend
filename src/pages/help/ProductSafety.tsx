@@ -15,7 +15,7 @@ export default function ProductSafety(): JSX.Element {
               Product Safety & Alerts
             </h1>
             <p className="text-gray-600">
-              Your safety matters. This page explains how JETCUBE handles product
+              Your safety matters. This page explains how Ventari handles product
               safety information, how we communicate recalls and alerts, and what
               you should do if you believe an item you purchased is unsafe.
             </p>
@@ -38,9 +38,9 @@ export default function ProductSafety(): JSX.Element {
           </section>
 
           <section className="space-y-4 mb-10">
-            <h2 className="text-lg font-semibold">How JETCUBE responds</h2>
+            <h2 className="text-lg font-semibold">How Ventari responds</h2>
             <p>
-              When a safety issue is identified, JETCUBE may take one or more of
+              When a safety issue is identified, Ventari may take one or more of
               the following steps depending on severity and available evidence:
             </p>
             <ul className="list-disc pl-6 space-y-2">
@@ -74,7 +74,7 @@ export default function ProductSafety(): JSX.Element {
             <p>
               A recall is typically issued by a manufacturer or regulator when a
               product has been determined to pose a safety risk. If a product on
-              JETCUBE is recalled, the remedy can vary:
+              Ventari is recalled, the remedy can vary:
             </p>
             <ul className="list-disc pl-6 space-y-2">
               <li>
@@ -103,7 +103,7 @@ export default function ProductSafety(): JSX.Element {
           <section className="space-y-4 mb-10">
             <h2 className="text-lg font-semibold">What you should do</h2>
             <p>
-              If you believe a product you bought on JETCUBE is unsafe, take the
+              If you believe a product you bought on Ventari is unsafe, take the
               following steps:
             </p>
             <ol className="list-decimal pl-6 space-y-2">
@@ -116,7 +116,7 @@ export default function ProductSafety(): JSX.Element {
                 brief description and photos if possible (damage, labeling, etc.).
               </li>
               <li>
-                <span className="font-semibold">Contact JETCUBE support</span> with
+                <span className="font-semibold">Contact Ventari support</span> with
                 your order number and what happened.
               </li>
               <li>
@@ -126,7 +126,7 @@ export default function ProductSafety(): JSX.Element {
             </ol>
             <p>
               If there is an immediate danger, take appropriate safety steps
-              first. JETCUBE support can help you with the shopping and order side
+              first. Ventari support can help you with the shopping and order side
               of the issue, including refunds or return instructions when applicable.
             </p>
           </section>
@@ -156,7 +156,7 @@ export default function ProductSafety(): JSX.Element {
           <section className="space-y-4 mb-10">
             <h2 className="text-lg font-semibold">AI-assisted detection (what it means)</h2>
             <p>
-              JETCUBE is building AI-driven shopping features across search,
+              Ventari is building AI-driven shopping features across search,
               product research, and customer support. For product safety, automated
               systems may help detect risk signals earlier — for example:
             </p>
@@ -175,9 +175,9 @@ export default function ProductSafety(): JSX.Element {
           </section>
 
           <section className="space-y-4 mb-10">
-            <h2 className="text-lg font-semibold">What JETCUBE does not do</h2>
+            <h2 className="text-lg font-semibold">What Ventari does not do</h2>
             <p>
-              JETCUBE works to provide safe products and accurate information, but
+              Ventari works to provide safe products and accurate information, but
               there are important limits:
             </p>
             <ul className="list-disc pl-6 space-y-2">
@@ -199,13 +199,13 @@ export default function ProductSafety(): JSX.Element {
           <section className="space-y-4 mb-2">
             <h2 className="text-lg font-semibold">Need help?</h2>
             <p>
-              If you have a safety concern, contact JETCUBE with your order number,
+              If you have a safety concern, contact Ventari with your order number,
               the product name, and a brief description of the issue. If you have
               photos, they can help speed up review.
             </p>
             <div className="flex flex-wrap gap-4 mt-3">
               <a href="/help/contact" className="text-blue-600 hover:underline">
-                Contact JETCUBE
+                Contact Ventari
               </a>
               <a href="/help/returns" className="text-blue-600 hover:underline">
                 Returns & Refunds

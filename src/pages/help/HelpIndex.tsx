@@ -49,7 +49,7 @@ export default function HelpIndex(): JSX.Element {
                 to="/help/payments"
               />
               <HelpCard
-                title="Contact JETCUBE"
+                title="Contact Ventari"
                 desc="Message support for orders, account help, and urgent issues."
                 to="/help/contact"
               />
@@ -105,7 +105,7 @@ export default function HelpIndex(): JSX.Element {
                 AI-powered shopping (what we’re building)
               </div>
               <p className="text-sm text-gray-700 leading-relaxed">
-                JETCUBE is an AI-driven retail platform. We’re building smarter search, product
+                Ventari is an AI-driven retail platform. We’re building smarter search, product
                 comparison, and assistant-style support to help you find the right item faster.
                 You’ll always be able to contact support if you need human help.
               </p>

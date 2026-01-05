@@ -13,7 +13,7 @@ export default function Returns(): JSX.Element {
           <header className="mb-8">
             <h1 className="text-2xl font-semibold mb-2">Returns & Refunds</h1>
             <p className="text-gray-600">
-              This page explains how returns and refunds work on JETCUBE, what is
+              This page explains how returns and refunds work on Ventari, what is
               typically eligible for return, and what to do if an item arrives
               damaged or incorrect. Our goal is straightforward: clear rules,
               reasonable timelines, and a process that doesn’t waste your time.
@@ -174,7 +174,7 @@ export default function Returns(): JSX.Element {
           <section className="space-y-4 mb-10">
             <h2 className="text-lg font-semibold">AI-assisted support (what it means)</h2>
             <p>
-              JETCUBE is building AI-driven shopping features such as assistant
+              Ventari is building AI-driven shopping features such as assistant
               help and smarter search. In the returns process, automated systems
               may help route your request to the right path faster — for example,
               recognizing whether your issue is “damaged,” “wrong item,” or a
@@ -197,7 +197,7 @@ export default function Returns(): JSX.Element {
             </p>
             <div className="flex flex-wrap gap-4 mt-3">
               <a href="/help/contact" className="text-blue-600 hover:underline">
-                Contact JETCUBE
+                Contact Ventari
               </a>
               <a href="/help/shipping" className="text-blue-600 hover:underline">
                 Shipping & Delivery

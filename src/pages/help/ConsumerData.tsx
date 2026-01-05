@@ -17,7 +17,7 @@ export default function ConsumerData(): JSX.Element {
             <p className="text-gray-600">
               This page explains how you can request access to, correction of,
               or deletion of certain personal information associated with your
-              JETCUBE account, where applicable. We aim to make this process
+              Ventari account, where applicable. We aim to make this process
               clear and respectful of your choices.
             </p>
           </header>
@@ -46,7 +46,7 @@ export default function ConsumerData(): JSX.Element {
             <h2 className="text-lg font-semibold">What information may be included</h2>
             <p>
               The information associated with your account can vary based on how you use
-              JETCUBE. Examples may include:
+              Ventari. Examples may include:
             </p>
             <ul className="list-disc pl-6 space-y-2">
               <li>Account information (name, email, password hash, preferences)</li>
@@ -64,7 +64,7 @@ export default function ConsumerData(): JSX.Element {
           <section className="space-y-4 mb-10">
             <h2 className="text-lg font-semibold">How to submit a request</h2>
             <p>
-              To submit a consumer data request, contact JETCUBE support and include:
+              To submit a consumer data request, contact Ventari support and include:
             </p>
             <ul className="list-disc pl-6 space-y-2">
               <li>Your account email (the one used to sign in)</li>
@@ -123,7 +123,7 @@ export default function ConsumerData(): JSX.Element {
           <section className="space-y-4 mb-10">
             <h2 className="text-lg font-semibold">AI-driven features and your data</h2>
             <p>
-              JETCUBE is building AI-driven shopping features such as smarter search,
+              Ventari is building AI-driven shopping features such as smarter search,
               assistant-style help, product research tools, and analytics that improve the
               store experience. These features may use signals from your interactions on
               the site to improve relevance and reduce friction.
@@ -166,14 +166,14 @@ export default function ConsumerData(): JSX.Element {
           <section className="space-y-4 mb-2">
             <h2 className="text-lg font-semibold">Submit a request</h2>
             <p>
-              To submit a consumer data request, contact JETCUBE support and include your
+              To submit a consumer data request, contact Ventari support and include your
               account email and the request type (access, correction, or deletion). If your
               request relates to an order, include the order number.
             </p>
 
             <div className="flex flex-wrap gap-4 mt-3">
               <a href="/help/contact" className="text-blue-600 hover:underline">
-                Contact JETCUBE
+                Contact Ventari
               </a>
               <a href="/help/privacy-notice" className="text-blue-600 hover:underline">
                 Privacy Notice

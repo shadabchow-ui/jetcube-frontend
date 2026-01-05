@@ -21,6 +21,7 @@ import * as PdpContext from "./pdp/ProductPdpContext";
    Cart Context
    ============================ */
 import { CartProvider } from "./context/CartContext";
+import { WishlistProvider } from "./context/WishlistContext";
 
 /* ============================
    Screens / Pages
@@ -43,6 +44,7 @@ import OrderDetailsPage from "./pages/OrderDetailsPage";
 import SignupPage from "./pages/SignupPage";
 import LoginPage from "./pages/LoginPage";
 import AccountPage from "./pages/AccountPage";
+import WishlistPage from "./pages/WishlistPage";
 
 /* ============================
    Brand Pages (now in /pages/help)
@@ -132,11 +134,16 @@ function ProductRoute({ children }: { children: React.ReactNode }) {
     let cancelled = false;
 
     async function fetchJson(url: string) {
-      const res = await fetch(url, { cache: "no-store" });
+      // encodeURI is important because your batch folders have spaces (batch 1, batch 2, ...)
+      const res = await fetch(encodeURI(url), { cache: "no-store" });
       const text = await res.text();
 
+      // Vite sometimes serves index.html (200 OK) for missing files. Detect that.
+      if (text.trim().startsWith("<")) {
+        throw new Error(`Expected JSON at ${url} but got HTML (file missing or misrouted)`);
+      }
+
       if (!res.ok) {
-        // Avoid JSON.parse on HTML fallbacks (index.html, 404 pages, etc.)
         throw new Error(`HTTP ${res.status} at ${url}: ${text.slice(0, 140)}`);
       }
 
@@ -145,6 +152,21 @@ function ProductRoute({ children }: { children: React.ReactNode }) {
       } catch {
         throw new Error(`Expected JSON at ${url} but got non-JSON: ${text.slice(0, 140)}`);
       }
+    }
+
+    function resolveMappedToUrl(v: any): string | null {
+      if (v == null) return null;
+      const s = String(v).trim();
+      if (!s) return null;
+
+      // If map already gives a full URL/path to a .json, use it as-is
+      if (s.startsWith("/") || s.startsWith("http://") || s.startsWith("https://")) return s;
+
+      // If map gives a filename with .json, assume it's under /products/
+      if (s.endsWith(".json")) return `/products/${s}`;
+
+      // Otherwise assume it's a handle/filename base under /products/
+      return `/products/${s}.json`;
     }
 
     async function load() {
@@ -157,7 +179,7 @@ function ProductRoute({ children }: { children: React.ReactNode }) {
         const looksLikeAsin = /^[A-Za-z0-9]{10}$/.test(handle);
         const asinKey = handle.toUpperCase();
 
-        // 1) Try handle-based filename first (most common)
+        // 1) Try handle-based filename first (works if file is /products/<handle>.json)
         try {
           const byHandle = await fetchJson(`/products/${handle}.json`);
           if (!cancelled) setProduct(byHandle);
@@ -166,37 +188,44 @@ function ProductRoute({ children }: { children: React.ReactNode }) {
           // continue
         }
 
-        // 2) Load ASIN -> handle map
-        const asinToHandle = await fetchJson("/products/_asin_map.json");
+        // 2) Load map (your script writes asin_map.json; keep _asin_map.json fallback)
+        let asinToPath: any = null;
+        try {
+          asinToPath = await fetchJson("/products/asin_map.json");
+        } catch {
+          asinToPath = await fetchJson("/products/_asin_map.json");
+        }
 
-        // If URL is /p/ASIN, the map key IS the ASIN and value IS the handle/filename base
-        if (looksLikeAsin) {
-          const mappedHandle =
-            asinToHandle?.[asinKey] ||
-            asinToHandle?.[handle] ||
-            asinToHandle?.[handle.toLowerCase()];
+        // 3) First try direct key match (THIS is what you need now)
+        // Your map keys include slugs like "idyllwind-womens-..." and values like "/products/batch 1/...json"
+        const direct =
+          asinToPath?.[handle] ||
+          asinToPath?.[handle.toLowerCase()] ||
+          asinToPath?.[handle.toUpperCase()];
 
-          if (mappedHandle) {
-            // ✅ Try mapped handle file
-            try {
-              const byMappedHandle = await fetchJson(`/products/${mappedHandle}.json`);
-              if (!cancelled) setProduct(byMappedHandle);
-              return;
-            } catch {
-              // continue
-            }
-          }
-
-          // 3) Legacy fallback: maybe you still have ASIN.json
-          const byAsin = await fetchJson(`/products/${asinKey}.json`);
-          if (!cancelled) setProduct(byAsin);
+        const directUrl = resolveMappedToUrl(direct);
+        if (directUrl) {
+          const p = await fetchJson(directUrl);
+          if (!cancelled) setProduct(p);
           return;
         }
 
-        // If URL is /p/<handle> but your files are ASIN.json, do reverse lookup (handle -> asin)
-        const foundAsin = Object.entries(asinToHandle || {}).find(([, v]) => String(v) === handle)?.[0];
-        if (foundAsin) {
-          const byAsin = await fetchJson(`/products/${foundAsin}.json`);
+        // 4) If user is on /p/<ASIN>, try ASIN lookup too
+        if (looksLikeAsin) {
+          const mapped =
+            asinToPath?.[asinKey] ||
+            asinToPath?.[handle] ||
+            asinToPath?.[handle.toLowerCase()];
+
+          const mappedUrl = resolveMappedToUrl(mapped);
+          if (mappedUrl) {
+            const p = await fetchJson(mappedUrl);
+            if (!cancelled) setProduct(p);
+            return;
+          }
+
+          // Legacy fallback: maybe you still have /products/<ASIN>.json
+          const byAsin = await fetchJson(`/products/${asinKey}.json`);
           if (!cancelled) setProduct(byAsin);
           return;
         }
@@ -282,6 +311,9 @@ const router = createBrowserRouter([
       // ✅ ACCOUNT (TOP-LEVEL)
       { path: "account", element: <AccountPage /> },
 
+      // ✅ WISHLIST
+      { path: "wishlist", element: <WishlistPage /> },
+
       // Brand
       { path: "about", element: <AboutUs /> },
       { path: "careers", element: <Careers /> },
@@ -345,12 +377,20 @@ const router = createBrowserRouter([
 export const App = () => {
   return (
     <CartProvider>
-      <RouterProvider router={router} />
+      <WishlistProvider>
+        <RouterProvider router={router} />
+      </WishlistProvider>
     </CartProvider>
   );
 };
 
 export default App;
+
+
+
+
+
+
 
 
 

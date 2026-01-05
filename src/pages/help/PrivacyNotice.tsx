@@ -30,7 +30,7 @@ export default function PrivacyNotice(): JSX.Element {
 
               <h1 className="text-2xl font-semibold mt-2">Privacy Notice</h1>
               <p className="text-sm text-gray-700 mt-2 leading-relaxed">
-                This Privacy Notice explains how JETCUBE collects, uses, and shares information when
+                This Privacy Notice explains how Ventari collects, uses, and shares information when
                 you use our website, apps, and services (collectively, the “Services”). It also
                 explains your privacy choices and how to contact us with questions or requests.
               </p>
@@ -44,7 +44,7 @@ export default function PrivacyNotice(): JSX.Element {
               <p>
                 We collect information to provide and improve the Services, process orders, prevent
                 fraud, and personalize your shopping experience. The information we collect depends
-                on how you use JETCUBE.
+                on how you use Ventari.
               </p>
 
               <div className="mt-4 rounded border border-gray-200 bg-gray-50 p-4">
@@ -93,7 +93,7 @@ export default function PrivacyNotice(): JSX.Element {
 
             <Section title="3) AI-driven features (important)">
               <p>
-                JETCUBE is building an AI-driven retail experience, which may include AI-assisted
+                Ventari is building an AI-driven retail experience, which may include AI-assisted
                 search, product matching, product summaries, and assistant-style help. These systems
                 rely on signals such as your search query, category browsing, and product attributes
                 to improve relevance.
@@ -128,14 +128,14 @@ export default function PrivacyNotice(): JSX.Element {
                 <div className="text-sm font-semibold text-gray-900 mb-2">Legal and safety</div>
                 <p className="text-sm text-gray-700 leading-relaxed">
                   We may share information if required by law, to respond to lawful requests, or to
-                  protect the rights, safety, and security of customers, the public, and JETCUBE.
+                  protect the rights, safety, and security of customers, the public, and Ventari.
                 </p>
               </div>
 
               <div className="mt-4 rounded border border-gray-200 bg-gray-50 p-4">
                 <div className="text-sm font-semibold text-gray-900 mb-2">Business operations</div>
                 <p className="text-sm text-gray-700 leading-relaxed">
-                  If JETCUBE is involved in a merger, acquisition, or asset sale, information may be
+                  If Ventari is involved in a merger, acquisition, or asset sale, information may be
                   transferred as part of that transaction, subject to appropriate protections.
                 </p>
               </div>
@@ -214,7 +214,7 @@ export default function PrivacyNotice(): JSX.Element {
 
             <Section title="9) Children’s privacy">
               <p>
-                JETCUBE is not intended for use by children. We do not knowingly collect personal
+                Ventari is not intended for use by children. We do not knowingly collect personal
                 information from children. If you believe a child has provided personal information,
                 contact us so we can take appropriate steps.
               </p>

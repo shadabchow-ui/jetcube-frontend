@@ -144,11 +144,10 @@ function CardGrid({ items }: { items: any[] }) {
     return Boolean(id);
   });
 
-
   if (!filtered.length) return null;
 
   return (
-    <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+    <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3 sm:gap-4">
       {filtered.slice(0, 8).map((p, idx) => {
         const id = (p?.id || p?.slug || "").toString();
         const href = id ? `/p/${id}` : "#";
@@ -161,7 +160,7 @@ function CardGrid({ items }: { items: any[] }) {
           <a
             key={`${id || "item"}-${idx}`}
             href={href}
-            className="border rounded-md p-3 hover:shadow-sm transition bg-white"
+            className="border rounded-md p-2 sm:p-3 hover:shadow-sm transition bg-white"
           >
             <div className="w-full aspect-square bg-gray-50 border rounded-md flex items-center justify-center overflow-hidden">
               {img ? (
@@ -263,7 +262,6 @@ function normalizeLongBlocks(product: any): LongBlock[] {
 
   return blocks;
 }
-
 
 function guessVideoMime(src: string) {
   const s = String(src || "").toLowerCase();
@@ -370,15 +368,15 @@ export const ProductDetailsSection = (): JSX.Element => {
     : [];
 
   return (
-    <section className="max-w-[1200px] mx-auto px-6 py-16 space-y-14">
+    <section className="max-w-[1200px] mx-auto px-4 sm:px-6 py-10 sm:py-16 space-y-10 sm:space-y-14">
       <div className="max-w-[900px]">
         <AssistantInline />
       </div>
 
       {/* Product description */}
       <div>
-        <h2 className="text-xl font-semibold mb-4">Product description</h2>
-        <div className="space-y-3 text-gray-700 text-sm w-full max-w-none">
+        <h2 className="text-lg sm:text-xl font-semibold mb-4">Product description</h2>
+        <div className="space-y-3 text-gray-700 text-sm w-full max-w-none break-words">
           {longBlocks.map((b, i) => {
             if (b.type === "img") {
               const k = urlKey(b.src);
@@ -397,7 +395,7 @@ export const ProductDetailsSection = (): JSX.Element => {
                   key={`img-${i}`}
                   src={b.src}
                   alt={b.alt || ""}
-                  className="w-full rounded-md border bg-gray-50"
+                  className="w-full max-w-full rounded-md border bg-gray-50"
                   loading="lazy"
                   decoding="async"
                 />
@@ -412,7 +410,7 @@ export const ProductDetailsSection = (): JSX.Element => {
       {/* Videos */}
       {Array.isArray(product?.videos) && product.videos.length ? (
         <div>
-          <h2 className="text-xl font-semibold mb-4">Videos</h2>
+          <h2 className="text-lg sm:text-xl font-semibold mb-4">Videos</h2>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 max-w-[900px]">
             {product.videos.map((v: any, i: number) => {
               const picked = pickPlayableVideoSource(v);
@@ -435,7 +433,7 @@ export const ProductDetailsSection = (): JSX.Element => {
 
       {/* Reviews */}
       <div>
-        <h2 className="text-xl font-semibold mb-4">Reviews</h2>
+        <h2 className="text-lg sm:text-xl font-semibold mb-4">Reviews</h2>
 
         {/* Customers say (ONLY if present in source HTML -> JSON) */}
         {customersSay ? (
@@ -493,14 +491,14 @@ export const ProductDetailsSection = (): JSX.Element => {
 
       {related.length ? (
         <div>
-          <h2 className="text-xl font-semibold mb-6">Related products</h2>
+          <h2 className="text-lg sm:text-xl font-semibold mb-6">Related products</h2>
           <CardGrid items={related} />
         </div>
       ) : null}
 
       {alsoViewed.length ? (
         <div>
-          <h2 className="text-xl font-semibold mb-6">Customers also viewed</h2>
+          <h2 className="text-lg sm:text-xl font-semibold mb-6">Customers also viewed</h2>
           <CardGrid items={alsoViewed} />
         </div>
       ) : null}

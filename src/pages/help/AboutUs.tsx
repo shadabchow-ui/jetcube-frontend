@@ -12,12 +12,12 @@ export default function AboutUs(): JSX.Element {
               Home
             </Link>{" "}
             <span className="mx-1">›</span>
-            <span className="text-gray-700">About JETCUBE</span>
+            <span className="text-gray-700">About Ventari</span>
           </div>
 
-          <h1 className="text-2xl font-semibold mt-2">About JETCUBE</h1>
+          <h1 className="text-2xl font-semibold mt-2">About Ventari</h1>
           <p className="text-sm text-gray-700 mt-2 leading-relaxed">
-            JETCUBE is an AI-driven commerce company built for modern shopping: faster discovery,
+            Ventari is an AI-driven commerce company built for modern shopping: faster discovery,
             clearer decisions, and fewer dead ends. We’re building a store where search feels smart,
             product pages feel complete, and help is actually helpful.
           </p>
@@ -25,7 +25,7 @@ export default function AboutUs(): JSX.Element {
 
         <Section title="What we do">
           <p>
-            JETCUBE brings together a broad catalog with tools that make it easier to find what you
+            Ventari brings together a broad catalog with tools that make it easier to find what you
             want—and understand what you’re buying. Instead of making you click through ten tabs and
             guess, we focus on clarity: the right details, upfront policies, and a smoother path from
             search to checkout.
@@ -40,7 +40,7 @@ export default function AboutUs(): JSX.Element {
         <Section title="Why we exist">
           <p>
             Shopping online is often slow and messy: listings are inconsistent, important specs are
-            buried, and returns policies aren’t clear until something goes wrong. We built JETCUBE to
+            buried, and returns policies aren’t clear until something goes wrong. We built Ventari to
             reduce that friction.
           </p>
           <p className="mt-3">
@@ -99,7 +99,7 @@ export default function AboutUs(): JSX.Element {
 
         <Section title="Where we’re going">
           <p>
-            Over time, JETCUBE will keep expanding AI-powered shopping features:
+            Over time, Ventari will keep expanding AI-powered shopping features:
           </p>
           <ul className="list-disc pl-5 mt-3 space-y-2 text-sm text-gray-700">
             <li>More accurate product attribute extraction (so PDPs are complete and consistent)</li>
@@ -114,9 +114,9 @@ export default function AboutUs(): JSX.Element {
 
         <Section title="Contact">
           <p>
-            Need help or have questions about JETCUBE? Visit{" "}
+            Need help or have questions about Ventari? Visit{" "}
             <Link to="/help/contact" className="text-blue-600 hover:underline">
-              Contact JETCUBE
+              Contact Ventari
             </Link>
             .
           </p>

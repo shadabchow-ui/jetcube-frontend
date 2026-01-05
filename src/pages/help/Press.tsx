@@ -17,14 +17,14 @@ export default function Press(): JSX.Element {
 
           <h1 className="text-2xl font-semibold mt-2">Press Center</h1>
           <p className="text-sm text-gray-700 mt-2 leading-relaxed">
-            Welcome to the JETCUBE Press Center. This page provides a high-level overview of our
+            Welcome to the Ventari Press Center. This page provides a high-level overview of our
             platform, brand direction, and the best way to contact us for media inquiries.
           </p>
         </div>
 
-        <Section title="About JETCUBE">
+        <Section title="About Ventari">
           <p>
-            JETCUBE is an AI-driven ecommerce platform focused on faster discovery, clearer product
+            Ventari is an AI-driven ecommerce platform focused on faster discovery, clearer product
             decisions, and a smoother path from search to checkout. We’re building a modern shopping
             experience powered by smarter search, better product data, and assistant-style help.
           </p>
@@ -63,7 +63,7 @@ export default function Press(): JSX.Element {
           <p className="mt-3">
             Contact page:{" "}
             <Link to="/help/contact" className="text-blue-600 hover:underline">
-              Contact JETCUBE
+              Contact Ventari
             </Link>
             .
           </p>
@@ -81,7 +81,7 @@ export default function Press(): JSX.Element {
           <ul className="list-disc pl-5 text-sm text-gray-700 space-y-2">
             <li>
               <Link to="/about" className="text-blue-600 hover:underline">
-                About JETCUBE
+                About Ventari
               </Link>
             </li>
             <li>

@@ -30,7 +30,7 @@ export default function ConditionsOfUse(): JSX.Element {
 
               <h1 className="text-2xl font-semibold mt-2">Conditions of Use</h1>
               <p className="text-sm text-gray-700 mt-2 leading-relaxed">
-                These Conditions of Use (“Terms”) govern your access to and use of the JETCUBE
+                These Conditions of Use (“Terms”) govern your access to and use of the Ventari
                 website, apps, and services (collectively, the “Services”). By using the Services,
                 you agree to these Terms. If you do not agree, do not use the Services.
               </p>
@@ -42,7 +42,7 @@ export default function ConditionsOfUse(): JSX.Element {
 
             <Section title="1) Who we are and what these Terms cover">
               <p>
-                JETCUBE is an ecommerce platform that helps customers discover and purchase products.
+                Ventari is an ecommerce platform that helps customers discover and purchase products.
                 Some features of the Services may be AI-assisted (for example, search relevance,
                 product summaries, and shopping assistance). These Terms apply to all visitors and
                 users, including customers, account holders, and anyone who interacts with our
@@ -158,7 +158,7 @@ export default function ConditionsOfUse(): JSX.Element {
                 ensure it is accurate, lawful, and does not violate the rights of others.
               </p>
               <p className="mt-3">
-                By submitting User Content, you grant JETCUBE a non-exclusive, worldwide,
+                By submitting User Content, you grant Ventari a non-exclusive, worldwide,
                 royalty-free license to use, reproduce, adapt, publish, translate, and display that
                 content in connection with the Services (for example, showing reviews on product
                 pages or in search results).
@@ -178,7 +178,7 @@ export default function ConditionsOfUse(): JSX.Element {
 
             <Section title="9) AI-assisted features and outputs">
               <p>
-                Some parts of JETCUBE may use AI-assisted systems to improve shopping speed and
+                Some parts of Ventari may use AI-assisted systems to improve shopping speed and
                 clarity (for example, search relevance, product attribute extraction, summaries, and
                 assistant responses). AI outputs can be imperfect, incomplete, or outdated.
               </p>
@@ -210,7 +210,7 @@ export default function ConditionsOfUse(): JSX.Element {
             <Section title="11) Intellectual property">
               <p>
                 The Services, including site design, text, graphics, logos, interfaces, and
-                software, are owned by JETCUBE or its licensors and are protected by intellectual
+                software, are owned by Ventari or its licensors and are protected by intellectual
                 property laws. You may not copy, modify, distribute, sell, or lease any part of the
                 Services unless you have our written permission.
               </p>
@@ -219,7 +219,7 @@ export default function ConditionsOfUse(): JSX.Element {
             <Section title="12) Disclaimers">
               <p>
                 The Services are provided on an “as is” and “as available” basis. To the maximum
-                extent permitted by law, JETCUBE disclaims warranties of any kind, including implied
+                extent permitted by law, Ventari disclaims warranties of any kind, including implied
                 warranties of merchantability, fitness for a particular purpose, and non-infringement.
               </p>
               <p className="mt-3">
@@ -231,20 +231,20 @@ export default function ConditionsOfUse(): JSX.Element {
 
             <Section title="13) Limitation of liability">
               <p>
-                To the maximum extent permitted by law, JETCUBE will not be liable for indirect,
+                To the maximum extent permitted by law, Ventari will not be liable for indirect,
                 incidental, special, consequential, or punitive damages, or for any loss of profits,
                 revenue, data, or goodwill arising out of or related to your use of the Services.
               </p>
               <p className="mt-3">
-                In any case, JETCUBE’s total liability for any claim will not exceed the amount you
-                paid to JETCUBE for the relevant order or transaction giving rise to the claim, or a
+                In any case, Ventari’s total liability for any claim will not exceed the amount you
+                paid to Ventari for the relevant order or transaction giving rise to the claim, or a
                 reasonable amount as required by law.
               </p>
             </Section>
 
             <Section title="14) Indemnification">
               <p>
-                You agree to indemnify and hold harmless JETCUBE and its affiliates, officers,
+                You agree to indemnify and hold harmless Ventari and its affiliates, officers,
                 employees, and agents from claims, liabilities, damages, and expenses (including
                 reasonable attorneys’ fees) arising out of your misuse of the Services, your User
                 Content, or your violation of these Terms.

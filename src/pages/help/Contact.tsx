@@ -25,10 +25,10 @@ export default function Contact(): JSX.Element {
                   Help
                 </Link>{" "}
                 <span className="mx-1">›</span>
-                <span className="text-gray-700">Contact JETCUBE</span>
+                <span className="text-gray-700">Contact Ventari</span>
               </div>
 
-              <h1 className="text-2xl font-semibold mt-2">Contact JETCUBE</h1>
+              <h1 className="text-2xl font-semibold mt-2">Contact Ventari</h1>
               <p className="text-sm text-gray-700 mt-2 leading-relaxed">
                 Need help with an order, shipping, returns, payments, or a product question? Use the
                 options below. The fastest resolution usually happens when you include the right
@@ -104,7 +104,7 @@ export default function Contact(): JSX.Element {
 
             <Section title="4) AI-assisted support (what it means)">
               <p>
-                JETCUBE uses automated tools (including AI-assisted routing) to help triage support
+                Ventari uses automated tools (including AI-assisted routing) to help triage support
                 requests—so shipping issues go to shipping, payment issues go to billing, and safety
                 reports get priority review.
               </p>

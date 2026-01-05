@@ -30,7 +30,7 @@ export default function Accessibility(): JSX.Element {
 
               <h1 className="text-2xl font-semibold mt-2">Accessibility</h1>
               <p className="text-sm text-gray-700 mt-2 leading-relaxed">
-                JETCUBE is committed to making our website and digital shopping experience accessible
+                Ventari is committed to making our website and digital shopping experience accessible
                 to as many people as possible. Accessibility is not a one-time checkbox—it's an
                 ongoing practice that affects design, engineering, content, and customer support.
                 This page explains what we aim for, what we’re actively improving, and how you can
@@ -40,7 +40,7 @@ export default function Accessibility(): JSX.Element {
 
             <Section title="Our accessibility commitment">
               <p>
-                We want JETCUBE to be usable for customers who rely on assistive technologies, who
+                We want Ventari to be usable for customers who rely on assistive technologies, who
                 navigate by keyboard, who prefer reduced motion, who use high-contrast modes, and who
                 experience differences in vision, hearing, cognition, or motor control. Our goal is
                 simple: you should be able to browse categories, search, evaluate products, and
@@ -93,7 +93,7 @@ export default function Accessibility(): JSX.Element {
 
             <Section title="Assistive technology compatibility">
               <p>
-                JETCUBE is designed to work with modern browsers and common assistive technologies.
+                Ventari is designed to work with modern browsers and common assistive technologies.
                 Because assistive tech varies by platform, experience can differ across combinations
                 of device, browser, and screen reader.
               </p>
@@ -114,7 +114,7 @@ export default function Accessibility(): JSX.Element {
             <Section title="Content and product information accessibility">
               <p>
                 Ecommerce content can be messy: sellers use different naming patterns, images may
-                lack helpful descriptions, and product attributes can be inconsistent. JETCUBE is
+                lack helpful descriptions, and product attributes can be inconsistent. Ventari is
                 improving this using structured data and AI-assisted extraction to create clearer,
                 more consistent product pages.
               </p>
@@ -141,7 +141,7 @@ export default function Accessibility(): JSX.Element {
 
             <Section title="AI features and accessibility">
               <p>
-                JETCUBE is an AI-driven retail brand, and we’re building AI-powered search and
+                Ventari is an AI-driven retail brand, and we’re building AI-powered search and
                 assistant-style help. Accessibility is a requirement for these experiences—not an
                 afterthought.
               </p>
@@ -182,7 +182,7 @@ export default function Accessibility(): JSX.Element {
 
             <Section title="How to request help or report an accessibility issue">
               <p>
-                If you have difficulty using any part of JETCUBE, please contact us. We’ll do two
+                If you have difficulty using any part of Ventari, please contact us. We’ll do two
                 things: (1) help you complete what you’re trying to do, and (2) log the issue so we
                 can fix it for everyone.
               </p>
@@ -246,7 +246,7 @@ export default function Accessibility(): JSX.Element {
                 </li>
                 <li>
                   <Link to="/help/contact" className="text-blue-600 hover:underline">
-                    Contact JETCUBE
+                    Contact Ventari
                   </Link>
                 </li>
               </ul>

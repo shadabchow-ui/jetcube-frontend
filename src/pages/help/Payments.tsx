@@ -30,7 +30,7 @@ export default function Payments(): JSX.Element {
 
               <h1 className="text-2xl font-semibold mt-2">Payments</h1>
               <p className="text-sm text-gray-700 mt-2 leading-relaxed">
-                This page explains how payments work on JETCUBE, what payment methods may be supported,
+                This page explains how payments work on Ventari, what payment methods may be supported,
                 how authorizations and refunds are processed, and what to do if you see an unexpected
                 charge. We keep it simple and transparent so you can shop with confidence.
               </p>
@@ -116,7 +116,7 @@ export default function Payments(): JSX.Element {
 
             <Section title="7) Chargebacks and disputes">
               <p>
-                If you believe a charge is incorrect, we recommend contacting JETCUBE support first so
+                If you believe a charge is incorrect, we recommend contacting Ventari support first so
                 we can resolve it quickly. Chargebacks (bank disputes) can take longer and may pause
                 order-related actions while your bank investigates.
               </p>
@@ -147,7 +147,7 @@ export default function Payments(): JSX.Element {
 
             <Section title="9) AI-driven fraud protection (what it means)">
               <p>
-                JETCUBE uses automated systems (including AI-assisted signals) to help detect unusual
+                Ventari uses automated systems (including AI-assisted signals) to help detect unusual
                 activity and reduce fraud. This can include flagging suspicious checkout patterns,
                 unusual address/device combinations, or high-risk transaction signals.
               </p>
@@ -176,7 +176,7 @@ export default function Payments(): JSX.Element {
                 </li>
                 <li>
                   <Link to="/help/contact" className="text-blue-600 hover:underline">
-                    Contact JETCUBE
+                    Contact Ventari
                   </Link>
                 </li>
               </ul>

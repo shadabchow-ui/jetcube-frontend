@@ -15,9 +15,9 @@ export default function Careers(): JSX.Element {
             <span className="text-gray-700">Careers</span>
           </div>
 
-          <h1 className="text-2xl font-semibold mt-2">Careers at JETCUBE</h1>
+          <h1 className="text-2xl font-semibold mt-2">Careers at Ventari</h1>
           <p className="text-sm text-gray-700 mt-2 leading-relaxed">
-            JETCUBE is building an AI-driven retail platform designed for speed, clarity, and trust.
+            Ventari is building an AI-driven retail platform designed for speed, clarity, and trust.
             If you want to work on modern ecommerce—search relevance, product data quality, and
             assistant-style UX—we’d love to hear from you.
           </p>
@@ -91,7 +91,7 @@ export default function Careers(): JSX.Element {
           <p className="mt-3">
             Apply here:{" "}
             <Link to="/help/contact" className="text-blue-600 hover:underline">
-              Contact JETCUBE
+              Contact Ventari
             </Link>{" "}
             (include “Careers” in your message).
           </p>
@@ -101,7 +101,7 @@ export default function Careers(): JSX.Element {
           <ul className="list-disc pl-5 text-sm text-gray-700 space-y-2">
             <li>
               <Link to="/about" className="text-blue-600 hover:underline">
-                About JETCUBE
+                About Ventari
               </Link>
             </li>
             <li>

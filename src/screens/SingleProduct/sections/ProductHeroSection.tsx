@@ -3,6 +3,7 @@ import { Star, Heart } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { useProductPdp } from "../../../pdp/ProductPdpContext";
 import { useCart } from "../../../context/CartContext";
+import { useWishlist } from "../../../context/WishlistContext";
 
 function stripAmazonSizeModifiers(url: string) {
   if (!url) return url;
@@ -217,6 +218,13 @@ function normalizeSkuForDisplay(product: any) {
 export const ProductHeroSection = (): JSX.Element => {
   const product = useProductPdp();
   const { addToCart, openCart } = useCart();
+  const { toggle, has } = useWishlist();
+
+  const wishlistId = useMemo(() => {
+    return String((product as any)?.id || (product as any)?.handle || "").trim();
+  }, [product]);
+
+  const inWishlist = wishlistId ? has(wishlistId) : false;
 
   const rawImages = useMemo(() => {
     // ✅ Use strict gallery_images[] when present (never description/review images).
@@ -434,12 +442,12 @@ export const ProductHeroSection = (): JSX.Element => {
   };
 
   return (
-    <section className="max-w-[1500px] mx-auto px-4 py-10">
+    <section className="max-w-[1500px] mx-auto px-3 sm:px-4 py-6 sm:py-10">
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-10">
         {/* Gallery */}
-        <div className="grid gap-4" style={{ gridTemplateColumns: "72px 1fr" }}>
+        <div className="grid gap-4 grid-cols-1 lg:grid-cols-[72px_1fr]">
           {/* Thumbs (vertical + vertically scrollable only) */}
-          <div className="flex flex-col flex-none w-[72px] gap-3 max-h-[640px] overflow-y-auto overflow-x-hidden pr-1">
+          <div className="flex flex-row lg:flex-col flex-none w-full lg:w-[72px] gap-3 lg:max-h-[640px] overflow-x-auto lg:overflow-y-auto overflow-y-hidden lg:overflow-x-hidden pr-0 lg:pr-1 order-2 lg:order-1">
             {images.map((u, i) => (
               <button
                 key={`${u}-${i}`}
@@ -462,15 +470,14 @@ export const ProductHeroSection = (): JSX.Element => {
           </div>
 
           {/* Main (DO NOT TOUCH) */}
-          <div className="border rounded bg-gray-50 flex items-center justify-center aspect-[3/4] max-h-[640px] overflow-hidden">
+          <div className="border rounded bg-gray-50 flex items-center justify-center aspect-[3/4] max-h-[520px] sm:max-h-[640px] overflow-hidden order-1 lg:order-2">
             {activeImage ? (
               <img
                 src={activeImage}
                 alt={String((product as any)?.title || "Product")}
-                className="w-full h-full object-contain block cursor-zoom-in"
+                className="w-full h-full object-contain block"
                 loading="eager"
                 decoding="sync"
-                onClick={() => setZoomOpen(true)}
               />
 
             ) : (
@@ -510,8 +517,8 @@ export const ProductHeroSection = (): JSX.Element => {
                 <div className="text-2xl font-bold text-[#0F1111]">{displayPrice}</div>
 
                 <div className="text-[13px] text-[#0F1111]">
-                  <span className="font-semibold">FREE delivery</span>{" "}
-                  <span className="text-[#565959]">4–8 Days</span>
+                  <span className="font-semibold">Best Price</span>{" "}
+                  <span className="font-semibold">Guarantee</span>
                 </div>
               </div>
 
@@ -631,11 +638,11 @@ export const ProductHeroSection = (): JSX.Element => {
                 <span className="text-[#565959]">4–8 Days</span>
               </div>
 
-              <div className="text-[#007600] font-semibold">In Stock</div>
+              <div className="text-[#007600] font-semibold">Available now</div>
 
               {/* Qty selector (Amazon-y) */}
               <div className="flex items-center gap-2 text-sm text-[#0F1111]">
-                <span className="text-[#565959]">Qty:</span>
+                <span className="text-[#565959]">Units:</span>
                 <select
                   className="border rounded px-2 py-1 bg-white"
                   value={qty}
@@ -656,28 +663,28 @@ export const ProductHeroSection = (): JSX.Element => {
               {/* Amazon-style buttons (black text) */}
               <button
                 type="button"
-                className="w-full bg-[#FFD814] hover:bg-[#F7CA00] text-[#0F1111] font-semibold py-2 rounded-full border border-[#FCD200]"
+                className="w-full bg-[#0061c9] hover:bg-[#0061c9] text-[#FFFFFF] font-semibold py-2 rounded-full border border-[#0061c9]"
                 onClick={handleAddToCart}
               >
-                Add to Cart
+                Add to Basket
               </button>
 
               <button
                 type="button"
-                className="w-full bg-[#FFA41C] hover:bg-[#FA8900] text-[#0F1111] font-semibold py-2 rounded-full border border-[#F59A1A]"
+                className="w-full bg-[#0571e3] hover:bg-[#0571e3] text-[#FFFFFF] font-semibold py-2 rounded-full border border-[#0061c9]"
                 onClick={buyNow}
               >
-                Buy Now
+                Pay now
               </button>
 
               <div className="text-sm text-[#0F1111] space-y-1">
                 <div className="flex justify-between">
                   <span className="text-[#565959]">Ships from</span>
-                  <span className="text-[#0F1111]">Jetcube</span>
+                  <span className="text-[#0F1111]">Our Warehouse</span>
                 </div>
 
                 <div className="flex justify-between">
-                  <span className="text-[#565959]">Sold by</span>
+                  <span className="text-[#565959]">Direct from</span>
                   <span className="text-[#0F1111]">
                     {String((product as any)?.sold_by || "Jetcube")}
                   </span>
@@ -688,8 +695,8 @@ export const ProductHeroSection = (): JSX.Element => {
               <div className="flex justify-between">
                 <span className="text-[#565959]">Returns</span>
                 <div className="text-right text-[#2162a1] leading-snug">
-                  <div>FREE refund/replacement</div>
-                  <div>60 day returns</div>
+                  <div>Refund or replace — on us</div>
+                  <div>30-day return window</div>
                 </div>
               </div>
 
@@ -701,10 +708,34 @@ export const ProductHeroSection = (): JSX.Element => {
               <button
                 type="button"
                 className="w-full flex items-center justify-center gap-2 border rounded py-2 text-sm"
-                onClick={() => alert("Saved (UI only)")}
+                onClick={() => {
+                  const p = (product as any)?.price;
+                  const priceNum =
+                    typeof p === "number"
+                      ? p
+                      : typeof p === "string"
+                        ? Number(String(p).replace(/[^0-9.]/g, ""))
+                        : NaN;
+
+                  const id = String((product as any)?.id || (product as any)?.handle || "").trim();
+                  if (!id) return;
+
+                  toggle({
+                    id,
+                    name: String((product as any)?.title || "Product"),
+                    price: Number.isFinite(priceNum) && priceNum > 0 ? priceNum : 49.99,
+                    image: String((product as any)?.image || activeImage || images[0] || ""),
+                  });
+
+                  window.dispatchEvent(
+                    new CustomEvent("wishlist:toast", {
+                      detail: { message: inWishlist ? "Removed from wishlist" : "Saved to wishlist" },
+                    })
+                  );
+                }}
               >
                 <Heart className="w-4 h-4" />
-                Add to List
+                {inWishlist ? "Saved" : "Add to List"}
               </button>
 
               <button
@@ -723,7 +754,6 @@ export const ProductHeroSection = (): JSX.Element => {
 };
 
 export default ProductHeroSection;
-
 
 
 

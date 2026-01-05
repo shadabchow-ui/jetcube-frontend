@@ -17,7 +17,7 @@ export default function Devices(): JSX.Element {
                             Devices, apps, and supported browsers
                         </h1>
                         <p className="mt-3 text-gray-700 leading-relaxed">
-                            JETCUBE is designed to work smoothly across modern phones, tablets,
+                            Ventari is designed to work smoothly across modern phones, tablets,
                             and computers. This page explains what we support today, how to get
                             the best experience, and what to do if something looks broken.
                             We’re building an AI-driven retail experience, so keeping your device
@@ -38,13 +38,13 @@ export default function Devices(): JSX.Element {
                             <p className="mt-3">
                                 If pages don’t load, images don’t show, or the cart acts weird,
                                 the fastest fix is usually: refresh the page, then hard refresh,
-                                then clear site data for JETCUBE, then restart the browser.
+                                then clear site data for Ventari, then restart the browser.
                             </p>
                         </Section>
 
                         <Section title="Mobile experience">
                             <p>
-                                JETCUBE is mobile-first. If you’re on iPhone or Android:
+                                Ventari is mobile-first. If you’re on iPhone or Android:
                             </p>
                             <ul className="list-disc pl-5 mt-2 space-y-1 text-gray-700">
                                 <li>Keep your OS updated to the latest stable version.</li>
@@ -112,7 +112,7 @@ export default function Devices(): JSX.Element {
                                 </li>
                                 <li>
                                     <span className="font-semibold text-gray-900">Clear site data</span>{" "}
-                                    for JETCUBE (cookies + cache), then reload.
+                                    for Ventari (cookies + cache), then reload.
                                 </li>
                                 <li>
                                     <span className="font-semibold text-gray-900">Disable extensions</span>{" "}
@@ -141,7 +141,7 @@ export default function Devices(): JSX.Element {
                                     className="text-blue-600 hover:underline"
                                     href="/help/contact"
                                 >
-                                    Contact JETCUBE
+                                    Contact Ventari
                                 </a>
                                 .
                             </p>

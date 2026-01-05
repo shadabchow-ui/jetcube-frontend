@@ -30,7 +30,7 @@ export default function AdsPrivacy(): JSX.Element {
 
               <h1 className="text-2xl font-semibold mt-2">Your Ads Privacy Choices</h1>
               <p className="text-sm text-gray-700 mt-2 leading-relaxed">
-                This page explains how interest-based advertising may work on JETCUBE and the choices
+                This page explains how interest-based advertising may work on Ventari and the choices
                 you have to control advertising personalization. You can limit ad personalization
                 while still using AI-powered shopping features like smarter search and product matching.
               </p>
@@ -49,7 +49,7 @@ export default function AdsPrivacy(): JSX.Element {
             </Section>
 
             <Section title="2) What signals may be used">
-              <p>JETCUBE may use signals like:</p>
+              <p>Ventari may use signals like:</p>
               <ul className="list-disc pl-5 mt-3 space-y-2">
                 <li>Pages and categories you view</li>
                 <li>Search terms you enter</li>
@@ -98,7 +98,7 @@ export default function AdsPrivacy(): JSX.Element {
 
             <Section title="4) AI shopping features vs ads">
               <p>
-                JETCUBE is building AI-driven shopping features (search relevance, product matching, and
+                Ventari is building AI-driven shopping features (search relevance, product matching, and
                 assistant help). These features focus on product and query context—helping you find items
                 faster and compare options more clearly.
               </p>
@@ -131,7 +131,7 @@ export default function AdsPrivacy(): JSX.Element {
                 </li>
                 <li>
                   <Link to="/help/contact" className="text-blue-600 hover:underline">
-                    Contact JETCUBE
+                    Contact Ventari
                   </Link>
                 </li>
               </ul>

@@ -3,7 +3,7 @@ from pathlib import Path
 from collections import defaultdict
 import sys
 
-BASE_DIR = Path("/Applications/product/static")
+BASE_DIR = Path("/Users/sha/Documents/Jetcube/static")
 
 def find_category_urls():
     matches = list(BASE_DIR.rglob("_category_urls.json"))

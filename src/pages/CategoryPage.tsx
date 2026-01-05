@@ -1,6 +1,13 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { Link, useLocation, useSearchParams } from "react-router-dom";
 
+// Rufus Assistant (SCOUT tab)
+import {
+  AssistantContextProvider,
+  AssistantDrawer,
+  useAssistant,
+} from "@/components/RufusAssistant";
+
 type CategoryUrlEntry = {
   category_key: string;
   url: string; // like "/c/women/dresses"
@@ -31,6 +38,41 @@ type ProductSummary = {
 
   [k: string]: any;
 };
+
+/* ------------------------------------
+ * Amazon-style SCOUT tab (LEFT FLOATING)
+ * ---------------------------------- */
+function ScoutTab() {
+  const { setOpen } = useAssistant();
+
+  return (
+    <button
+      type="button"
+      aria-label="Open Scout"
+      onClick={() => setOpen(true)}
+      className="
+        hidden md:flex
+        fixed left-[15px] top-1/2 z-[9999]
+        bg-black text-white
+        border-2 border-white
+        shadow-2xl
+        px-5 py-4
+        text-base font-extrabold
+        tracking-widest
+        rounded-r-xl
+        hover:bg-[#111]
+        focus:outline-none focus:ring-2 focus:ring-white
+      "
+      style={{
+        transform: "translateY(-50%) rotate(-90deg)",
+        transformOrigin: "left center",
+        letterSpacing: "0.2em",
+      }}
+    >
+      scout
+    </button>
+  );
+}
 
 function titleizeSlug(slug: string) {
   return slug
@@ -122,9 +164,15 @@ async function fetchJsonSafe(url: string): Promise<any> {
   const text = await r.text();
 
   // Vite/SPA fallback returns HTML for wrong paths
-  if (ct.includes("text/html") || text.trim().startsWith("<!DOCTYPE") || text.trim().startsWith("<html")) {
+  if (
+    ct.includes("text/html") ||
+    text.trim().startsWith("<!DOCTYPE") ||
+    text.trim().startsWith("<html")
+  ) {
     const first = text.slice(0, 120).replace(/\s+/g, " ");
-    throw new Error(`Expected JSON but got HTML for ${url}. First chars: ${first}`);
+    throw new Error(
+      `Expected JSON but got HTML for ${url}. First chars: ${first}`
+    );
   }
 
   try {
@@ -154,7 +202,10 @@ function normalizePathname(pathname: string) {
   return p.endsWith("/") && p !== "/" ? p.slice(0, -1) : p;
 }
 
-function findBestCategoryMatch(pathname: string, cats: CategoryUrlEntry[]): CategoryUrlEntry | null {
+function findBestCategoryMatch(
+  pathname: string,
+  cats: CategoryUrlEntry[]
+): CategoryUrlEntry | null {
   const p = normalizePathname(pathname);
 
   // exact match first
@@ -178,8 +229,10 @@ function productHasCategory(p: ProductSummary, categoryKey: string): boolean {
 
   if (Array.isArray(p.category_keys)) return p.category_keys.includes(key);
 
-  const k1 = typeof (p as any).category_key === "string" ? (p as any).category_key : "";
-  const k2 = typeof (p as any).categoryKey === "string" ? (p as any).categoryKey : "";
+  const k1 =
+    typeof (p as any).category_key === "string" ? (p as any).category_key : "";
+  const k2 =
+    typeof (p as any).categoryKey === "string" ? (p as any).categoryKey : "";
   return k1 === key || k2 === key;
 }
 
@@ -216,7 +269,10 @@ export default function CategoryPage() {
             category_key: String(x?.category_key || x?.categoryKey || "").trim(),
             url: String(x?.url || "").trim(),
             title: typeof x?.title === "string" ? x.title : undefined,
-            count: typeof x?.count === "number" ? x.count : toNumberMaybe(x?.count) ?? undefined,
+            count:
+              typeof x?.count === "number"
+                ? x.count
+                : toNumberMaybe(x?.count) ?? undefined,
           }))
           .filter((x) => x.category_key && x.url && x.url.startsWith("/c/"));
 
@@ -303,7 +359,8 @@ export default function CategoryPage() {
   const categoryTitle = useMemo(() => {
     if (activeCategory?.title) return activeCategory.title;
     // fallback: last slug segment
-    const seg = pathname.replace(/^\/c\/?/, "").split("/").filter(Boolean).pop() || "";
+    const seg =
+      pathname.replace(/^\/c\/?/, "").split("/").filter(Boolean).pop() || "";
     return seg ? titleizeSlug(seg) : "Category";
   }, [activeCategory, pathname]);
 
@@ -318,11 +375,17 @@ export default function CategoryPage() {
     const arr = [...filtered];
 
     if (sort === "price_low") {
-      arr.sort((a, b) => (toNumberMaybe(a.price) ?? 0) - (toNumberMaybe(b.price) ?? 0));
+      arr.sort(
+        (a, b) => (toNumberMaybe(a.price) ?? 0) - (toNumberMaybe(b.price) ?? 0)
+      );
     } else if (sort === "price_high") {
-      arr.sort((a, b) => (toNumberMaybe(b.price) ?? 0) - (toNumberMaybe(a.price) ?? 0));
+      arr.sort(
+        (a, b) => (toNumberMaybe(b.price) ?? 0) - (toNumberMaybe(a.price) ?? 0)
+      );
     } else if (sort === "rating") {
-      arr.sort((a, b) => (toNumberMaybe(b.rating) ?? 0) - (toNumberMaybe(a.rating) ?? 0));
+      arr.sort(
+        (a, b) => (toNumberMaybe(b.rating) ?? 0) - (toNumberMaybe(a.rating) ?? 0)
+      );
     }
 
     return arr;
@@ -348,134 +411,155 @@ export default function CategoryPage() {
   const loading = loadingCats || loadingProducts;
 
   return (
-    <div className="w-full bg-white">
-      <div className="max-w-[1200px] mx-auto px-4 py-6">
-        <div className="flex items-center justify-between gap-4">
-          <div>
-            <div className="text-sm text-gray-500">
-              <Link to="/shop" className="hover:underline">Shop</Link>
-              <span className="mx-2">/</span>
-              <span>{categoryTitle}</span>
-            </div>
-            <h1 className="mt-1 text-2xl font-semibold text-gray-900">{categoryTitle}</h1>
-            {activeCategory?.count ? (
-              <div className="mt-1 text-sm text-gray-600">{activeCategory.count.toLocaleString()} items</div>
-            ) : null}
-          </div>
+    <AssistantContextProvider context="category">
+      {/* Drawer (opens when SCOUT is clicked) */}
+      <AssistantDrawer />
 
-          <div className="flex items-center gap-3">
-            <label className="text-sm text-gray-600">Sort</label>
-            <select
-              className="border border-gray-300 rounded px-3 py-2 text-sm"
-              value={sort}
-              onChange={(e) => {
-                const next = new URLSearchParams(searchParams);
-                next.set("sort", e.target.value);
-                next.set("page", "1");
-                setSearchParams(next);
-              }}
-            >
-              <option value="featured">Featured</option>
-              <option value="price_low">Price: Low to High</option>
-              <option value="price_high">Price: High to Low</option>
-              <option value="rating">Avg. Customer Review</option>
-            </select>
-          </div>
-        </div>
+      {/* Amazon-style floating SCOUT tab */}
+      <ScoutTab />
 
-        {error ? (
-          <div className="mt-6 rounded border border-red-200 bg-red-50 p-4 text-sm text-red-700">
-            {error}
-          </div>
-        ) : null}
-
-        {loading ? (
-          <div className="mt-6 text-sm text-gray-500">Loading…</div>
-        ) : (
-          <>
-            <div className="mt-6 grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4">
-              {pageItems.map((p) => {
-                const key = getProductKey(p) || "";
-                const img = pickProductImage(p);
-
-                const price = toNumberMaybe(p.price);
-                const rating = toNumberMaybe(p.rating);
-
-                return (
-                  <Link
-                    key={key}
-                    to={`/p/${encodeURIComponent(String(p.handle || p.slug || p.asin || p.id || key))}`}
-                    className="group block rounded-md border border-gray-200 bg-white hover:border-gray-400 hover:shadow-sm transition"
-                  >
-                    <div className="p-2">
-                      <div className="relative aspect-square bg-gray-50 rounded overflow-hidden">
-                        {img ? (
-                          <img
-                            src={img}
-                            alt={p.title || "Product"}
-                            loading="lazy"
-                            className="w-full h-full object-contain"
-                          />
-                        ) : (
-                          <div className="w-full h-full flex items-center justify-center text-xs text-gray-400">
-                            No image
-                          </div>
-                        )}
-                      </div>
-
-                      <div className="mt-2 text-sm text-gray-900 line-clamp-2">
-                        {p.title || key}
-                      </div>
-
-                      <div className="mt-1 flex items-baseline gap-2">
-                        {typeof price === "number" ? (
-                          <span className="text-[15px] font-semibold">${price.toFixed(2)}</span>
-                        ) : (
-                          <span className="text-sm text-gray-500">See price</span>
-                        )}
-                      </div>
-
-                      {typeof rating === "number" ? (
-                        <div className="mt-1 text-xs text-gray-700">★★★★☆</div>
-                      ) : null}
-                    </div>
-                  </Link>
-                );
-              })}
+      <div className="w-full bg-white">
+        <div className="max-w-[1200px] mx-auto px-4 py-6">
+          <div className="flex items-center justify-between gap-4">
+            <div>
+              <div className="text-sm text-gray-500">
+                <Link to="/shop" className="hover:underline">
+                  Shop
+                </Link>
+                <span className="mx-2">/</span>
+                <span>{categoryTitle}</span>
+              </div>
+              <h1 className="mt-1 text-2xl font-semibold text-gray-900">
+                {categoryTitle}
+              </h1>
+              {activeCategory?.count ? (
+                <div className="mt-1 text-sm text-gray-600">
+                  {activeCategory.count.toLocaleString()} items
+                </div>
+              ) : null}
             </div>
 
-            <div className="mt-8 flex items-center justify-center gap-2">
-              <button
-                className="px-3 py-2 text-sm border rounded disabled:opacity-50"
-                disabled={safePage <= 1}
-                onClick={() => {
+            <div className="flex items-center gap-3">
+              <label className="text-sm text-gray-600">Sort</label>
+              <select
+                className="border border-gray-300 rounded px-3 py-2 text-sm"
+                value={sort}
+                onChange={(e) => {
                   const next = new URLSearchParams(searchParams);
-                  next.set("page", String(Math.max(1, safePage - 1)));
+                  next.set("sort", e.target.value);
+                  next.set("page", "1");
                   setSearchParams(next);
                 }}
               >
-                Prev
-              </button>
+                <option value="featured">Featured</option>
+                <option value="price_low">Price: Low to High</option>
+                <option value="price_high">Price: High to Low</option>
+                <option value="rating">Avg. Customer Review</option>
+              </select>
+            </div>
+          </div>
 
-              <div className="text-sm text-gray-600">
-                Page {safePage} of {totalPages}
+          {error ? (
+            <div className="mt-6 rounded border border-red-200 bg-red-50 p-4 text-sm text-red-700">
+              {error}
+            </div>
+          ) : null}
+
+          {loading ? (
+            <div className="mt-6 text-sm text-gray-500">Loading…</div>
+          ) : (
+            <>
+              <div className="mt-6 grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4">
+                {pageItems.map((p) => {
+                  const key = getProductKey(p) || "";
+                  const img = pickProductImage(p);
+
+                  const price = toNumberMaybe(p.price);
+                  const rating = toNumberMaybe(p.rating);
+
+                  return (
+                    <Link
+                      key={key}
+                      to={`/p/${encodeURIComponent(
+                        String(p.handle || p.slug || p.asin || p.id || key)
+                      )}`}
+                      className="group block rounded-md border border-gray-200 bg-white hover:border-gray-400 hover:shadow-sm transition"
+                    >
+                      <div className="p-2">
+                        <div className="relative aspect-square bg-gray-50 rounded overflow-hidden">
+                          {img ? (
+                            <img
+                              src={img}
+                              alt={p.title || "Product"}
+                              loading="lazy"
+                              className="w-full h-full object-contain"
+                            />
+                          ) : (
+                            <div className="w-full h-full flex items-center justify-center text-xs text-gray-400">
+                              No image
+                            </div>
+                          )}
+                        </div>
+
+                        <div className="mt-2 text-sm text-gray-900 line-clamp-2">
+                          {p.title || key}
+                        </div>
+
+                        <div className="mt-1 flex items-baseline gap-2">
+                          {typeof price === "number" ? (
+                            <span className="text-[15px] font-semibold">
+                              ${price.toFixed(2)}
+                            </span>
+                          ) : (
+                            <span className="text-sm text-gray-500">
+                              See price
+                            </span>
+                          )}
+                        </div>
+
+                        {typeof rating === "number" ? (
+                          <div className="mt-1 text-xs text-gray-700">★★★★☆</div>
+                        ) : null}
+                      </div>
+                    </Link>
+                  );
+                })}
               </div>
 
-              <button
-                className="px-3 py-2 text-sm border rounded disabled:opacity-50"
-                disabled={safePage >= totalPages}
-                onClick={() => {
-                  const next = new URLSearchParams(searchParams);
-                  next.set("page", String(Math.min(totalPages, safePage + 1)));
-                  setSearchParams(next);
-                }}
-              >
-                Next
-              </button>
-            </div>
-          </>
-        )}
+              <div className="mt-8 flex items-center justify-center gap-2">
+                <button
+                  className="px-3 py-2 text-sm border rounded disabled:opacity-50"
+                  disabled={safePage <= 1}
+                  onClick={() => {
+                    const next = new URLSearchParams(searchParams);
+                    next.set("page", String(Math.max(1, safePage - 1)));
+                    setSearchParams(next);
+                  }}
+                >
+                  Prev
+                </button>
+
+                <div className="text-sm text-gray-600">
+                  Page {safePage} of {totalPages}
+                </div>
+
+                <button
+                  className="px-3 py-2 text-sm border rounded disabled:opacity-50"
+                  disabled={safePage >= totalPages}
+                  onClick={() => {
+                    const next = new URLSearchParams(searchParams);
+                    next.set("page", String(Math.min(totalPages, safePage + 1)));
+                    setSearchParams(next);
+                  }}
+                >
+                  Next
+                </button>
+              </div>
+            </>
+          )}
+        </div>
       </div>
-    </div>
+    </AssistantContextProvider>
   );
 }
+

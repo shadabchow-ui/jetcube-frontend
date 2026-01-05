@@ -13,7 +13,7 @@ export default function Shipping(): JSX.Element {
           <header className="mb-8">
             <h1 className="text-2xl font-semibold mb-2">Shipping & Delivery</h1>
             <p className="text-gray-600">
-              This page explains how shipping works on JETCUBE, how delivery
+              This page explains how shipping works on Ventari, how delivery
               estimates are calculated, and what to do if something goes wrong.
               Our goal is simple: clear expectations and fast resolution when
               reality doesn’t match the plan.
@@ -67,7 +67,7 @@ export default function Shipping(): JSX.Element {
             <div className="border border-gray-200 rounded-lg p-4 bg-white space-y-3">
               <div className="font-semibold">How estimates are generated</div>
               <p className="text-gray-700">
-                JETCUBE may use automated systems (including AI-assisted
+                Ventari may use automated systems (including AI-assisted
                 estimation models) to predict delivery windows. These systems
                 use patterns such as carrier transit history, destination
                 distance, and fulfillment timing. They are designed to improve
@@ -123,7 +123,7 @@ export default function Shipping(): JSX.Element {
                   it may be delayed in transit or waiting for carrier movement.
                 </p>
                 <p className="text-gray-700 mt-2">
-                  If the delivery window has passed, contact JETCUBE support so
+                  If the delivery window has passed, contact Ventari support so
                   we can help confirm status and next steps.
                 </p>
               </div>
@@ -196,7 +196,7 @@ export default function Shipping(): JSX.Element {
             <h2 className="text-lg font-semibold">Need help?</h2>
             <p>
               If you need assistance with shipping, tracking, or a delivery
-              issue, contact JETCUBE support with your order number and a short
+              issue, contact Ventari support with your order number and a short
               description of the problem. The more specific you are, the faster
               we can help.
             </p>
@@ -207,7 +207,7 @@ export default function Shipping(): JSX.Element {
 
             <div className="flex flex-wrap gap-4 mt-3">
               <a href="/help/contact" className="text-blue-600 hover:underline">
-                Contact JETCUBE
+                Contact Ventari
               </a>
               <a href="/help/returns" className="text-blue-600 hover:underline">
                 Returns & Refunds

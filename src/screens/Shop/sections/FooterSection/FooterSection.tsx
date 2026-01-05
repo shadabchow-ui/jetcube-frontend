@@ -11,7 +11,7 @@ const topColumns: LinkColumn[] = [
     links: [
       { label: "Careers", to: "/careers" },
       { label: "Newsletter", to: "/newsletter" },
-      { label: "About Jetcube", to: "/about" },
+      { label: "About Ventari", to: "/about" },
       { label: "Accessibility", to: "/help/accessibility" },
       { label: "Sustainability", to: "/sustainability" },
       { label: "Press Center", to: "/press" },
@@ -27,7 +27,7 @@ const topColumns: LinkColumn[] = [
       { label: "Product Safety & Recalls", to: "/help/product-safety" },
       { label: "Consumer Data Requests", to: "/help/consumer-data" },
       { label: "Your Ads Privacy Choices", to: "/help/ads-privacy" },
-      { label: "Contact Jetcube", to: "/help/contact" },
+      { label: "Contact Ventari", to: "/help/contact" },
       { label: "Help", to: "/help" },
     ],
   },
@@ -81,9 +81,7 @@ export const FooterSection = (): JSX.Element => {
         className="w-full bg-[#0b0b0b] hover:bg-[#141414] transition-colors"
         aria-label="Back to top"
       >
-        <div className="py-4 text-center text-[13px] text-white">
-          Back to top
-        </div>
+        <div className="py-4 text-center text-[13px] text-white">Back to top</div>
       </button>
 
       {/* Main footer columns */}
@@ -91,16 +89,21 @@ export const FooterSection = (): JSX.Element => {
         <div className="mx-auto max-w-[1000px] px-6 py-10">
           <div className="grid grid-cols-2 gap-x-10 gap-y-10 md:grid-cols-4">
             {topColumns.map((col) => (
-              <nav key={col.title} aria-label={col.title}>
+              <nav
+                key={col.title}
+                aria-label={col.title}
+                className="w-full text-center"
+              >
                 <h3 className="text-[16px] font-bold leading-5 mb-3">
                   {col.title}
                 </h3>
+
                 <ul className="space-y-2">
                   {col.links.map((l) => (
                     <li key={l.label}>
                       <Link
                         to={l.to}
-                        className="text-[13px] leading-4 text-[#d6d6d6] hover:text-white hover:underline"
+                        className="inline-block text-[13px] leading-4 text-[#d6d6d6] hover:text-white hover:underline"
                       >
                         {l.label}
                       </Link>
@@ -125,7 +128,6 @@ export const FooterSection = (): JSX.Element => {
               />
             </Link>
 
-
             <div className="flex flex-wrap items-center justify-center gap-2 md:ml-10">
               <button
                 type="button"
@@ -149,13 +151,18 @@ export const FooterSection = (): JSX.Element => {
         <div className="mx-auto max-w-[1000px] px-6 py-8">
           <div className="grid grid-cols-2 gap-x-6 gap-y-6 sm:grid-cols-3 md:grid-cols-4">
             {denseLinks.map((col) => (
-              <nav key={col.title} aria-label={col.title}>
+              <nav
+                key={col.title}
+                aria-label={col.title}
+                className="w-full text-center"
+              >
                 <Link
                   to={col.to}
-                  className="block text-[12px] font-semibold text-[#d6d6d6] hover:text-white hover:underline leading-4"
+                  className="inline-block text-[12px] font-semibold text-[#d6d6d6] hover:text-white hover:underline leading-4"
                 >
                   {col.title}
                 </Link>
+
                 <div className="mt-1 text-[11px] text-[#9a9a9a] leading-4">
                   {col.subtitle}
                 </div>
@@ -190,14 +197,14 @@ export const FooterSection = (): JSX.Element => {
             </Link>
           </div>
 
-
           <div className="mt-2 text-center text-[12px] text-[#d6d6d6]">
-            © {new Date().getFullYear()} Jetcube. All rights reserved.
+            © {new Date().getFullYear()} Ventari. All rights reserved.
           </div>
         </div>
       </section>
     </footer>
   );
 };
+
 
 

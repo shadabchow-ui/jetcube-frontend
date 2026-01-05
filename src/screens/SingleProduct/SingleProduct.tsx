@@ -1,223 +1,97 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { useParams } from "react-router-dom";
+import { useLocation, useParams } from "react-router-dom";
 
-import { ProductPdpProvider } from "../../pdp/ProductPdpContext";
+/* ============================
+   Sections
+   ============================ */
+import * as ProductHeroModule from "./sections/ProductHeroSection";
+import * as BreadcrumbModule from "./sections/ProductBreadcrumb";
+import ProductDetailsSectionImpl from "./sections/ProductDetailsSection/ProductDetailsSection";
 
-// Rufus assistant (LEFT drawer + launcher)
+/* ============================
+   Rufus Assistant (CORRECT PATHS)
+   ============================ */
 import {
   AssistantContextProvider,
-  AssistantDrawer,
-  AssistantLauncher,
-} from "../../components/RufusAssistant";
+} from "../../components/RufusAssistant/AssistantContext";
+import AssistantDrawer from "../../components/RufusAssistant/AssistantDrawer";
 
-// Import whole modules so we can support BOTH default + named exports safely
-import * as HeroModule from "./sections/ProductHeroSection";
-import * as DetailsModule from "./sections/ProductDetailsSection";
-import * as BreadcrumbModule from "./sections/ProductBreadcrumb";
+/* ============================
+   PDP Context (CORRECT PATH)
+   ============================ */
+import { ProductPdpProvider } from "../../pdp/ProductPdpContext";
 
-type AnyComponent = React.ComponentType<any>;
-
-function pickComponent(mod: any, preferredName: string): AnyComponent | null {
-  const named = mod?.[preferredName];
-  const def = mod?.default;
-  return (named || def || null) as AnyComponent | null;
+/* ============================
+   Helpers
+   ============================ */
+function pick<T = any>(mod: any, named: string): T {
+  return (mod?.[named] ?? mod?.default) as T;
 }
 
-function normalizeId(raw: string): string {
-  const s = (raw || "").trim();
-  if (!s) return "";
-  return s.endsWith(".json") ? s.slice(0, -5) : s;
-}
+/* ============================
+   Sections resolved safely
+   ============================ */
+const ProductHeroSection = pick<any>(
+  ProductHeroModule,
+  "ProductHeroSection"
+);
+const ProductBreadcrumb = pick<any>(
+  BreadcrumbModule,
+  "ProductBreadcrumb"
+);
+const ProductDetailsSection = ProductDetailsSectionImpl;
 
-// Support /p/<id>, /products/<id>.json, and accidental /products<id>
-function getIdFromPathname(pathname: string): string {
-  const p = pathname || "";
-
-  let m = p.match(/^\/p\/([^/?#]+)/);
-  if (m?.[1]) return decodeURIComponent(normalizeId(m[1]));
-
-  m = p.match(/^\/products\/([^/?#]+)/);
-  if (m?.[1]) return decodeURIComponent(normalizeId(m[1]));
-
-  m = p.match(/^\/products([^/?#]+)/);
-  if (m?.[1]) return decodeURIComponent(normalizeId(m[1]).replace(/^\/+/, ""));
-
-  return "";
-}
-
-function isLikelyAsin(id: string) {
-  return /^[A-Za-z0-9]{10}$/.test(id || "");
-}
-
-function isBlockedId(id: string) {
-  const s = (id || "").trim().toLowerCase();
-  return (
-    s === "unknownasin" ||
-    s === "product" ||
-    s === "_index" ||
-    s === "_asin_map"
-  );
-}
-
-function buildProductsBaseUrl(): string {
-  return new URL(`/products/`, window.location.origin).toString();
-}
-
-function buildProductJsonUrl(productId: string): string {
-  return new URL(`${productId}.json`, buildProductsBaseUrl()).toString();
-}
-
-function buildAsinMapUrl(): string {
-  return new URL(`_asin_map.json`, buildProductsBaseUrl()).toString();
-}
-
-async function fetchJson(url: string) {
-  const res = await fetch(url, { cache: "no-store" });
-  if (!res.ok) {
-    return { ok: false as const, status: res.status, data: null, text: "" };
-  }
-
-  const ct = res.headers.get("content-type") || "";
-  if (!ct.includes("application/json")) {
-    const preview = (await res.text()).slice(0, 180);
-    return { ok: false as const, status: 200, data: null, text: preview };
-  }
-
-  const data = await res.json();
-  return { ok: true as const, status: 200, data, text: "" };
-}
-
-export const SingleProduct = (): JSX.Element => {
-  const params = useParams();
-  const paramId =
-    typeof (params as any)?.id === "string" ? (params as any).id : "";
-
-  const pathId = useMemo(
-    () => getIdFromPathname(window.location.pathname),
-    []
-  );
-  const productId = useMemo(
-    () => normalizeId(paramId || pathId),
-    [paramId, pathId]
-  );
+/* ============================
+   Inner PDP Renderer
+   ============================ */
+function SingleProductInner() {
+  const { id } = useParams<{ id: string }>();
+  const location = useLocation();
 
   const [product, setProduct] = useState<any>(null);
-  const [error, setError] = useState<string>("");
-
-  const ProductHeroSection = useMemo(
-    () => pickComponent(HeroModule, "ProductHeroSection"),
-    []
-  );
-  const ProductDetailsSection = useMemo(
-    () => pickComponent(DetailsModule, "ProductDetailsSection"),
-    []
-  );
-  const ProductBreadcrumb = useMemo(
-    () => pickComponent(BreadcrumbModule, "ProductBreadcrumb"),
-    []
-  );
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
 
     async function load() {
-      setError("");
-      setProduct(null);
-
-      if (!productId) {
-        setError("Missing product id in URL.");
-        return;
-      }
-
-      if (isBlockedId(productId)) {
-        setError("Invalid product id.");
-        return;
-      }
-
-      const candidates: string[] = [productId];
-      if (isLikelyAsin(productId)) {
-        const up = productId.toUpperCase();
-        if (up !== productId) candidates.push(up);
-      }
-
       try {
-        // 1) Try direct JSON by id / asin first
-        for (const id of candidates) {
-          const r = await fetchJson(buildProductJsonUrl(id));
-          if (r.ok) {
-            if (!cancelled) setProduct(r.data);
-            return;
-          }
+        setError(null);
+        setProduct(null);
 
-          const preview = r.text || "";
-          const looksLikeSpaHtml =
-            preview.includes("<!DOCTYPE html") ||
-            preview.includes("<html") ||
-            preview.includes("@react-refresh") ||
-            preview.includes("RefreshRuntime");
+        if (!id) throw new Error("Missing product id");
 
-          if (r.status !== 404 && preview && !looksLikeSpaHtml) {
-            if (!cancelled)
-              setError(`Expected JSON but got non-JSON: ${preview}`);
-            return;
-          }
+        const indexRes = await fetch("/indexes/_index.json", { cache: "no-store" });
+        const indexText = await indexRes.text();
 
-          // If it's SPA HTML fallback, treat it like "not found" and keep trying
+        if (indexText.trim().startsWith("<")) {
+          throw new Error("Index returned HTML");
         }
 
-        // 2) Fallback: try ASIN -> filename map
-        const mapRes = await fetchJson(buildAsinMapUrl());
-        if (mapRes.ok && mapRes.data && typeof mapRes.data === "object") {
-          const map = mapRes.data as Record<string, string>;
+        const index = JSON.parse(indexText);
+        const entry = index.find((p: any) => p.slug === id);
 
-          const mapped =
-            map[productId] ||
-            map[productId.toUpperCase()] ||
-            map[productId.toLowerCase()];
-
-          if (mapped && !isBlockedId(mapped)) {
-            // Try mapped id in a few forms (some maps store base filenames, some store asins, etc.)
-            const mappedCandidates: string[] = [mapped];
-
-            const mNorm = normalizeId(mapped);
-            if (mNorm && mNorm !== mapped) mappedCandidates.unshift(mNorm);
-
-            const mLower = mNorm.toLowerCase();
-            const mUpper = mNorm.toUpperCase();
-            if (mLower && !mappedCandidates.includes(mLower))
-              mappedCandidates.push(mLower);
-            if (mUpper && !mappedCandidates.includes(mUpper))
-              mappedCandidates.push(mUpper);
-
-            for (const mid of mappedCandidates) {
-              if (!mid || isBlockedId(mid)) continue;
-
-              const r2 = await fetchJson(buildProductJsonUrl(mid));
-              if (r2.ok) {
-                if (!cancelled) setProduct(r2.data);
-                return;
-              }
-
-              const preview2 = r2.text || "";
-              const looksLikeSpaHtml2 =
-                preview2.includes("<!DOCTYPE html") ||
-                preview2.includes("<html") ||
-                preview2.includes("@react-refresh") ||
-                preview2.includes("RefreshRuntime");
-
-              if (r2.status !== 404 && preview2 && !looksLikeSpaHtml2) {
-                if (!cancelled)
-                  setError(`Expected JSON but got non-JSON: ${preview2}`);
-                return;
-              }
-              // Otherwise: treat as not found and try next mapped candidate
-            }
-          }
+        if (!entry?.path) {
+          throw new Error("Product not found in index");
         }
 
-        if (!cancelled) setError("Failed to load product (404).");
+        const res = await fetch(entry.path, { cache: "no-store" });
+
+
+        const text = await res.text();
+
+        if (text.trim().startsWith("<")) {
+          throw new Error("Expected JSON but received HTML");
+        }
+
+        if (!res.ok) {
+          throw new Error(`HTTP ${res.status}`);
+        }
+
+        const json = JSON.parse(text);
+        if (!cancelled) setProduct(json);
       } catch (e: any) {
-        if (!cancelled) setError(e?.message || "Unknown error");
+        if (!cancelled) setError(e?.message || "Product failed to load");
       }
     }
 
@@ -225,35 +99,55 @@ export const SingleProduct = (): JSX.Element => {
     return () => {
       cancelled = true;
     };
-  }, [productId]);
+  }, [id, location.key]);
+
+  if (error) {
+    return (
+      <div className="max-w-[1200px] mx-auto px-4 py-8">
+        <div className="border border-red-300 bg-red-50 text-red-800 rounded p-4">
+          <div className="font-semibold">Product failed to load</div>
+          <div className="text-sm mt-1">{error}</div>
+        </div>
+      </div>
+    );
+  }
+
+  if (!product) {
+    return (
+      <div className="max-w-[1200px] mx-auto px-4 py-8 text-sm text-gray-600">
+        Loading product…
+      </div>
+    );
+  }
 
   return (
-    <AssistantContextProvider>
-      <div className="bg-white text-black">
-        {!product && !error && (
-          <div className="w-full px-6 py-10">Loading product…</div>
-        )}
+    <ProductPdpProvider product={product}>
+      <div className="w-full">
+        {ProductBreadcrumb ? <ProductBreadcrumb /> : null}
+        {ProductHeroSection ? <ProductHeroSection /> : null}
+        {ProductDetailsSection ? <ProductDetailsSection /> : null}
 
-        {!!error && (
-          <div className="w-full px-6 py-10 text-red-600">{error}</div>
-        )}
-
-        {product && (
-          <ProductPdpProvider product={product}>
-            {ProductBreadcrumb ? <ProductBreadcrumb /> : null}
-            {ProductHeroSection ? <ProductHeroSection /> : null}
-            {ProductDetailsSection ? <ProductDetailsSection /> : null}
-          </ProductPdpProvider>
-        )}
-
-        {/* Rufus UI */}
+        {/* Rufus assistant (drawer only) */}
         <AssistantDrawer />
-        <AssistantLauncher label="Ask" />
       </div>
+    </ProductPdpProvider>
+  );
+}
+
+/* ============================
+   Outer Provider Wrapper
+   ============================ */
+export function SingleProduct() {
+  return (
+    <AssistantContextProvider>
+      <SingleProductInner />
     </AssistantContextProvider>
   );
-};
+}
 
 export default SingleProduct;
+
+
+
 
 

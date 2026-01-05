@@ -2,8 +2,8 @@ import json
 from pathlib import Path
 
 # PATHS
-PDP_DIR = Path("/Applications/product/static/products")
-OUTPUT_PATH = Path("/Applications/product/static/indexes/search_index.enriched.json")
+PDP_DIR = Path("/Users/sha/Documents/Jetcube/static/products")
+OUTPUT_PATH = Path("/Users/sha/Documents/Jetcube/static/indexes/search_index.enriched.json")
 
 def _as_str(x):
   try:
@@ -88,11 +88,10 @@ def rebuild():
     raise SystemExit(f"❌ PDP_DIR not found: {PDP_DIR}")
 
   products = []
-  scanned = 0
   skipped = 0
 
-  for fp in sorted(PDP_DIR.glob("*.json")):
-    scanned += 1
+  # ✅ IMPORTANT: recurse into batch folders
+  for fp in sorted(PDP_DIR.rglob("*.json")):
     try:
       with open(fp, "r", encoding="utf-8") as f:
         pdp = json.load(f)
@@ -159,4 +158,5 @@ def rebuild():
 
 if __name__ == "__main__":
   rebuild()
+
 

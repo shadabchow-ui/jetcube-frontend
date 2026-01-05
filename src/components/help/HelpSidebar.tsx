@@ -85,7 +85,7 @@ export function HelpSidebar({ active }: HelpSidebarProps): JSX.Element {
           <ul className="space-y-2 ml-2">
             <SidebarLink
               to="/help/contact"
-              label="Contact JETCUBE"
+              label="Contact Ventari"
               active={active === "contact"}
             />
           </ul>

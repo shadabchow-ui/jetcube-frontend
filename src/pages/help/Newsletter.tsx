@@ -15,9 +15,9 @@ export default function Newsletter(): JSX.Element {
             <span className="text-gray-700">Newsletter</span>
           </div>
 
-          <h1 className="text-2xl font-semibold mt-2">JETCUBE Newsletter</h1>
+          <h1 className="text-2xl font-semibold mt-2">Ventari Newsletter</h1>
           <p className="text-sm text-gray-700 mt-2 leading-relaxed">
-            Get the best of JETCUBE—new features, shopping tips, and curated updates—without the spam.
+            Get the best of Ventari—new features, shopping tips, and curated updates—without the spam.
             This is the easiest way to stay in the loop as we roll out AI-powered search, smarter
             comparisons, and new categories.
           </p>
@@ -50,7 +50,7 @@ export default function Newsletter(): JSX.Element {
 
         <Section title="AI-driven, not creepy">
           <p>
-            JETCUBE is an AI-driven ecommerce brand, but our goal is usefulness, not invasive tracking.
+            Ventari is an AI-driven ecommerce brand, but our goal is usefulness, not invasive tracking.
             We may use basic engagement signals (like whether an email was opened) to improve what we send,
             and we may personalize content in a simple way (like category interests), but we keep it focused
             on making the newsletter more relevant—nothing weird.
@@ -81,7 +81,7 @@ export default function Newsletter(): JSX.Element {
                 <span className="font-semibold text-gray-900">Email:</span> (input)
               </p>
               <p>
-                By subscribing, you agree to receive emails from JETCUBE. You can unsubscribe anytime.
+                By subscribing, you agree to receive emails from Ventari. You can unsubscribe anytime.
               </p>
               <p className="text-xs text-gray-500">
                 Tip: link “Privacy Notice” here once your form is live.
@@ -98,7 +98,7 @@ export default function Newsletter(): JSX.Element {
           <p className="mt-3">
             If you need help with subscription issues, contact us here:{" "}
             <Link to="/help/contact" className="text-blue-600 hover:underline">
-              Contact JETCUBE
+              Contact Ventari
             </Link>
             .
           </p>
@@ -108,7 +108,7 @@ export default function Newsletter(): JSX.Element {
           <ul className="list-disc pl-5 text-sm text-gray-700 space-y-2">
             <li>
               <Link to="/about" className="text-blue-600 hover:underline">
-                About JETCUBE
+                About Ventari
               </Link>
             </li>
             <li>
