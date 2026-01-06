@@ -147,7 +147,7 @@ export default function SearchResultsPage() {
         {results.map((p) => (
           <Link
             key={p.slug}
-            to={`/product/${p.slug}`} // keep your real PDP route
+            to={`/p/${p.slug}`} // keep your real PDP route
             style={{
               border: "1px solid #ddd",
               borderRadius: 8,
