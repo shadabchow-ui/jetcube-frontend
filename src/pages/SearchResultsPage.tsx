@@ -11,6 +11,19 @@ type IndexItem = {
   searchable: string; // pre-normalized
 };
 
+/* ============================
+   R2 Base (PUBLIC)
+   ============================ */
+const R2_PUBLIC_BASE =
+  import.meta.env.VITE_R2_PUBLIC_BASE ||
+  "https://pub-efc133d84c664ca8ace8be57ec3e4d65.r2.dev";
+
+function joinUrl(base: string, path: string) {
+  const b = String(base || "").replace(/\/+$/, "");
+  const p = String(path || "").replace(/^\/+/, "");
+  return `${b}/${p}`;
+}
+
 function useQueryParam(name: string) {
   const { search } = useLocation();
   return new URLSearchParams(search).get(name) || "";
@@ -45,19 +58,20 @@ export default function SearchResultsPage() {
       try {
         setErr(null);
 
-        const res = await fetch("/indexes/search_index.enriched.json", {
+        const url = joinUrl(R2_PUBLIC_BASE, "indexes/search_index.enriched.json");
+        const res = await fetch(url, {
           cache: "force-cache",
         });
-
-        if (!res.ok) {
-          throw new Error(`Failed to load index (${res.status})`);
-        }
 
         const text = await res.text();
 
         // 🚫 Guard against HTML fallback
         if (text.trim().startsWith("<")) {
           throw new Error("Search index returned HTML instead of JSON");
+        }
+
+        if (!res.ok) {
+          throw new Error(`Failed to load index (${res.status})`);
         }
 
         const data = JSON.parse(text) as IndexItem[];
@@ -167,4 +181,5 @@ export default function SearchResultsPage() {
     </div>
   );
 }
+
 
