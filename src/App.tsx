@@ -190,6 +190,26 @@ function ProductRoute({ children }: { children: React.ReactNode }) {
 
         if (!handle) throw new Error("Missing product handle");
 
+        // ✅ NEW PRIMARY FLOW:
+        // 1) Load indexes/_index.json from R2
+        // 2) Find by slug
+        // 3) Fetch entry.path (full R2 URL)
+        try {
+          const index = await fetchJson(joinUrl(R2_PUBLIC_BASE, "indexes/_index.json"));
+
+          if (Array.isArray(index)) {
+            const entry = index.find((p: any) => p?.slug === handle);
+
+            if (entry?.path) {
+              const p = await fetchJson(entry.path);
+              if (!cancelled) setProduct(p);
+              return;
+            }
+          }
+        } catch {
+          // keep legacy fallbacks below
+        }
+
         const looksLikeAsin = /^[A-Za-z0-9]{10}$/.test(handle);
         const asinKey = handle.toUpperCase();
 
@@ -403,6 +423,7 @@ export const App = () => {
 };
 
 export default App;
+
 
 
 
