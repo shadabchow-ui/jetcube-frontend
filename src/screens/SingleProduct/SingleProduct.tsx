@@ -22,6 +22,12 @@ import AssistantDrawer from "../../components/RufusAssistant/AssistantDrawer";
 import { ProductPdpProvider } from "../../pdp/ProductPdpContext";
 
 /* ============================
+   R2 CONFIG (TEMP INLINE)
+   ============================ */
+const R2_BASE =
+  "https://pub-efc133d84c664ca8ace8be57ec3e4d65.r2.dev";
+
+/* ============================
    Helpers
    ============================ */
 function pick<T = any>(mod: any, named: string): T {
@@ -61,7 +67,14 @@ function SingleProductInner() {
 
         if (!id) throw new Error("Missing product id");
 
-        const indexRes = await fetch("/indexes/_index.json", { cache: "no-store" });
+        /* ============================
+           LOAD PRODUCT INDEX (R2)
+           ============================ */
+        const indexRes = await fetch(
+          `${R2_BASE}/indexes/_index.json`,
+          { cache: "no-store" }
+        );
+
         const indexText = await indexRes.text();
 
         if (indexText.trim().startsWith("<")) {
@@ -75,8 +88,13 @@ function SingleProductInner() {
           throw new Error("Product not found in index");
         }
 
-        const res = await fetch(entry.path, { cache: "no-store" });
-
+        /* ============================
+           LOAD PRODUCT JSON (R2)
+           ============================ */
+        const res = await fetch(
+          `${R2_BASE}/${entry.path}`,
+          { cache: "no-store" }
+        );
 
         const text = await res.text();
 
@@ -146,6 +164,7 @@ export function SingleProduct() {
 }
 
 export default SingleProduct;
+
 
 
 
