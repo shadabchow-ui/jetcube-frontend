@@ -8,6 +8,19 @@ import {
   useAssistant,
 } from "@/components/RufusAssistant";
 
+/* ============================
+   R2 Base (PUBLIC)
+   ============================ */
+const R2_PUBLIC_BASE =
+  import.meta.env.VITE_R2_PUBLIC_BASE ||
+  "https://pub-efc133d84c664ca8ace8be57ec3e4d65.r2.dev";
+
+function joinUrl(base: string, path: string) {
+  const b = String(base || "").replace(/\/+$/, "");
+  const p = String(path || "").replace(/^\/+/, "");
+  return `${b}/${p}`;
+}
+
 type CategoryUrlEntry = {
   category_key: string;
   url: string; // like "/c/women/dresses"
@@ -259,8 +272,8 @@ export default function CategoryPage() {
     (async () => {
       try {
         const json = await fetchFirstJson([
-          "/indexes/_category_urls.json",
-          "/products/_category_urls.json",
+          joinUrl(R2_PUBLIC_BASE, "indexes/_category_urls.json"),
+          joinUrl(R2_PUBLIC_BASE, "products/_category_urls.json"),
         ]);
 
         const arr: any[] = Array.isArray(json) ? json : [];
@@ -302,8 +315,8 @@ export default function CategoryPage() {
     (async () => {
       try {
         const json = await fetchFirstJson([
-          "/indexes/_index.json",
-          "/products/_index.json",
+          joinUrl(R2_PUBLIC_BASE, "indexes/_index.json"),
+          joinUrl(R2_PUBLIC_BASE, "products/_index.json"),
         ]);
 
         const arr: any[] = Array.isArray(json) ? json : [];
@@ -562,4 +575,5 @@ export default function CategoryPage() {
     </AssistantContextProvider>
   );
 }
+
 
