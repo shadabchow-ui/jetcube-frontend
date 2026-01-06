@@ -86,6 +86,51 @@ function joinUrl(base: string, path: string) {
 }
 
 /* ============================
+   ✅ BAND-AID: Cache the huge _index.json in memory
+   - Prevents re-downloading ~103MB on every PDP navigation
+   - Shares a single in-flight promise across concurrent requests
+   ============================ */
+let INDEX_CACHE: any[] | null = null;
+let INDEX_PROMISE: Promise<any[]> | null = null;
+
+async function loadIndexOnce(): Promise<any[]> {
+  if (INDEX_CACHE) return INDEX_CACHE;
+  if (INDEX_PROMISE) return INDEX_PROMISE;
+
+  const url = joinUrl(R2_PUBLIC_BASE, "indexes/_index.json");
+
+  INDEX_PROMISE = fetch(encodeURI(url), { cache: "force-cache" })
+    .then(async (res) => {
+      const text = await res.text();
+
+      // Detect Vite/HTML misroutes (or 404 HTML pages)
+      if (text.trim().startsWith("<")) {
+        throw new Error(`Expected JSON at ${url} but got HTML (file missing or misrouted)`);
+      }
+
+      if (!res.ok) {
+        throw new Error(`HTTP ${res.status} at ${url}: ${text.slice(0, 140)}`);
+      }
+
+      let parsed: any;
+      try {
+        parsed = JSON.parse(text);
+      } catch {
+        throw new Error(`Expected JSON at ${url} but got non-JSON: ${text.slice(0, 140)}`);
+      }
+
+      const arr = Array.isArray(parsed) ? parsed : [];
+      INDEX_CACHE = arr;
+      return arr;
+    })
+    .finally(() => {
+      INDEX_PROMISE = null;
+    });
+
+  return INDEX_PROMISE;
+}
+
+/* ============================
    Helper: pick named export if it exists, else default
    ============================ */
 function pick<T = any>(mod: any, named: string): T {
@@ -148,7 +193,7 @@ function ProductRoute({ children }: { children: React.ReactNode }) {
 
     async function fetchJson(url: string) {
       // encodeURI is important because your batch folders have spaces (batch 1, batch 2, ...)
-      const res = await fetch(encodeURI(url), { cache: "no-store" });
+      const res = await fetch(encodeURI(url), { cache: "force-cache" });
       const text = await res.text();
 
       // Vite sometimes serves index.html (200 OK) for missing files. Detect that.
@@ -191,11 +236,11 @@ function ProductRoute({ children }: { children: React.ReactNode }) {
         if (!handle) throw new Error("Missing product handle");
 
         // ✅ NEW PRIMARY FLOW:
-        // 1) Load indexes/_index.json from R2
+        // 1) Load indexes/_index.json from R2 (CACHED IN MEMORY)
         // 2) Find by slug
         // 3) Fetch entry.path (full R2 URL)
         try {
-          const index = await fetchJson(joinUrl(R2_PUBLIC_BASE, "indexes/_index.json"));
+          const index = await loadIndexOnce();
 
           if (Array.isArray(index)) {
             const entry = index.find((p: any) => p?.slug === handle);
