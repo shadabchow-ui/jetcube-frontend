@@ -73,6 +73,19 @@ import * as PrivacyNoticeModule from "./pages/help/PrivacyNotice";
 import * as AccessibilityModule from "./pages/help/Accessibility";
 
 /* ============================
+   R2 Base (PUBLIC)
+   ============================ */
+const R2_PUBLIC_BASE =
+  import.meta.env.VITE_R2_PUBLIC_BASE ||
+  "https://pub-efc133d84c664ca8ace8be57ec3e4d65.r2.dev";
+
+function joinUrl(base: string, path: string) {
+  const b = String(base || "").replace(/\/+$/, "");
+  const p = String(path || "").replace(/^\/+/, "");
+  return `${b}/${p}`;
+}
+
+/* ============================
    Helper: pick named export if it exists, else default
    ============================ */
 function pick<T = any>(mod: any, named: string): T {
@@ -159,14 +172,15 @@ function ProductRoute({ children }: { children: React.ReactNode }) {
       const s = String(v).trim();
       if (!s) return null;
 
-      // If map already gives a full URL/path to a .json, use it as-is
-      if (s.startsWith("/") || s.startsWith("http://") || s.startsWith("https://")) return s;
+      // If map already gives a full URL/path to a .json, use it as-is (but prefix R2 if it's a root-relative path)
+      if (s.startsWith("http://") || s.startsWith("https://")) return s;
+      if (s.startsWith("/")) return joinUrl(R2_PUBLIC_BASE, s);
 
       // If map gives a filename with .json, assume it's under /products/
-      if (s.endsWith(".json")) return `/products/${s}`;
+      if (s.endsWith(".json")) return joinUrl(R2_PUBLIC_BASE, `products/${s}`);
 
       // Otherwise assume it's a handle/filename base under /products/
-      return `/products/${s}.json`;
+      return joinUrl(R2_PUBLIC_BASE, `products/${s}.json`);
     }
 
     async function load() {
@@ -181,7 +195,9 @@ function ProductRoute({ children }: { children: React.ReactNode }) {
 
         // 1) Try handle-based filename first (works if file is /products/<handle>.json)
         try {
-          const byHandle = await fetchJson(`/products/${handle}.json`);
+          const byHandle = await fetchJson(
+            joinUrl(R2_PUBLIC_BASE, `products/${handle}.json`)
+          );
           if (!cancelled) setProduct(byHandle);
           return;
         } catch {
@@ -191,9 +207,9 @@ function ProductRoute({ children }: { children: React.ReactNode }) {
         // 2) Load map (your script writes asin_map.json; keep _asin_map.json fallback)
         let asinToPath: any = null;
         try {
-          asinToPath = await fetchJson("/products/asin_map.json");
+          asinToPath = await fetchJson(joinUrl(R2_PUBLIC_BASE, "products/asin_map.json"));
         } catch {
-          asinToPath = await fetchJson("/products/_asin_map.json");
+          asinToPath = await fetchJson(joinUrl(R2_PUBLIC_BASE, "products/_asin_map.json"));
         }
 
         // 3) First try direct key match (THIS is what you need now)
@@ -225,7 +241,9 @@ function ProductRoute({ children }: { children: React.ReactNode }) {
           }
 
           // Legacy fallback: maybe you still have /products/<ASIN>.json
-          const byAsin = await fetchJson(`/products/${asinKey}.json`);
+          const byAsin = await fetchJson(
+            joinUrl(R2_PUBLIC_BASE, `products/${asinKey}.json`)
+          );
           if (!cancelled) setProduct(byAsin);
           return;
         }
@@ -385,6 +403,7 @@ export const App = () => {
 };
 
 export default App;
+
 
 
 
