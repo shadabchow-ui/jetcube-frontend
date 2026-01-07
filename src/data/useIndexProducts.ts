@@ -1,5 +1,9 @@
 import { useEffect, useState } from "react";
 
+/* =========================
+   Types
+========================= */
+
 export type IndexProduct = {
   handle?: string;
   slug?: string;
@@ -8,7 +12,6 @@ export type IndexProduct = {
 
   title?: string;
 
-  // pricing (varies by build)
   price?: number | string;
   current_price?: number | string;
   sale_price?: number | string;
@@ -20,7 +23,6 @@ export type IndexProduct = {
   rating_count?: number | string;
   ratingCount?: number | string;
 
-  // images (varies by build)
   image?: any;
   image_url?: any;
   imageUrl?: any;
@@ -35,14 +37,25 @@ export type UseIndexProductsReturn = {
   error: string | null;
 };
 
+/* =========================
+   Helpers
+========================= */
+
 function readUrlFromMaybeObj(v: unknown): string | null {
   if (!v) return null;
   if (typeof v === "string") return v.trim() || null;
+
   if (typeof v === "object") {
     const anyV = v as any;
-    const s = anyV?.url || anyV?.src || anyV?.href || anyV?.hiRes || anyV?.large;
+    const s =
+      anyV?.url ||
+      anyV?.src ||
+      anyV?.href ||
+      anyV?.hiRes ||
+      anyV?.large;
     if (typeof s === "string" && s.trim()) return s.trim();
   }
+
   return null;
 }
 
@@ -59,7 +72,9 @@ function getFirstFromImages(images: unknown): string | null {
 
   if (typeof images === "object") {
     const anyImgs = images as any;
-    if (Array.isArray(anyImgs.images)) return getFirstFromImages(anyImgs.images);
+    if (Array.isArray(anyImgs.images)) {
+      return getFirstFromImages(anyImgs.images);
+    }
   }
 
   return null;
@@ -92,110 +107,134 @@ function pickProductImage(p: any): string | null {
 function toNumberMaybe(v: unknown): number | null {
   if (v === null || v === undefined) return null;
   if (typeof v === "number" && Number.isFinite(v)) return v;
+
   if (typeof v === "string") {
     const n = Number(v.replace(/[^0-9.]/g, ""));
     return Number.isFinite(n) ? n : null;
   }
+
   return null;
 }
 
-async function fetchJsonSafe(url: string): Promise<any> {
-  const r = await fetch(url, { cache: "no-store" });
-  if (!r.ok) throw new Error(`HTTP ${r.status} for ${url}`);
+/* =========================
+   Safe fetch helpers
+========================= */
 
-  const ct = r.headers.get("content-type") || "";
-  const text = await r.text();
-
-  // Vite/SPA fallback returns HTML for wrong paths — catch that clearly.
-  if (ct.includes("text/html") || text.trim().startsWith("<!DOCTYPE") || text.trim().startsWith("<html")) {
-    const first = text.slice(0, 120).replace(/\s+/g, " ");
-    throw new Error(`Expected JSON but got HTML for ${url}. First chars: ${first}`);
-  }
-
+async function fetchJsonSoft(url: string): Promise<any | null> {
   try {
-    return JSON.parse(text);
+    const res = await fetch(url, { cache: "force-cache" });
+    if (!res.ok) return null;
+
+    const text = await res.text();
+    const ct = res.headers.get("content-type") || "";
+
+    // Cloudflare / SPA fallback guard
+    if (
+      ct.includes("text/html") ||
+      text.trim().startsWith("<!DOCTYPE") ||
+      text.trim().startsWith("<html")
+    ) {
+      console.warn(`[index] HTML returned for ${url}, skipping`);
+      return null;
+    }
+
+    try {
+      return JSON.parse(text);
+    } catch {
+      console.warn(`[index] Invalid JSON for ${url}`);
+      return null;
+    }
   } catch {
-    const first = text.slice(0, 120).replace(/\s+/g, " ");
-    throw new Error(`Failed to parse JSON for ${url}. First chars: ${first}`);
+    return null;
   }
 }
 
-async function fetchFirstJson(urls: string[]): Promise<any> {
-  let lastErr: any = null;
-  for (const u of urls) {
-    try {
-      // eslint-disable-next-line no-await-in-loop
-      return await fetchJsonSafe(u);
-    } catch (e) {
-      lastErr = e;
-    }
+async function fetchFirstAvailable(urls: string[]): Promise<any | null> {
+  for (const url of urls) {
+    const json = await fetchJsonSoft(url);
+    if (json) return json;
   }
-  throw lastErr || new Error("Failed to fetch JSON");
+  return null;
 }
+
+/* =========================
+   Hook
+========================= */
 
 export function useIndexProducts(): UseIndexProductsReturn {
   const [items, setItems] = useState<IndexProduct[]>([]);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const [error] = useState<string | null>(null); // homepage never hard-errors
 
   useEffect(() => {
     let cancelled = false;
 
     async function load() {
       setLoading(true);
-      setError(null);
 
-      try {
-        // ✅ Prefer the real product index (has images + category_keys after your normalize step)
-        const json = await fetchFirstJson([
-          "/indexes/_index.json",
-          "/products/_index.json", // legacy fallback (if you ever move it)
-          "/indexes/search_index.enriched.json", // last resort
-        ]);
+      const json = await fetchFirstAvailable([
+        "/indexes/_index.json",
+        "/products/_index.json",
+        "/indexes/search_index.enriched.json",
+      ]);
 
-        let arr: any[] = [];
-        if (Array.isArray(json)) arr = json;
-        else if (json && typeof json === "object" && Array.isArray((json as any).items)) arr = (json as any).items;
-        else arr = [];
+      if (cancelled) return;
 
-        // If index is a list of strings (bad/old build), keep it usable.
-        const normalized: IndexProduct[] = arr
-          .map((p: any) => {
-            if (typeof p === "string") {
-              return { handle: p, slug: p, asin: p, title: p };
-            }
-
-            const handle =
-              (typeof p?.handle === "string" && p.handle) ||
-              (typeof p?.slug === "string" && p.slug) ||
-              (typeof p?.asin === "string" && p.asin) ||
-              (typeof p?.id === "string" && p.id) ||
-              "";
-
-            return {
-              ...p,
-              handle,
-              // normalize a single “best” image into `image` so cards always render
-              image: pickProductImage(p),
-              // normalize price fields a bit (optional)
-              price: toNumberMaybe(p?.price ?? p?.current_price ?? p?.sale_price) ?? (p?.price ?? p?.current_price ?? p?.sale_price),
-              was_price: toNumberMaybe(p?.was_price ?? p?.wasPrice ?? p?.list_price) ?? (p?.was_price ?? p?.wasPrice ?? p?.list_price),
-              rating: toNumberMaybe(p?.rating) ?? p?.rating,
-              rating_count: toNumberMaybe(p?.rating_count ?? p?.ratingCount) ?? (p?.rating_count ?? p?.ratingCount),
-              title: typeof p?.title === "string" ? p.title : handle,
-            } as IndexProduct;
-          })
-          .filter((x) => x && typeof x === "object" && (x.handle || x.slug || x.asin));
-
-        if (!cancelled) setItems(normalized);
-      } catch (err: any) {
-        if (!cancelled) {
-          setError(err?.message || "Failed to load product index");
-          setItems([]);
-        }
-      } finally {
-        if (!cancelled) setLoading(false);
+      if (!json) {
+        setItems([]);
+        setLoading(false);
+        return;
       }
+
+      let arr: any[] = [];
+      if (Array.isArray(json)) arr = json;
+      else if (json && typeof json === "object" && Array.isArray(json.items)) {
+        arr = json.items;
+      }
+
+      const normalized: IndexProduct[] = arr
+        .map((p: any) => {
+          if (typeof p === "string") {
+            return { handle: p, slug: p, asin: p, title: p };
+          }
+
+          const handle =
+            (typeof p?.handle === "string" && p.handle) ||
+            (typeof p?.slug === "string" && p.slug) ||
+            (typeof p?.asin === "string" && p.asin) ||
+            (typeof p?.id === "string" && p.id) ||
+            "";
+
+          return {
+            ...p,
+            handle,
+            title: typeof p?.title === "string" ? p.title : handle,
+            image: pickProductImage(p),
+            price:
+              toNumberMaybe(
+                p?.price ?? p?.current_price ?? p?.sale_price
+              ) ??
+              (p?.price ?? p?.current_price ?? p?.sale_price),
+            was_price:
+              toNumberMaybe(
+                p?.was_price ?? p?.wasPrice ?? p?.list_price
+              ) ??
+              (p?.was_price ?? p?.wasPrice ?? p?.list_price),
+            rating: toNumberMaybe(p?.rating) ?? p?.rating,
+            rating_count:
+              toNumberMaybe(p?.rating_count ?? p?.ratingCount) ??
+              (p?.rating_count ?? p?.ratingCount),
+          } as IndexProduct;
+        })
+        .filter(
+          (x) =>
+            x &&
+            typeof x === "object" &&
+            (x.handle || x.slug || x.asin)
+        );
+
+      setItems(normalized);
+      setLoading(false);
     }
 
     load();
@@ -208,6 +247,7 @@ export function useIndexProducts(): UseIndexProductsReturn {
 }
 
 export default useIndexProducts;
+
 
 
 
