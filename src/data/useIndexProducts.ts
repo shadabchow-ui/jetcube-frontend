@@ -1,8 +1,8 @@
 import { useEffect, useState } from "react";
 
-/* =========================
+/* ============================================================
    Types
-========================= */
+   ============================================================ */
 
 export type IndexProduct = {
   handle?: string;
@@ -12,6 +12,7 @@ export type IndexProduct = {
 
   title?: string;
 
+  // pricing
   price?: number | string;
   current_price?: number | string;
   sale_price?: number | string;
@@ -23,12 +24,16 @@ export type IndexProduct = {
   rating_count?: number | string;
   ratingCount?: number | string;
 
+  // images
   image?: any;
   image_url?: any;
   imageUrl?: any;
   thumbnail?: any;
   images?: any;
   gallery_images?: any;
+
+  // passthrough
+  [key: string]: any;
 };
 
 export type UseIndexProductsReturn = {
@@ -37,9 +42,9 @@ export type UseIndexProductsReturn = {
   error: string | null;
 };
 
-/* =========================
-   Helpers
-========================= */
+/* ============================================================
+   Image helpers (unchanged behavior)
+   ============================================================ */
 
 function readUrlFromMaybeObj(v: unknown): string | null {
   if (!v) return null;
@@ -53,6 +58,7 @@ function readUrlFromMaybeObj(v: unknown): string | null {
       anyV?.href ||
       anyV?.hiRes ||
       anyV?.large;
+
     if (typeof s === "string" && s.trim()) return s.trim();
   }
 
@@ -67,7 +73,9 @@ function getFirstFromImages(images: unknown): string | null {
   if (Array.isArray(images)) {
     const first = images[0] as any;
     if (typeof first === "string") return first.trim() || null;
-    if (first && typeof first === "object") return readUrlFromMaybeObj(first);
+    if (first && typeof first === "object") {
+      return readUrlFromMaybeObj(first);
+    }
   }
 
   if (typeof images === "object") {
@@ -104,8 +112,13 @@ function pickProductImage(p: any): string | null {
   return null;
 }
 
+/* ============================================================
+   Number helpers (unchanged behavior)
+   ============================================================ */
+
 function toNumberMaybe(v: unknown): number | null {
   if (v === null || v === undefined) return null;
+
   if (typeof v === "number" && Number.isFinite(v)) return v;
 
   if (typeof v === "string") {
@@ -116,128 +129,118 @@ function toNumberMaybe(v: unknown): number | null {
   return null;
 }
 
-/* =========================
-   Safe fetch helpers
-========================= */
+/* ============================================================
+   JSON loader (FIXED)
+   ============================================================ */
 
-async function fetchJsonSoft(url: string): Promise<any | null> {
-  try {
-    const res = await fetch(url, { cache: "force-cache" });
-    if (!res.ok) return null;
+async function fetchIndexJson(): Promise<any[]> {
+  const res = await fetch("/indexes/_index.json", {
+    cache: "no-store",
+  });
 
-    const text = await res.text();
-    const ct = res.headers.get("content-type") || "";
-
-    // Cloudflare / SPA fallback guard
-    if (
-      ct.includes("text/html") ||
-      text.trim().startsWith("<!DOCTYPE") ||
-      text.trim().startsWith("<html")
-    ) {
-      console.warn(`[index] HTML returned for ${url}, skipping`);
-      return null;
-    }
-
-    try {
-      return JSON.parse(text);
-    } catch {
-      console.warn(`[index] Invalid JSON for ${url}`);
-      return null;
-    }
-  } catch {
-    return null;
+  if (!res.ok) {
+    throw new Error(`Failed to load /indexes/_index.json (${res.status})`);
   }
+
+  const text = await res.text();
+
+  // Guard against SPA fallback (index.html)
+  if (text.trim().startsWith("<")) {
+    throw new Error("Expected JSON but got HTML for /indexes/_index.json");
+  }
+
+  const json = JSON.parse(text);
+
+  if (!Array.isArray(json)) {
+    throw new Error("Invalid index format: expected array");
+  }
+
+  return json;
 }
 
-async function fetchFirstAvailable(urls: string[]): Promise<any | null> {
-  for (const url of urls) {
-    const json = await fetchJsonSoft(url);
-    if (json) return json;
-  }
-  return null;
-}
-
-/* =========================
+/* ============================================================
    Hook
-========================= */
+   ============================================================ */
 
 export function useIndexProducts(): UseIndexProductsReturn {
   const [items, setItems] = useState<IndexProduct[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error] = useState<string | null>(null); // homepage never hard-errors
+  const [loading, setLoading] = useState<boolean>(true);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
 
     async function load() {
       setLoading(true);
+      setError(null);
 
-      const json = await fetchFirstAvailable([
-        "/indexes/_index.json",
-        "/products/_index.json",
-        "/indexes/search_index.enriched.json",
-      ]);
+      try {
+        const arr = await fetchIndexJson();
 
-      if (cancelled) return;
+        const normalized: IndexProduct[] = arr
+          .map((p: any) => {
+            if (!p || typeof p !== "object") return null;
 
-      if (!json) {
-        setItems([]);
-        setLoading(false);
-        return;
+            const handle =
+              (typeof p.handle === "string" && p.handle) ||
+              (typeof p.slug === "string" && p.slug) ||
+              (typeof p.asin === "string" && p.asin) ||
+              (typeof p.id === "string" && p.id) ||
+              "";
+
+            if (!handle) return null;
+
+            return {
+              ...p,
+              handle,
+              image: pickProductImage(p),
+              price:
+                toNumberMaybe(
+                  p.price ?? p.current_price ?? p.sale_price
+                ) ??
+                p.price ??
+                p.current_price ??
+                p.sale_price,
+              was_price:
+                toNumberMaybe(
+                  p.was_price ?? p.wasPrice ?? p.list_price
+                ) ??
+                p.was_price ??
+                p.wasPrice ??
+                p.list_price,
+              rating: toNumberMaybe(p.rating) ?? p.rating,
+              rating_count:
+                toNumberMaybe(
+                  p.rating_count ?? p.ratingCount
+                ) ??
+                p.rating_count ??
+                p.ratingCount,
+              title:
+                typeof p.title === "string" && p.title
+                  ? p.title
+                  : handle,
+            };
+          })
+          .filter(Boolean) as IndexProduct[];
+
+        if (!cancelled) {
+          setItems(normalized);
+        }
+      } catch (err: any) {
+        console.error("useIndexProducts error:", err);
+        if (!cancelled) {
+          setError(err?.message || "Failed to load product index");
+          setItems([]);
+        }
+      } finally {
+        if (!cancelled) {
+          setLoading(false);
+        }
       }
-
-      let arr: any[] = [];
-      if (Array.isArray(json)) arr = json;
-      else if (json && typeof json === "object" && Array.isArray(json.items)) {
-        arr = json.items;
-      }
-
-      const normalized: IndexProduct[] = arr
-        .map((p: any) => {
-          if (typeof p === "string") {
-            return { handle: p, slug: p, asin: p, title: p };
-          }
-
-          const handle =
-            (typeof p?.handle === "string" && p.handle) ||
-            (typeof p?.slug === "string" && p.slug) ||
-            (typeof p?.asin === "string" && p.asin) ||
-            (typeof p?.id === "string" && p.id) ||
-            "";
-
-          return {
-            ...p,
-            handle,
-            title: typeof p?.title === "string" ? p.title : handle,
-            image: pickProductImage(p),
-            price:
-              toNumberMaybe(
-                p?.price ?? p?.current_price ?? p?.sale_price
-              ) ??
-              (p?.price ?? p?.current_price ?? p?.sale_price),
-            was_price:
-              toNumberMaybe(
-                p?.was_price ?? p?.wasPrice ?? p?.list_price
-              ) ??
-              (p?.was_price ?? p?.wasPrice ?? p?.list_price),
-            rating: toNumberMaybe(p?.rating) ?? p?.rating,
-            rating_count:
-              toNumberMaybe(p?.rating_count ?? p?.ratingCount) ??
-              (p?.rating_count ?? p?.ratingCount),
-          } as IndexProduct;
-        })
-        .filter(
-          (x) =>
-            x &&
-            typeof x === "object" &&
-            (x.handle || x.slug || x.asin)
-        );
-
-      setItems(normalized);
-      setLoading(false);
     }
 
     load();
+
     return () => {
       cancelled = true;
     };
@@ -247,7 +250,3 @@ export function useIndexProducts(): UseIndexProductsReturn {
 }
 
 export default useIndexProducts;
-
-
-
-
