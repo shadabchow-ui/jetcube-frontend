@@ -6,7 +6,7 @@ import {
   XIcon,
 } from "lucide-react";
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { Link, useLocation, useNavigate } from "react-router-dom";
 import { useCart } from "../../../../context/CartContext";
 import { Button } from "../../../../components/ui/button";
 import logo from "../../../../assets/logo.png";
@@ -68,6 +68,13 @@ function buildCategoryHref(item: CategoryUrlItem): string {
 
 export const NavigationSection = (): JSX.Element => {
   const navigate = useNavigate();
+  const location = useLocation();
+
+  // ✅ Gate search-index bootstrap by route:
+  // Only load search indexes on /search and /c/* (category). Never on PDP (/p/*).
+  const pathname = location?.pathname || "";
+  const shouldBootstrapSearch =
+    pathname.startsWith("/search") || pathname.startsWith("/c/");
 
   // LEFT DRAWER
   const [menuOpen, setMenuOpen] = useState(false);
@@ -249,8 +256,10 @@ export const NavigationSection = (): JSX.Element => {
     if (menuOpen) setAccountOpen(false);
   }, [menuOpen]);
 
-  // Load search index (keep your existing behavior)
+  // Load search index (keep your existing behavior) — NOW ROUTE-GATED
   useEffect(() => {
+    if (!shouldBootstrapSearch) return;
+
     let cancelled = false;
 
     const normalize = (data: any): SearchIndexItem[] => {
@@ -314,7 +323,7 @@ export const NavigationSection = (): JSX.Element => {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [shouldBootstrapSearch]);
 
   // ✅ REAL categories (drawer menu)
   useEffect(() => {
