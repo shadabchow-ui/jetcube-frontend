@@ -45,7 +45,8 @@ function readUrlFromMaybeObj(v: unknown): string | null {
   if (typeof v === "string") return v.trim() || null;
   if (typeof v === "object") {
     const anyV = v as any;
-    const s = anyV?.url || anyV?.src || anyV?.href || anyV?.hiRes || anyV?.large;
+    const s =
+      anyV?.url || anyV?.src || anyV?.href || anyV?.hiRes || anyV?.large;
     if (typeof s === "string" && s.trim()) return s.trim();
   }
   return null;
@@ -112,9 +113,15 @@ async function fetchJsonSafe(url: string): Promise<any> {
   const text = await r.text();
 
   // Catch HTML fallbacks clearly.
-  if (ct.includes("text/html") || text.trim().startsWith("<!DOCTYPE") || text.trim().startsWith("<html")) {
+  if (
+    ct.includes("text/html") ||
+    text.trim().startsWith("<!DOCTYPE") ||
+    text.trim().startsWith("<html")
+  ) {
     const first = text.slice(0, 120).replace(/\s+/g, " ");
-    throw new Error(`Expected JSON but got HTML for ${url}. First chars: ${first}`);
+    throw new Error(
+      `Expected JSON but got HTML for ${url}. First chars: ${first}`
+    );
   }
 
   try {
@@ -146,9 +153,9 @@ async function fetchFirstJson(urls: string[]): Promise<any> {
 const R2_BASE = "https://pub-efc133d84c664ca8ace8be57ec3e4d65.r2.dev";
 
 const R2_INDEX_URLS = [
-  `${R2_BASE}/indexes/_index.cards.json`,            // ✅ small (what homepage should use)
-  `${R2_BASE}/indexes/search_index.enriched.json`,  // fallback (still smaller than full index in some builds)
-  `${R2_BASE}/indexes/_index.json`,                 // last resort only
+  `${R2_BASE}/indexes/_index.cards.json`, // ✅ small (what homepage should use)
+  `${R2_BASE}/indexes/search_index.enriched.json`, // fallback (still smaller than full index in some builds)
+  `${R2_BASE}/indexes/_index.json`, // last resort only
 ];
 
 export function useIndexProducts(): UseIndexProductsReturn {
@@ -168,7 +175,12 @@ export function useIndexProducts(): UseIndexProductsReturn {
 
         let arr: any[] = [];
         if (Array.isArray(json)) arr = json;
-        else if (json && typeof json === "object" && Array.isArray((json as any).items)) arr = (json as any).items;
+        else if (
+          json &&
+          typeof json === "object" &&
+          Array.isArray((json as any).items)
+        )
+          arr = (json as any).items;
         else arr = [];
 
         const normalized: IndexProduct[] = arr
@@ -187,11 +199,19 @@ export function useIndexProducts(): UseIndexProductsReturn {
             return {
               ...p,
               handle,
-              image: p?.image ? readUrlFromMaybeObj(p.image) ?? p.image : pickProductImage(p),
-              price: toNumberMaybe(p?.price ?? p?.current_price ?? p?.sale_price) ?? (p?.price ?? p?.current_price ?? p?.sale_price),
-              was_price: toNumberMaybe(p?.was_price ?? p?.wasPrice ?? p?.list_price) ?? (p?.was_price ?? p?.wasPrice ?? p?.list_price),
+              image: p?.image
+                ? readUrlFromMaybeObj(p.image) ?? p.image
+                : pickProductImage(p),
+              price:
+                toNumberMaybe(p?.price ?? p?.current_price ?? p?.sale_price) ??
+                (p?.price ?? p?.current_price ?? p?.sale_price),
+              was_price:
+                toNumberMaybe(p?.was_price ?? p?.wasPrice ?? p?.list_price) ??
+                (p?.was_price ?? p?.wasPrice ?? p?.list_price),
               rating: toNumberMaybe(p?.rating) ?? p?.rating,
-              rating_count: toNumberMaybe(p?.rating_count ?? p?.ratingCount) ?? (p?.rating_count ?? p?.ratingCount),
+              rating_count:
+                toNumberMaybe(p?.rating_count ?? p?.ratingCount) ??
+                (p?.rating_count ?? p?.ratingCount),
               title: typeof p?.title === "string" ? p.title : handle,
             } as IndexProduct;
           })
@@ -218,3 +238,4 @@ export function useIndexProducts(): UseIndexProductsReturn {
 }
 
 export default useIndexProducts;
+
