@@ -10,6 +10,9 @@ import {
   useAssistant,
 } from "@/components/RufusAssistant";
 
+/* ------------------------------------
+ * Utilities
+ * ---------------------------------- */
 const shuffle = <T,>(arr: T[]): T[] =>
   [...arr].sort(() => Math.random() - 0.5);
 
@@ -48,10 +51,11 @@ function ScoutTab() {
   );
 }
 
+/* ------------------------------------
+ * Home
+ * ---------------------------------- */
 const Home = (): JSX.Element => {
-  /* ------------------------------------
-   * Hero slides
-   * ---------------------------------- */
+  /* Hero slides */
   const heroSlides: HeroSlide[] = [
     {
       imageSrc: "/hero/Brown House Of Fashion Photo Collage Facebook Cover.jpg",
@@ -82,28 +86,7 @@ const Home = (): JSX.Element => {
 
   const { items, loading, error } = useIndexProducts();
 
-  if (loading) {
-    return (
-      <main className="max-w-[1500px] mx-auto px-3">
-        <div className="py-12 text-center text-gray-500">Loading…</div>
-      </main>
-    );
-  }
-
-  if (error) {
-    return (
-      <main className="max-w-[1500px] mx-auto px-3">
-        <div className="py-12 text-center text-gray-500">
-          {/* Fail soft — homepage should never break */}
-          Loading products…
-        </div>
-      </main>
-    );
-  }
-
-  /* ------------------------------------
-   * Normalize products → cards
-   * ---------------------------------- */
+  /* Normalize for cards */
   const toCard = (p: any): ProductCardData => ({
     handle: p.handle,
     title: p.title,
@@ -121,44 +104,59 @@ const Home = (): JSX.Element => {
     badge: p.badge,
   });
 
-  const safeItems = Array.isArray(items) ? items.filter(Boolean) : [];
-  const shuffled = shuffle(safeItems);
+  /* Category filtering */
+  const womens = items.filter((p) => {
+    if (Array.isArray(p.category_path)) {
+      return p.category_path.join(" ").toLowerCase().includes("women");
+    }
+    if (typeof p.category === "string") {
+      return p.category.toLowerCase().includes("women");
+    }
+    return false;
+  });
 
-  /* ------------------------------------
-   * Homepage sections
-   * ---------------------------------- */
-  const trending = shuffled.slice(0, 16).map(toCard);
-
-  const recommended = shuffled.slice(16, 32).map(toCard);
-
-  const deals = safeItems
-    .filter((p) => {
-      const price = Number(p.price);
-      const was = Number(p.was_price);
-      return Number.isFinite(price) && Number.isFinite(was) && was > price;
-    })
+  const trending = shuffle(womens).slice(0, 16).map(toCard);
+  const recommended = shuffle(womens).slice(16, 32).map(toCard);
+  const deals = shuffle(
+    womens.filter(
+      (p) => p.was_price && p.price && Number(p.was_price) > Number(p.price)
+    )
+  )
     .slice(0, 16)
     .map(toCard);
 
   return (
     <AssistantContextProvider context="home">
-      {/* Drawer (opens when SCOUT is clicked) */}
       <AssistantDrawer />
-
-      {/* Amazon-style floating SCOUT tab */}
       <ScoutTab />
 
       <main className="max-w-[1500px] mx-auto px-2 sm:px-3 lg:px-4 space-y-6">
+        {/* Hero ALWAYS renders */}
         <HeroCarousel
           slides={heroSlides}
           heightClassName="h-[360px] sm:h-[440px] lg:h-[520px] xl:h-[560px]"
         />
 
+        {/* Error message (non-blocking) */}
+        {error && (
+          <div className="py-4 text-center text-red-600">
+            {error}
+          </div>
+        )}
+
+        {/* Loading indicator (non-blocking) */}
+        {loading && (
+          <div className="py-6 text-center text-gray-500">
+            Loading products…
+          </div>
+        )}
+
+        {/* Rows render ONLY when data exists */}
         {trending.length > 0 && (
           <HomeRow
             title="Trending picks"
             items={trending}
-            viewAllHref="/shop"
+            viewAllHref="/c/women"
           />
         )}
 
@@ -166,7 +164,7 @@ const Home = (): JSX.Element => {
           <HomeRow
             title="Recommended for you"
             items={recommended}
-            viewAllHref="/shop"
+            viewAllHref="/c/women"
           />
         )}
 
@@ -174,7 +172,7 @@ const Home = (): JSX.Element => {
           <HomeRow
             title="Top deals"
             items={deals}
-            viewAllHref="/shop"
+            viewAllHref="/c/women"
           />
         )}
       </main>
@@ -183,6 +181,7 @@ const Home = (): JSX.Element => {
 };
 
 export default Home;
+
 
 
 
