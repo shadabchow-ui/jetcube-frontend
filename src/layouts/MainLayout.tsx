@@ -1,17 +1,17 @@
 import React, { useEffect } from "react";
-import { Outlet } from "react-router-dom";
+import { Outlet, useLocation, matchPath } from "react-router-dom";
 import { CartSidebar } from "../screens/CartSidebar";
 import { useCart } from "../context/CartContext";
 
-/* IMPORTANT:
-   Use NAV + FOOTER from Shop sections FOR NOW
-   but MainLayout itself remains page-agnostic
-*/
 import { NavigationSection } from "../screens/Shop/sections/NavigationSection";
 import { FooterSection } from "../screens/Shop/sections/FooterSection";
 
 export default function MainLayout() {
   const { isOpen } = useCart();
+  const { pathname } = useLocation();
+
+  const enableSearchBootstrap =
+    pathname === "/search" || !!matchPath("/c/*", pathname);
 
   useEffect(() => {
     const handler = (e: any) => {
@@ -23,7 +23,7 @@ export default function MainLayout() {
 
   return (
     <div className="bg-white w-full min-h-screen flex flex-col">
-      <NavigationSection />
+      <NavigationSection enableSearchBootstrap={enableSearchBootstrap} />
 
       <main className="flex-1">
         <Outlet />
@@ -35,6 +35,7 @@ export default function MainLayout() {
     </div>
   );
 }
+
 
 
 
