@@ -1,5 +1,9 @@
 import { useEffect, useState } from "react";
 
+/* -------------------------------------------------
+   Types
+------------------------------------------------- */
+
 export type IndexProduct = {
   handle?: string;
   slug?: string;
@@ -8,27 +12,14 @@ export type IndexProduct = {
 
   title?: string;
 
-  // pricing (varies by build)
   price?: number | string;
-  current_price?: number | string;
-  sale_price?: number | string;
-  list_price?: number | string;
   was_price?: number | string;
-  wasPrice?: number | string;
 
   rating?: number | string;
   rating_count?: number | string;
-  ratingCount?: number | string;
 
-  // images (varies by build)
-  image?: any;
-  image_url?: any;
-  imageUrl?: any;
-  thumbnail?: any;
-  images?: any;
-  gallery_images?: any;
+  image?: string | null;
 
-  // optional category fields (your index has these)
   category?: any;
   category_path?: any;
   category_keys?: any;
@@ -40,63 +31,43 @@ export type UseIndexProductsReturn = {
   error: string | null;
 };
 
-function readUrlFromMaybeObj(v: unknown): string | null {
-  if (!v) return null;
-  if (typeof v === "string") return v.trim() || null;
-  if (typeof v === "object") {
-    const anyV = v as any;
-    const s =
-      anyV?.url || anyV?.src || anyV?.href || anyV?.hiRes || anyV?.large;
-    if (typeof s === "string" && s.trim()) return s.trim();
-  }
-  return null;
-}
+/* -------------------------------------------------
+   Constants
+------------------------------------------------- */
 
-function getFirstFromImages(images: unknown): string | null {
-  if (!images) return null;
+// 🚨 HARD LOCK: cards index ONLY
+const CARDS_INDEX_URL = "/indexes/_index.cards.json";
 
-  if (typeof images === "string") return images.trim() || null;
+/* -------------------------------------------------
+   Utils
+------------------------------------------------- */
 
-  if (Array.isArray(images)) {
-    const first = images[0] as any;
-    if (typeof first === "string") return first.trim() || null;
-    if (first && typeof first === "object") return readUrlFromMaybeObj(first);
+async function fetchJsonStrict(url: string): Promise<any> {
+  const res = await fetch(url, { cache: "no-store" });
+  if (!res.ok) {
+    throw new Error(`HTTP ${res.status} loading ${url}`);
   }
 
-  if (typeof images === "object") {
-    const anyImgs = images as any;
-    if (Array.isArray(anyImgs.images)) return getFirstFromImages(anyImgs.images);
+  const ct = res.headers.get("content-type") || "";
+  const text = await res.text();
+
+  // Guard against Vite / SPA HTML fallback
+  if (
+    ct.includes("text/html") ||
+    text.trim().startsWith("<!DOCTYPE") ||
+    text.trim().startsWith("<html")
+  ) {
+    throw new Error(`Expected JSON but received HTML from ${url}`);
   }
 
-  return null;
-}
-
-function pickProductImage(p: any): string | null {
-  const candidates: any[] = [
-    p?.thumbnail,
-    p?.image,
-    p?.image_url,
-    p?.imageUrl,
-    p?.img,
-    p?.primary_image,
-    p?.main_image,
-    Array.isArray(p?.images) ? p.images : null,
-    Array.isArray(p?.gallery_images) ? p.gallery_images : null,
-  ];
-
-  for (const c of candidates) {
-    const u1 = readUrlFromMaybeObj(c);
-    if (u1) return u1;
-
-    const u2 = getFirstFromImages(c);
-    if (u2) return u2;
+  try {
+    return JSON.parse(text);
+  } catch {
+    throw new Error(`Invalid JSON returned from ${url}`);
   }
-
-  return null;
 }
 
 function toNumberMaybe(v: unknown): number | null {
-  if (v === null || v === undefined) return null;
   if (typeof v === "number" && Number.isFinite(v)) return v;
   if (typeof v === "string") {
     const n = Number(v.replace(/[^0-9.]/g, ""));
@@ -105,60 +76,13 @@ function toNumberMaybe(v: unknown): number | null {
   return null;
 }
 
-async function fetchJsonSafe(url: string): Promise<any> {
-  const r = await fetch(url, { cache: "no-store" });
-  if (!r.ok) throw new Error(`HTTP ${r.status} for ${url}`);
-
-  const ct = r.headers.get("content-type") || "";
-  const text = await r.text();
-
-  // Catch HTML fallbacks clearly.
-  if (
-    ct.includes("text/html") ||
-    text.trim().startsWith("<!DOCTYPE") ||
-    text.trim().startsWith("<html")
-  ) {
-    const first = text.slice(0, 120).replace(/\s+/g, " ");
-    throw new Error(
-      `Expected JSON but got HTML for ${url}. First chars: ${first}`
-    );
-  }
-
-  try {
-    return JSON.parse(text);
-  } catch {
-    const first = text.slice(0, 120).replace(/\s+/g, " ");
-    throw new Error(`Failed to parse JSON for ${url}. First chars: ${first}`);
-  }
-}
-
-async function fetchFirstJson(urls: string[]): Promise<any> {
-  let lastErr: any = null;
-  for (const u of urls) {
-    try {
-      // eslint-disable-next-line no-await-in-loop
-      return await fetchJsonSafe(u);
-    } catch (e) {
-      lastErr = e;
-    }
-  }
-  throw lastErr || new Error("Failed to fetch JSON");
-}
-
-/**
- * IMPORTANT:
- * - Do NOT download the full 100MB+ _index.json on the homepage.
- * - Use the small cards index first.
- */
-const R2_BASE = "https://pub-efc133d84c664ca8ace8be57ec3e4d65.r2.dev";
-
-const R2_INDEX_URLS = [
-  `${R2_BASE}/indexes/_index.cards.json`,
-];
+/* -------------------------------------------------
+   Hook
+------------------------------------------------- */
 
 export function useIndexProducts(): UseIndexProductsReturn {
   const [items, setItems] = useState<IndexProduct[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -169,56 +93,54 @@ export function useIndexProducts(): UseIndexProductsReturn {
       setError(null);
 
       try {
-        const json = await fetchFirstJson(R2_INDEX_URLS);
+        const json = await fetchJsonStrict(CARDS_INDEX_URL);
 
-        let arr: any[] = [];
-        if (Array.isArray(json)) arr = json;
-        else if (
-          json &&
-          typeof json === "object" &&
-          Array.isArray((json as any).items)
-        )
-          arr = (json as any).items;
-        else arr = [];
+        if (!Array.isArray(json)) {
+          throw new Error("_index.cards.json must be an array");
+        }
 
-        const normalized: IndexProduct[] = arr
+        const normalized: IndexProduct[] = json
           .map((p: any) => {
-            if (typeof p === "string") {
-              return { handle: p, slug: p, asin: p, title: p };
-            }
+            if (!p || typeof p !== "object") return null;
 
             const handle =
-              (typeof p?.handle === "string" && p.handle) ||
-              (typeof p?.slug === "string" && p.slug) ||
-              (typeof p?.asin === "string" && p.asin) ||
-              (typeof p?.id === "string" && p.id) ||
-              "";
+              p.handle || p.slug || p.asin || p.id || null;
+
+            if (!handle) return null;
 
             return {
-              ...p,
               handle,
-              image: p?.image
-                ? readUrlFromMaybeObj(p.image) ?? p.image
-                : pickProductImage(p),
+              title: typeof p.title === "string" ? p.title : handle,
+              image: typeof p.image === "string" ? p.image : null,
               price:
-                toNumberMaybe(p?.price ?? p?.current_price ?? p?.sale_price) ??
-                (p?.price ?? p?.current_price ?? p?.sale_price),
+                toNumberMaybe(p.price) ??
+                p.price ??
+                null,
               was_price:
-                toNumberMaybe(p?.was_price ?? p?.wasPrice ?? p?.list_price) ??
-                (p?.was_price ?? p?.wasPrice ?? p?.list_price),
-              rating: toNumberMaybe(p?.rating) ?? p?.rating,
+                toNumberMaybe(p.was_price) ??
+                p.was_price ??
+                null,
+              rating:
+                toNumberMaybe(p.rating) ??
+                p.rating ??
+                null,
               rating_count:
-                toNumberMaybe(p?.rating_count ?? p?.ratingCount) ??
-                (p?.rating_count ?? p?.ratingCount),
-              title: typeof p?.title === "string" ? p.title : handle,
-            } as IndexProduct;
+                toNumberMaybe(p.rating_count) ??
+                p.rating_count ??
+                null,
+              category: p.category ?? null,
+              category_path: p.category_path ?? null,
+              category_keys: p.category_keys ?? null,
+            };
           })
-          .filter((x) => x && typeof x === "object" && (x.handle || x.slug || x.asin));
+          .filter(Boolean) as IndexProduct[];
 
-        if (!cancelled) setItems(normalized);
+        if (!cancelled) {
+          setItems(normalized);
+        }
       } catch (err: any) {
         if (!cancelled) {
-          setError(err?.message || "Failed to load product index");
+          setError(err?.message || "Failed to load cards index");
           setItems([]);
         }
       } finally {
@@ -236,4 +158,5 @@ export function useIndexProducts(): UseIndexProductsReturn {
 }
 
 export default useIndexProducts;
+
 
