@@ -1,0 +1,107 @@
+cat > 'static/indexes/build_index_cards.py' <<'PY'
+import json
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parent
+SRC = ROOT / "_index.json"
+OUT = ROOT / "_index.cards.json"
+
+def to_num(v):
+    if v is None:
+        return None
+    if isinstance(v, (int, float)):
+        return v
+    if isinstance(v, str):
+        s = "".join(ch for ch in v if (ch.isdigit() or ch == "."))
+        try:
+            return float(s) if s else None
+        except:
+            return None
+    return None
+
+def pick_image(p):
+    # match your client picker logic-ish
+    for key in ["thumbnail","image","image_url","imageUrl","img","primary_image","main_image"]:
+        v = p.get(key)
+        if isinstance(v, str) and v.strip():
+            return v.strip()
+        if isinstance(v, dict):
+            for k2 in ["url","src","href","hiRes","large"]:
+                s = v.get(k2)
+                if isinstance(s, str) and s.strip():
+                    return s.strip()
+
+    imgs = p.get("images")
+    if isinstance(imgs, list) and imgs:
+        v = imgs[0]
+        if isinstance(v, str) and v.strip():
+            return v.strip()
+        if isinstance(v, dict):
+            for k2 in ["url","src","href","hiRes","large"]:
+                s = v.get(k2)
+                if isinstance(s, str) and s.strip():
+                    return s.strip()
+
+    g = p.get("gallery_images")
+    if isinstance(g, list) and g:
+        v = g[0]
+        if isinstance(v, str) and v.strip():
+            return v.strip()
+        if isinstance(v, dict):
+            for k2 in ["url","src","href","hiRes","large"]:
+                s = v.get(k2)
+                if isinstance(s, str) and s.strip():
+                    return s.strip()
+
+    return None
+
+def main():
+    if not SRC.exists():
+        raise SystemExit(f"Missing {SRC}")
+
+    data = json.loads(SRC.read_text(encoding="utf-8"))
+    if not isinstance(data, list):
+        raise SystemExit("Expected _index.json to be a JSON array")
+
+    out = []
+    for p in data:
+        if not isinstance(p, dict):
+            continue
+
+        handle = (p.get("handle") or p.get("slug") or p.get("asin") or p.get("id") or "")
+        if not isinstance(handle, str) or not handle.strip():
+            continue
+        handle = handle.strip()
+
+        title = p.get("title")
+        if not isinstance(title, str) or not title.strip():
+            title = handle
+
+        price = p.get("price", p.get("current_price", p.get("sale_price")))
+        was = p.get("was_price", p.get("wasPrice", p.get("list_price")))
+
+        item = {
+            "handle": handle,
+            "title": title,
+            "image": pick_image(p),
+            "price": to_num(price) if price is not None else None,
+            "was_price": to_num(was) if was is not None else None,
+            "rating": to_num(p.get("rating")) if p.get("rating") is not None else None,
+            "rating_count": to_num(p.get("rating_count", p.get("ratingCount"))) if (p.get("rating_count", p.get("ratingCount")) is not None) else None,
+
+            # keep these if present (helps category filtering without shipping huge text blobs)
+            "category": p.get("category"),
+            "category_path": p.get("category_path"),
+            "category_keys": p.get("category_keys"),
+        }
+
+        out.append(item)
+
+    OUT.write_text(json.dumps(out, ensure_ascii=False, separators=(",", ":")), encoding="utf-8")
+    print(f"✅ Wrote {OUT}  items={len(out)}  bytes={OUT.stat().st_size:,}")
+
+if __name__ == "__main__":
+    main()
+PY
+
+python3 'static/indexes/build_index_cards.py'
