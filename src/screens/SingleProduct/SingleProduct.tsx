@@ -1,157 +1,120 @@
-import React, { useEffect, useMemo, useState } from "react";
-import { useLocation, useParams } from "react-router-dom";
+#!/usr/bin/env python3
 
-/* ============================
-   Sections
-   ============================ */
-import * as ProductHeroModule from "./sections/ProductHeroSection";
-import * as BreadcrumbModule from "./sections/ProductBreadcrumb";
-import ProductDetailsSectionImpl from "./sections/ProductDetailsSection/ProductDetailsSection";
+import json
+from pathlib import Path
 
-/* ============================
-   Rufus Assistant (CORRECT PATHS)
-   ============================ */
-import { AssistantContextProvider } from "../../components/RufusAssistant/AssistantContext";
-import AssistantDrawer from "../../components/RufusAssistant/AssistantDrawer";
+# ---------------- CONFIG ----------------
 
-/* ============================
-   PDP Context (CORRECT PATH)
-   ============================ */
-import { ProductPdpProvider } from "../../pdp/ProductPdpContext";
+PRODUCTS_ROOT = Path("/Users/sha/Documents/Jetcube/static/products")
+OUTPUT_PATH = Path("/Users/sha/Documents/Jetcube/static/indexes/_index.json")
 
-/* ============================
-   R2 CONFIG (TEMP INLINE)
-   ============================ */
-const R2_BASE = "https://pub-efc133d84c664ca8ace8be57ec3e4d65.r2.dev";
+# Cloudflare R2 public base URL
+R2_BASE_URL = "https://pub-efc133d84c664ca8ace8be57ec3e4d65.r2.dev"
 
-/* ============================
-   Helpers
-   ============================ */
-function pick<T = any>(mod: any, named: string): T {
-  return (mod?.[named] ?? mod?.default) as T;
-}
+# Write shard maps here (slug -> full R2 URL)
+PDP_SHARDS_DIR = Path("/Users/sha/Documents/Jetcube/static/indexes/pdp_paths")
 
-/* ============================
-   Sections resolved safely
-   ============================ */
-const ProductHeroSection = pick<any>(ProductHeroModule, "ProductHeroSection");
-const ProductBreadcrumb = pick<any>(BreadcrumbModule, "ProductBreadcrumb");
-const ProductDetailsSection = ProductDetailsSectionImpl;
+# ---------------------------------------
 
-/* ============================
-   Inner PDP Renderer
-   ============================ */
-function SingleProductInner() {
-  const { id } = useParams<{ id: string }>();
-  const location = useLocation();
+def _clean_char(c: str) -> str:
+    c = (c or "").lower()
+    return c if (c.isalnum()) else "_"
 
-  const [product, setProduct] = useState<any>(null);
-  const [error, setError] = useState<string | null>(null);
+def _shard_key(slug: str) -> str:
+    slug = slug or ""
+    a = _clean_char(slug[0]) if len(slug) > 0 else "_"
+    b = _clean_char(slug[1]) if len(slug) > 1 else "_"
+    return f"{a}{b}"
 
-  useEffect(() => {
-    let cancelled = false;
+def rebuild():
+    out = []
+    indexed = 0
+    skipped = 0
 
-    async function load() {
-      try {
-        setError(null);
-        setProduct(null);
+    # key -> { slug: full_url }
+    shards = {}
 
-        if (!id) throw new Error("Missing product id");
+    for json_path in PRODUCTS_ROOT.rglob("*.json"):
+        try:
+            with open(json_path, "r", encoding="utf-8") as f:
+                pdp = json.load(f)
+        except Exception:
+            skipped += 1
+            continue
 
-        /* ============================
-           LOAD PRODUCT INDEX (R2)
-           ============================ */
-        const indexRes = await fetch(`${R2_BASE}/indexes/_index.json`, {
-          cache: "no-store",
-        });
+        # skip non-PDP JSONs
+        if not isinstance(pdp, dict):
+            skipped += 1
+            continue
 
-        const indexText = await indexRes.text();
+        # canonical slug
+        slug = pdp.get("handle")
+        if not slug:
+            skipped += 1
+            continue
 
-        if (indexText.trim().startsWith("<")) {
-          throw new Error("Index returned HTML");
-        }
+        # build PUBLIC R2 URL
+        rel_path = json_path.relative_to(PRODUCTS_ROOT)
 
-        const index = JSON.parse(indexText);
-        const entry = index.find((p: any) => p.slug === id);
+        # ✅ FIX: normalize "part 01" → "part_01" in URL paths
+        rel_path_posix = rel_path.as_posix().replace("part ", "part_")
 
-        if (!entry?.path) {
-          throw new Error("Product not found in index");
-        }
+        url_path = f"{R2_BASE_URL}/products/{rel_path_posix}"
 
-        /* ============================
-           LOAD PRODUCT JSON (R2)
-           ============================ */
-        // ✅ FIX: entry.path is already a FULL R2 URL
-        const res = await fetch(entry.path, { cache: "no-store" });
+        # ---- image normalization (robust) ----
+        images = pdp.get("images")
+        image_url = ""
 
-        const text = await res.text();
+        if isinstance(images, list) and images:
+            first = images[0]
+            if isinstance(first, dict):
+                image_url = first.get("src", "")
+        elif isinstance(images, str):
+            image_url = images
+        # -------------------------------------
 
-        if (text.trim().startsWith("<")) {
-          throw new Error("Expected JSON but received HTML");
-        }
+        out.append({
+            "slug": slug,
+            "path": url_path,
+            "title": pdp.get("title", ""),
+            "asin": pdp.get("asin", ""),
+            "brand": pdp.get("brand", ""),
+            "category": pdp.get("category", ""),
+            "category_keys": pdp.get("category_keys", []),
+            "price": pdp.get("price", ""),
+            "image": image_url,
+        })
 
-        if (!res.ok) {
-          throw new Error(`HTTP ${res.status}`);
-        }
+        k = _shard_key(slug)
+        if k not in shards:
+            shards[k] = {}
+        shards[k][slug] = url_path
 
-        const json = JSON.parse(text);
-        if (!cancelled) setProduct(json);
-      } catch (e: any) {
-        if (!cancelled) setError(e?.message || "Product failed to load");
-      }
-    }
+        indexed += 1
 
-    load();
-    return () => {
-      cancelled = true;
-    };
-  }, [id, location.key]);
+    OUTPUT_PATH.parent.mkdir(parents=True, exist_ok=True)
+    with open(OUTPUT_PATH, "w", encoding="utf-8") as f:
+        json.dump(out, f, ensure_ascii=False)
 
-  if (error) {
-    return (
-      <div className="max-w-[1200px] mx-auto px-4 py-8">
-        <div className="border border-red-300 bg-red-50 text-red-800 rounded p-4">
-          <div className="font-semibold">Product failed to load</div>
-          <div className="text-sm mt-1">{error}</div>
-        </div>
-      </div>
-    );
-  }
+    # Write shards
+    PDP_SHARDS_DIR.mkdir(parents=True, exist_ok=True)
+    shard_files = 0
+    for k, mapping in shards.items():
+        shard_path = PDP_SHARDS_DIR / f"{k}.json"
+        with open(shard_path, "w", encoding="utf-8") as f:
+            json.dump(mapping, f, ensure_ascii=False)
+        shard_files += 1
 
-  if (!product) {
-    return (
-      <div className="max-w-[1200px] mx-auto px-4 py-8 text-sm text-gray-600">
-        Loading product…
-      </div>
-    );
-  }
+    print("✅ Rebuilt _index.json")
+    print(f"📦 Products indexed: {indexed}")
+    print(f"⚠️ PDPs skipped: {skipped}")
+    print(f"📄 Output: {OUTPUT_PATH}")
+    print(f"✅ Wrote PDP shards: {shard_files}")
+    print(f"📄 Shards dir: {PDP_SHARDS_DIR}")
 
-  return (
-    <ProductPdpProvider product={product}>
-      <div className="w-full">
-        {ProductBreadcrumb ? <ProductBreadcrumb /> : null}
-        {ProductHeroSection ? <ProductHeroSection /> : null}
-        {ProductDetailsSection ? <ProductDetailsSection /> : null}
+if __name__ == "__main__":
+    rebuild()
 
-        {/* Rufus assistant (drawer only) */}
-        <AssistantDrawer />
-      </div>
-    </ProductPdpProvider>
-  );
-}
-
-/* ============================
-   Outer Provider Wrapper
-   ============================ */
-export function SingleProduct() {
-  return (
-    <AssistantContextProvider>
-      <SingleProductInner />
-    </AssistantContextProvider>
-  );
-}
-
-export default SingleProduct;
 
 
 
