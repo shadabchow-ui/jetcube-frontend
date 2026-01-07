@@ -1,8 +1,8 @@
 import { useEffect, useState } from "react";
 
-/* ============================================================
-   Types
-   ============================================================ */
+/* =========================================================
+   TYPES
+========================================================= */
 
 export type IndexProduct = {
   handle?: string;
@@ -12,28 +12,17 @@ export type IndexProduct = {
 
   title?: string;
 
-  // pricing
   price?: number | string;
-  current_price?: number | string;
-  sale_price?: number | string;
-  list_price?: number | string;
   was_price?: number | string;
-  wasPrice?: number | string;
 
   rating?: number | string;
   rating_count?: number | string;
-  ratingCount?: number | string;
 
-  // images
-  image?: any;
-  image_url?: any;
-  imageUrl?: any;
-  thumbnail?: any;
+  image?: string | null;
   images?: any;
   gallery_images?: any;
-
-  // passthrough
-  [key: string]: any;
+  category?: string;
+  category_path?: string[];
 };
 
 export type UseIndexProductsReturn = {
@@ -42,129 +31,103 @@ export type UseIndexProductsReturn = {
   error: string | null;
 };
 
-/* ============================================================
-   Image helpers (unchanged behavior)
-   ============================================================ */
+/* =========================================================
+   CONFIG — 🔴 THIS IS THE IMPORTANT PART
+========================================================= */
 
-function readUrlFromMaybeObj(v: unknown): string | null {
-  if (!v) return null;
-  if (typeof v === "string") return v.trim() || null;
+/**
+ * MUST be your PUBLIC R2 bucket domain.
+ * Relative paths WILL break on Cloudflare Pages.
+ */
+const R2_INDEX_URLS = [
+  "https://pub-jetcube-assets.r2.dev/indexes/_index.json",
+  "https://pub-jetcube-assets.r2.dev/indexes/search_index.enriched.json",
+];
 
-  if (typeof v === "object") {
-    const anyV = v as any;
-    const s =
-      anyV?.url ||
-      anyV?.src ||
-      anyV?.href ||
-      anyV?.hiRes ||
-      anyV?.large;
+/* =========================================================
+   HELPERS
+========================================================= */
 
-    if (typeof s === "string" && s.trim()) return s.trim();
-  }
-
-  return null;
+function isHtmlResponse(text: string, contentType: string | null): boolean {
+  return (
+    contentType?.includes("text/html") ||
+    text.trim().startsWith("<!DOCTYPE") ||
+    text.trim().startsWith("<html")
+  );
 }
 
-function getFirstFromImages(images: unknown): string | null {
-  if (!images) return null;
+async function fetchJsonStrict(url: string): Promise<any> {
+  const res = await fetch(url, { cache: "no-store" });
 
-  if (typeof images === "string") return images.trim() || null;
+  if (!res.ok) {
+    throw new Error(`HTTP ${res.status} for ${url}`);
+  }
 
-  if (Array.isArray(images)) {
-    const first = images[0] as any;
-    if (typeof first === "string") return first.trim() || null;
-    if (first && typeof first === "object") {
-      return readUrlFromMaybeObj(first);
+  const contentType = res.headers.get("content-type");
+  const text = await res.text();
+
+  if (isHtmlResponse(text, contentType)) {
+    throw new Error(`Expected JSON but got HTML from ${url}`);
+  }
+
+  try {
+    return JSON.parse(text);
+  } catch {
+    throw new Error(`Invalid JSON from ${url}`);
+  }
+}
+
+async function fetchFirstWorking(urls: string[]): Promise<any> {
+  let lastError: any = null;
+
+  for (const url of urls) {
+    try {
+      return await fetchJsonStrict(url);
+    } catch (err) {
+      lastError = err;
     }
   }
 
-  if (typeof images === "object") {
-    const anyImgs = images as any;
-    if (Array.isArray(anyImgs.images)) {
-      return getFirstFromImages(anyImgs.images);
-    }
-  }
-
-  return null;
+  throw lastError || new Error("All index fetch attempts failed");
 }
 
-function pickProductImage(p: any): string | null {
-  const candidates: any[] = [
-    p?.thumbnail,
-    p?.image,
-    p?.image_url,
-    p?.imageUrl,
-    p?.img,
-    p?.primary_image,
-    p?.main_image,
-    Array.isArray(p?.images) ? p.images : null,
-    Array.isArray(p?.gallery_images) ? p.gallery_images : null,
-  ];
-
-  for (const c of candidates) {
-    const u1 = readUrlFromMaybeObj(c);
-    if (u1) return u1;
-
-    const u2 = getFirstFromImages(c);
-    if (u2) return u2;
-  }
-
-  return null;
-}
-
-/* ============================================================
-   Number helpers (unchanged behavior)
-   ============================================================ */
-
-function toNumberMaybe(v: unknown): number | null {
-  if (v === null || v === undefined) return null;
-
+function toNumber(v: any): number | null {
   if (typeof v === "number" && Number.isFinite(v)) return v;
-
   if (typeof v === "string") {
     const n = Number(v.replace(/[^0-9.]/g, ""));
     return Number.isFinite(n) ? n : null;
   }
+  return null;
+}
+
+function pickImage(p: any): string | null {
+  const candidates = [
+    p?.image,
+    p?.image_url,
+    p?.main_image,
+    p?.thumbnail,
+    Array.isArray(p?.images) ? p.images[0] : null,
+    Array.isArray(p?.gallery_images) ? p.gallery_images[0] : null,
+  ];
+
+  for (const c of candidates) {
+    if (typeof c === "string" && c.trim()) return c;
+    if (c && typeof c === "object") {
+      const u = c.url || c.src || c.href || c.hiRes || c.large;
+      if (typeof u === "string" && u.trim()) return u;
+    }
+  }
 
   return null;
 }
 
-/* ============================================================
-   JSON loader (FIXED)
-   ============================================================ */
-
-async function fetchIndexJson(): Promise<any[]> {
-  const res = await fetch("/indexes/_index.json", {
-    cache: "no-store",
-  });
-
-  if (!res.ok) {
-    throw new Error(`Failed to load /indexes/_index.json (${res.status})`);
-  }
-
-  const text = await res.text();
-
-  // Guard against SPA fallback (index.html)
-  if (text.trim().startsWith("<")) {
-    throw new Error("Expected JSON but got HTML for /indexes/_index.json");
-  }
-
-  const json = JSON.parse(text);
-
-  if (!Array.isArray(json)) {
-    throw new Error("Invalid index format: expected array");
-  }
-
-  return json;
-}
-
-/* ============================================================
-   Hook
-   ============================================================ */
+/* =========================================================
+   HOOK
+========================================================= */
 
 export function useIndexProducts(): UseIndexProductsReturn {
   const [items, setItems] = useState<IndexProduct[]>([]);
-  const [loading, setLoading] = useState<boolean>(true);
+  const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -175,50 +138,44 @@ export function useIndexProducts(): UseIndexProductsReturn {
       setError(null);
 
       try {
-        const arr = await fetchIndexJson();
+        const json = await fetchFirstWorking(R2_INDEX_URLS);
 
-        const normalized: IndexProduct[] = arr
+        const raw: any[] = Array.isArray(json)
+          ? json
+          : Array.isArray(json?.items)
+          ? json.items
+          : [];
+
+        const normalized: IndexProduct[] = raw
           .map((p: any) => {
-            if (!p || typeof p !== "object") return null;
+            if (typeof p === "string") {
+              return {
+                handle: p,
+                title: p,
+                image: null,
+              };
+            }
 
             const handle =
-              (typeof p.handle === "string" && p.handle) ||
-              (typeof p.slug === "string" && p.slug) ||
-              (typeof p.asin === "string" && p.asin) ||
-              (typeof p.id === "string" && p.id) ||
-              "";
+              p.handle || p.slug || p.asin || p.id || "";
 
             if (!handle) return null;
 
             return {
               ...p,
               handle,
-              image: pickProductImage(p),
+              title: typeof p.title === "string" ? p.title : handle,
+              image: pickImage(p),
               price:
-                toNumberMaybe(
-                  p.price ?? p.current_price ?? p.sale_price
-                ) ??
-                p.price ??
-                p.current_price ??
-                p.sale_price,
+                toNumber(p.price ?? p.current_price ?? p.sale_price) ??
+                p.price,
               was_price:
-                toNumberMaybe(
-                  p.was_price ?? p.wasPrice ?? p.list_price
-                ) ??
-                p.was_price ??
-                p.wasPrice ??
-                p.list_price,
-              rating: toNumberMaybe(p.rating) ?? p.rating,
+                toNumber(p.was_price ?? p.wasPrice ?? p.list_price) ??
+                p.was_price,
+              rating: toNumber(p.rating) ?? p.rating,
               rating_count:
-                toNumberMaybe(
-                  p.rating_count ?? p.ratingCount
-                ) ??
-                p.rating_count ??
-                p.ratingCount,
-              title:
-                typeof p.title === "string" && p.title
-                  ? p.title
-                  : handle,
+                toNumber(p.rating_count ?? p.ratingCount) ??
+                p.rating_count,
             };
           })
           .filter(Boolean) as IndexProduct[];
@@ -227,15 +184,12 @@ export function useIndexProducts(): UseIndexProductsReturn {
           setItems(normalized);
         }
       } catch (err: any) {
-        console.error("useIndexProducts error:", err);
         if (!cancelled) {
           setError(err?.message || "Failed to load product index");
           setItems([]);
         }
       } finally {
-        if (!cancelled) {
-          setLoading(false);
-        }
+        if (!cancelled) setLoading(false);
       }
     }
 
@@ -250,3 +204,4 @@ export function useIndexProducts(): UseIndexProductsReturn {
 }
 
 export default useIndexProducts;
+
