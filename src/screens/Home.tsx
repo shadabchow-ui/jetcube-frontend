@@ -48,7 +48,6 @@ function ScoutTab() {
   );
 }
 
-
 const Home = (): JSX.Element => {
   /* ------------------------------------
    * Hero slides
@@ -82,7 +81,6 @@ const Home = (): JSX.Element => {
   ];
 
   const { items, loading, error } = useIndexProducts();
-  console.log("INDEX SAMPLE:", items.slice(0, 3));
 
   if (loading) {
     return (
@@ -95,11 +93,17 @@ const Home = (): JSX.Element => {
   if (error) {
     return (
       <main className="max-w-[1500px] mx-auto px-3">
-        <div className="py-12 text-center text-red-600">{error}</div>
+        <div className="py-12 text-center text-gray-500">
+          {/* Fail soft — homepage should never break */}
+          Loading products…
+        </div>
       </main>
     );
   }
 
+  /* ------------------------------------
+   * Normalize products → cards
+   * ---------------------------------- */
   const toCard = (p: any): ProductCardData => ({
     handle: p.handle,
     title: p.title,
@@ -117,35 +121,22 @@ const Home = (): JSX.Element => {
     badge: p.badge,
   });
 
-  const womensDresses = items.filter((p) => {
-    // Prefer structured path if present
-    if (Array.isArray(p.category_path)) {
-      const path = p.category_path.join(" ").toLowerCase();
-      return path.includes("dress");
-    }
+  const safeItems = Array.isArray(items) ? items.filter(Boolean) : [];
+  const shuffled = shuffle(safeItems);
 
-    // Fallback to category string
-    if (typeof p.category === "string") {
-      const cat = p.category.toLowerCase();
-      return cat.includes("dress");
-    }
+  /* ------------------------------------
+   * Homepage sections
+   * ---------------------------------- */
+  const trending = shuffled.slice(0, 16).map(toCard);
 
-    // Last-resort: title-based inference
-    if (typeof p.title === "string") {
-      return p.title.toLowerCase().includes("dress");
-    }
+  const recommended = shuffled.slice(16, 32).map(toCard);
 
-    return false;
-  });
-
-
-  const trending = shuffle(womensDresses).slice(0, 16).map(toCard);
-  const recommended = shuffle(womensDresses).slice(16, 32).map(toCard);
-  const deals = shuffle(
-    womensDresses.filter(
-      (p) => p.was_price && p.price && p.was_price > p.price
-    )
-  )
+  const deals = safeItems
+    .filter((p) => {
+      const price = Number(p.price);
+      const was = Number(p.was_price);
+      return Number.isFinite(price) && Number.isFinite(was) && was > price;
+    })
     .slice(0, 16)
     .map(toCard);
 
@@ -163,29 +154,36 @@ const Home = (): JSX.Element => {
           heightClassName="h-[360px] sm:h-[440px] lg:h-[520px] xl:h-[560px]"
         />
 
-        <HomeRow
-          title="Trending picks"
-          items={trending}
-          viewAllHref="/c/women/women"
-        />
+        {trending.length > 0 && (
+          <HomeRow
+            title="Trending picks"
+            items={trending}
+            viewAllHref="/shop"
+          />
+        )}
 
-        <HomeRow
-          title="Recommended for you"
-          items={recommended}
-          viewAllHref="/c/women/women"
-        />
+        {recommended.length > 0 && (
+          <HomeRow
+            title="Recommended for you"
+            items={recommended}
+            viewAllHref="/shop"
+          />
+        )}
 
-        <HomeRow
-          title="Top deals"
-          items={deals}
-          viewAllHref="/c/women/women"
-        />
+        {deals.length > 0 && (
+          <HomeRow
+            title="Top deals"
+            items={deals}
+            viewAllHref="/shop"
+          />
+        )}
       </main>
     </AssistantContextProvider>
   );
 };
 
 export default Home;
+
 
 
 
