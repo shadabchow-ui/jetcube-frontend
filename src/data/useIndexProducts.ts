@@ -153,9 +153,7 @@ async function fetchFirstJson(urls: string[]): Promise<any> {
 const R2_BASE = "https://pub-efc133d84c664ca8ace8be57ec3e4d65.r2.dev";
 
 const R2_INDEX_URLS = [
-  `${R2_BASE}/indexes/_index.cards.json`, // ✅ small (what homepage should use)
-  `${R2_BASE}/indexes/search_index.enriched.json`, // fallback (still smaller than full index in some builds)
-  `${R2_BASE}/indexes/_index.json`, // last resort only
+  `${R2_BASE}/indexes/_index.cards.json`,
 ];
 
 export function useIndexProducts(): UseIndexProductsReturn {
