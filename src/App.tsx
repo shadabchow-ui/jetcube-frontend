@@ -233,7 +233,7 @@ const ProductPdpProvider =
    ============================ */
 function ProductRoute({ children }: { children: React.ReactNode }) {
   const { id } = useParams<{ id: string }>();
-  const handle = (id || "").trim();
+  const handle = decodeURIComponent((id || "")).trim();
   const [product, setProduct] = React.useState<any>(null);
   const [error, setError] = React.useState<string | null>(null);
 
@@ -266,11 +266,17 @@ function ProductRoute({ children }: { children: React.ReactNode }) {
       const s = String(v).trim();
       if (!s) return null;
 
-      // If map already gives a full URL/path to a .json, use it as-is (but prefix R2 if it's a root-relative path)
+      // Full URL already
       if (s.startsWith("http://") || s.startsWith("https://")) return s;
+
+      // Root-relative path
       if (s.startsWith("/")) return joinUrl(R2_PUBLIC_BASE, s);
 
-      // If map gives a filename with .json, assume it's under /products/
+      // ✅ IMPORTANT: if it already looks like a path (contains "/"), treat as a path under R2
+      // Examples: "products/batch 2/part_01/x.json" or "indexes/pdp_paths/ti.json"
+      if (s.includes("/")) return joinUrl(R2_PUBLIC_BASE, s);
+
+      // Filename with .json (assume under /products/)
       if (s.endsWith(".json")) return joinUrl(R2_PUBLIC_BASE, `products/${s}`);
 
       // Otherwise assume it's a handle/filename base under /products/
@@ -290,7 +296,8 @@ function ProductRoute({ children }: { children: React.ReactNode }) {
           const key = shardKeyFromHandle(handle);
           const shard = await loadPdpShardOnce(key);
 
-          const directUrl = shard?.[handle];
+          const mapped = shard?.[handle];
+          const directUrl = resolveMappedToUrl(mapped);
           if (directUrl) {
             const p = await fetchJson(directUrl);
             if (!cancelled) setProduct(p);
@@ -311,7 +318,8 @@ function ProductRoute({ children }: { children: React.ReactNode }) {
             const entry = index.find((p: any) => p?.slug === handle);
 
             if (entry?.path) {
-              const p = await fetchJson(entry.path);
+              const entryUrl = resolveMappedToUrl(entry.path) || entry.path;
+              const p = await fetchJson(entryUrl);
               if (!cancelled) setProduct(p);
               return;
             }
