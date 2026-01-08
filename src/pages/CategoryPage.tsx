@@ -306,7 +306,24 @@ export default function CategoryPage() {
     };
   }, []);
 
-  // ✅ Load product index from /indexes/_index.json (has images + category_keys)
+  const pathname = normalizePathname(location.pathname);
+
+  const activeCategory = useMemo(() => {
+    if (!cats?.length) return null;
+    return findBestCategoryMatch(pathname, cats);
+  }, [cats, pathname]);
+
+  const activeCategoryKey = activeCategory?.category_key || "";
+
+  const categoryTitle = useMemo(() => {
+    if (activeCategory?.title) return activeCategory.title;
+    // fallback: last slug segment
+    const seg =
+      pathname.replace(/^\/c\/?/, "").split("/").filter(Boolean).pop() || "";
+    return seg ? titleizeSlug(seg) : "Category";
+  }, [activeCategory, pathname]);
+
+  // ✅ Load category shard from /indexes/category_products (FAST)
   useEffect(() => {
     let cancelled = false;
     setLoadingProducts(true);
@@ -314,12 +331,23 @@ export default function CategoryPage() {
 
     (async () => {
       try {
+        const rel = pathname.replace(/^\/c\/?/, "").replace(/^\/+/, "");
+        if (!rel) {
+          if (!cancelled) {
+            setProducts([]);
+            setLoadingProducts(false);
+          }
+          return;
+        }
+
+        const encoded = rel.replaceAll("/", "__");
+
         const json = await fetchFirstJson([
-          joinUrl(R2_PUBLIC_BASE, "indexes/_index.json"),
-          joinUrl(R2_PUBLIC_BASE, "products/_index.json"),
+          joinUrl(R2_PUBLIC_BASE, `indexes/category_products/${encoded}.json`),
+          joinUrl(R2_PUBLIC_BASE, `products/category_products/${encoded}.json`),
         ]);
 
-        const arr: any[] = Array.isArray(json) ? json : [];
+        const arr: any[] = Array.isArray(json?.products) ? json.products : [];
 
         const normalized: ProductSummary[] = arr
           .map((p: any) => {
@@ -338,6 +366,10 @@ export default function CategoryPage() {
               handle: key,
               title: typeof p?.title === "string" ? p.title : key,
               image: pickProductImage(p),
+              // keep existing filter logic intact
+              category_keys: activeCategoryKey ? [activeCategoryKey] : p?.category_keys,
+              category_key: activeCategoryKey ? activeCategoryKey : p?.category_key,
+              categoryKey: activeCategoryKey ? activeCategoryKey : p?.categoryKey,
             } as ProductSummary;
           })
           .filter((p) => !!getProductKey(p));
@@ -348,7 +380,7 @@ export default function CategoryPage() {
         }
       } catch (e: any) {
         if (!cancelled) {
-          setError(e?.message || "Failed to load product index");
+          setError(e?.message || "Failed to load category products");
           setProducts([]);
           setLoadingProducts(false);
         }
@@ -358,24 +390,7 @@ export default function CategoryPage() {
     return () => {
       cancelled = true;
     };
-  }, []);
-
-  const pathname = normalizePathname(location.pathname);
-
-  const activeCategory = useMemo(() => {
-    if (!cats?.length) return null;
-    return findBestCategoryMatch(pathname, cats);
-  }, [cats, pathname]);
-
-  const activeCategoryKey = activeCategory?.category_key || "";
-
-  const categoryTitle = useMemo(() => {
-    if (activeCategory?.title) return activeCategory.title;
-    // fallback: last slug segment
-    const seg =
-      pathname.replace(/^\/c\/?/, "").split("/").filter(Boolean).pop() || "";
-    return seg ? titleizeSlug(seg) : "Category";
-  }, [activeCategory, pathname]);
+  }, [pathname, activeCategoryKey]);
 
   const filtered = useMemo(() => {
     if (!products?.length) return [];
@@ -575,5 +590,3 @@ export default function CategoryPage() {
     </AssistantContextProvider>
   );
 }
-
-
