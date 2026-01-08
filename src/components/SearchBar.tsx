@@ -92,13 +92,14 @@ export default function SearchBar() {
      FAST AUTOSUGGEST LOOKUP
   ---------------------------------------- */
   const results = React.useMemo(() => {
-    const term = normalize(q);
-    if (term.length < 2) return [];
+const term = normalize(q);
+if (term.length < 2) return [];
 
-    // must match MAX_PREFIX_LEN in generator (6)
-    const key = term.slice(0, 6);
-    return autocomplete[key] || [];
-  }, [q, autocomplete]);
+const firstWord = term.split(" ")[0];
+const key = firstWord.slice(0, 6);
+
+return autocomplete[key] || [];
+
 
   function submit(value: string) {
     const trimmed = value.trim();
