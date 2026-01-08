@@ -90,11 +90,8 @@ export const NavigationSection = (): JSX.Element => {
   const navigate = useNavigate();
   const location = useLocation();
 
-  // ✅ Gate search-index bootstrap by route:
-  // Only load search indexes on /search and /c/* (category). Never on PDP (/p/*).
-  const pathname = location?.pathname || "";
-  const shouldBootstrapSearch =
-    pathname.startsWith("/search") || pathname.startsWith("/c/");
+  // ✅ Load a lightweight autocomplete index for header suggestions on all routes
+  const shouldBootstrapSearch = true;
 
   // LEFT DRAWER
   const [menuOpen, setMenuOpen] = useState(false);
@@ -276,7 +273,7 @@ export const NavigationSection = (): JSX.Element => {
     if (menuOpen) setAccountOpen(false);
   }, [menuOpen]);
 
-  // Load search index (keep your existing behavior) — NOW ROUTE-GATED
+  // Load search index (autocomplete-first) — NOW ENABLED FOR ALL ROUTES
   useEffect(() => {
     if (!shouldBootstrapSearch) return;
 
@@ -301,12 +298,21 @@ export const NavigationSection = (): JSX.Element => {
     };
 
     const load = async () => {
-      // Prefer R2, then /indexes, but allow fallbacks so dev/prod don't break.
-      const r2Base = joinUrl(R2_PUBLIC_BASE, "indexes/search_index.enriched.json");
-      const r2Url = withVersion(r2Base, SEARCH_INDEX_VERSION);
+      // Prefer small autocomplete index for fast header suggestions.
+      const r2AutoBase = joinUrl(R2_PUBLIC_BASE, "indexes/search_autocomplete.json");
+      const r2AutoUrl = withVersion(r2AutoBase, SEARCH_INDEX_VERSION);
+
+      // Fallback to full search index (existing behavior) if autocomplete isn't present.
+      const r2FullBase = joinUrl(R2_PUBLIC_BASE, "indexes/search_index.enriched.json");
+      const r2FullUrl = withVersion(r2FullBase, SEARCH_INDEX_VERSION);
 
       const urls = [
-        r2Url,
+        r2AutoUrl,
+        "/indexes/search_autocomplete.json",
+        "/products/search_autocomplete.json",
+        "/search_autocomplete.json",
+
+        r2FullUrl,
         "/indexes/search_index.enriched.json",
         "/indexes/search_index.json",
         "/products/search_index.enriched.json",
