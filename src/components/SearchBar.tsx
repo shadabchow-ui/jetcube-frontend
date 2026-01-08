@@ -7,9 +7,11 @@ type IndexItem = {
   brand?: string;
   category?: string;
   image?: string | null;
-  searchable: string;
 };
 
+/* ----------------------------------------
+   Helpers
+---------------------------------------- */
 function normalize(s: string) {
   return s
     .toLowerCase()
@@ -18,12 +20,13 @@ function normalize(s: string) {
     .trim();
 }
 
-// ✅ R2 public base + optional version-busting (minimal + safe)
+// ✅ R2 public base + optional version-busting
 const R2_PUBLIC_BASE =
   import.meta.env.VITE_R2_PUBLIC_BASE ||
   "https://pub-efc133d84c664ca8ace8be57ec3e4d65.r2.dev";
 
-const SEARCH_INDEX_VERSION = import.meta.env.VITE_SEARCH_INDEX_VERSION || "";
+const SEARCH_AUTOCOMPLETE_VERSION =
+  import.meta.env.VITE_SEARCH_AUTOCOMPLETE_VERSION || "";
 
 function joinUrl(base: string, path: string) {
   const b = String(base || "").replace(/\/+$/, "");
@@ -37,40 +40,45 @@ function withVersion(url: string, v: string) {
   return `${url}${sep}v=${encodeURIComponent(v)}`;
 }
 
+/* ----------------------------------------
+   Component
+---------------------------------------- */
 export default function SearchBar() {
   const navigate = useNavigate();
 
   const [q, setQ] = React.useState("");
-  const [items, setItems] = React.useState<IndexItem[]>([]);
+  const [autocomplete, setAutocomplete] = React.useState<
+    Record<string, IndexItem[]>
+  >({});
   const [open, setOpen] = React.useState(false);
   const [active, setActive] = React.useState(-1);
 
   /* ----------------------------------------
-     LOAD SEARCH INDEX (SINGLE SOURCE)
+     LOAD AUTOCOMPLETE INDEX (TINY FILE)
   ---------------------------------------- */
   React.useEffect(() => {
     let cancelled = false;
 
     async function load() {
       try {
-        const base = joinUrl(R2_PUBLIC_BASE, "indexes/search_index.enriched.json");
-        const url = withVersion(base, SEARCH_INDEX_VERSION);
+        const base = joinUrl(
+          R2_PUBLIC_BASE,
+          "indexes/search_autocomplete.json"
+        );
+        const url = withVersion(base, SEARCH_AUTOCOMPLETE_VERSION);
 
-        const res = await fetch(url, {
-          cache: "no-cache",
-        });
-
+        const res = await fetch(url, { cache: "force-cache" });
         if (!res.ok) return;
 
         const text = await res.text();
 
-        // 🚫 HARD STOP on HTML fallback
+        // 🚫 Guard against HTML fallback
         if (text.trim().startsWith("<")) return;
 
-        const data = JSON.parse(text) as IndexItem[];
-        if (!cancelled) setItems(data);
+        const data = JSON.parse(text) as Record<string, IndexItem[]>;
+        if (!cancelled) setAutocomplete(data);
       } catch {
-        if (!cancelled) setItems([]);
+        if (!cancelled) setAutocomplete({});
       }
     }
 
@@ -81,25 +89,16 @@ export default function SearchBar() {
   }, []);
 
   /* ----------------------------------------
-     AUTOSUGGEST LOGIC (MATCHES SEARCH PAGE)
+     FAST AUTOSUGGEST LOOKUP
   ---------------------------------------- */
   const results = React.useMemo(() => {
-    if (!q.trim()) return [];
-    const nq = normalize(q);
+    const term = normalize(q);
+    if (term.length < 2) return [];
 
-    return items
-      .map((p) => {
-        let score = 0;
-        if (normalize(p.title).includes(nq)) score += 3;
-        if (normalize(p.brand || "").includes(nq)) score += 2;
-        if (p.searchable.includes(nq)) score += 1;
-        return score > 0 ? { p, score } : null;
-      })
-      .filter(Boolean)
-      .sort((a: any, b: any) => b.score - a.score)
-      .slice(0, 8)
-      .map((x: any) => x.p);
-  }, [q, items]);
+    // must match MAX_PREFIX_LEN in generator (6)
+    const key = term.slice(0, 6);
+    return autocomplete[key] || [];
+  }, [q, autocomplete]);
 
   function submit(value: string) {
     const trimmed = value.trim();
@@ -203,3 +202,4 @@ export default function SearchBar() {
     </div>
   );
 }
+
