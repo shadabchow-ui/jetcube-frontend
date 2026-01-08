@@ -686,7 +686,7 @@ export const ProductHeroSection = (): JSX.Element => {
                 <div className="flex justify-between">
                   <span className="text-[#565959]">Direct from</span>
                   <span className="text-[#0F1111]">
-                    {String((product as any)?.sold_by || "Jetcube")}
+                    {String((product as any)?.sold_by || "Ventari")}
                   </span>
                 </div>
               </div>
