@@ -66,6 +66,26 @@ function buildCategoryHref(item: CategoryUrlItem): string {
   return `${base}${sep}k=${encodeURIComponent(key)}`;
 }
 
+// ✅ R2 public base + optional version-busting (kept minimal + safe fallbacks)
+const R2_PUBLIC_BASE =
+  import.meta.env.VITE_R2_PUBLIC_BASE ||
+  "https://pub-efc133d84c664ca8ace8be57ec3e4d65.r2.dev";
+
+const SEARCH_INDEX_VERSION = import.meta.env.VITE_SEARCH_INDEX_VERSION || "";
+const CATEGORY_URLS_VERSION = import.meta.env.VITE_CATEGORY_URLS_VERSION || "";
+
+function joinUrl(base: string, path: string) {
+  const b = String(base || "").replace(/\/+$/, "");
+  const p = String(path || "").replace(/^\/+/, "");
+  return `${b}/${p}`;
+}
+
+function withVersion(url: string, v: string) {
+  if (!v) return url;
+  const sep = url.includes("?") ? "&" : "?";
+  return `${url}${sep}v=${encodeURIComponent(v)}`;
+}
+
 export const NavigationSection = (): JSX.Element => {
   const navigate = useNavigate();
   const location = useLocation();
@@ -281,8 +301,12 @@ export const NavigationSection = (): JSX.Element => {
     };
 
     const load = async () => {
-      // Prefer /indexes, but allow fallbacks so dev/prod don't break.
+      // Prefer R2, then /indexes, but allow fallbacks so dev/prod don't break.
+      const r2Base = joinUrl(R2_PUBLIC_BASE, "indexes/search_index.enriched.json");
+      const r2Url = withVersion(r2Base, SEARCH_INDEX_VERSION);
+
       const urls = [
+        r2Url,
         "/indexes/search_index.enriched.json",
         "/indexes/search_index.json",
         "/products/search_index.enriched.json",
@@ -337,8 +361,15 @@ export const NavigationSection = (): JSX.Element => {
     };
 
     const load = async () => {
-      // Prefer /indexes, but allow fallbacks so dev/prod don't break.
-      const urls = ["/indexes/_category_urls.json", "/products/_category_urls.json"];
+      // Prefer R2, then /indexes, but allow fallbacks so dev/prod don't break.
+      const r2Base = joinUrl(R2_PUBLIC_BASE, "indexes/_category_urls.json");
+      const r2Url = withVersion(r2Base, CATEGORY_URLS_VERSION);
+
+      const urls = [
+        r2Url,
+        "/indexes/_category_urls.json",
+        "/products/_category_urls.json",
+      ];
 
       for (const url of urls) {
         try {
@@ -358,7 +389,10 @@ export const NavigationSection = (): JSX.Element => {
           }
 
           const items = normalizeCats(json)
-            .filter((x) => x && typeof (x as any).url === "string" && (x as any).url.startsWith("/c/"))
+            .filter(
+              (x) =>
+                x && typeof (x as any).url === "string" && (x as any).url.startsWith("/c/")
+            )
             .filter(
               (x) =>
                 x &&
