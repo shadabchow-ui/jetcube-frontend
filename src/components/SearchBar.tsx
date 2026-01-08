@@ -18,6 +18,25 @@ function normalize(s: string) {
     .trim();
 }
 
+// ✅ R2 public base + optional version-busting (minimal + safe)
+const R2_PUBLIC_BASE =
+  import.meta.env.VITE_R2_PUBLIC_BASE ||
+  "https://pub-efc133d84c664ca8ace8be57ec3e4d65.r2.dev";
+
+const SEARCH_INDEX_VERSION = import.meta.env.VITE_SEARCH_INDEX_VERSION || "";
+
+function joinUrl(base: string, path: string) {
+  const b = String(base || "").replace(/\/+$/, "");
+  const p = String(path || "").replace(/^\/+/, "");
+  return `${b}/${p}`;
+}
+
+function withVersion(url: string, v: string) {
+  if (!v) return url;
+  const sep = url.includes("?") ? "&" : "?";
+  return `${url}${sep}v=${encodeURIComponent(v)}`;
+}
+
 export default function SearchBar() {
   const navigate = useNavigate();
 
@@ -34,7 +53,10 @@ export default function SearchBar() {
 
     async function load() {
       try {
-        const res = await fetch("/indexes/search_index.enriched.json", {
+        const base = joinUrl(R2_PUBLIC_BASE, "indexes/search_index.enriched.json");
+        const url = withVersion(base, SEARCH_INDEX_VERSION);
+
+        const res = await fetch(url, {
           cache: "no-cache",
         });
 
@@ -181,5 +203,3 @@ export default function SearchBar() {
     </div>
   );
 }
-
-
