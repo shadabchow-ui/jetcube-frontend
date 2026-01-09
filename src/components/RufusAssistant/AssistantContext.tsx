@@ -282,10 +282,29 @@ export function AssistantProvider({
         { id: uid(), role: "user", text: question },
       ]);
 
-      const answer =
-        mode === "mock"
-          ? await mockAsk(productTitle, question)
-          : await mockAsk(productTitle, question);
+      let answer = "";
+
+      if (mode === "mock") {
+        answer = await mockAsk(productTitle, question);
+      } else {
+        const res = await fetch("/api/assistant", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            messages: [{ role: "user", content: question }],
+            product: {
+              productId,
+              productTitle,
+              productSku,
+              productCategory,
+              productTags,
+            },
+          }),
+        });
+
+        const data = await res.json();
+        answer = data?.answer || "Sorry — I couldn’t find an answer to that.";
+      }
 
       setMessages((m) => [
         ...m,
@@ -345,5 +364,5 @@ export function useAssistant() {
 /* Alias (IMPORTANT) */
 /* ------------------------------------------------------------------ */
 
-// This alias is REQUIRED because AssistantLauncher imports it by this name
+// REQUIRED because AssistantLauncher imports this name
 export { AssistantProvider as AssistantContextProvider };
