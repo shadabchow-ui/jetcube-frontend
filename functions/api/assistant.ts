@@ -1,30 +1,32 @@
-import OpenAI from "openai";
-
 export const onRequestPost: PagesFunction = async ({ request, env }) => {
   try {
-    const body = await request.json();
-    const { messages, product } = body;
+    const { messages } = await request.json();
 
-    const client = new OpenAI({
-      apiKey: env.OPENAI_API_KEY
+    const res = await fetch("https://api.openai.com/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${env.OPENAI_API_KEY}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        model: "gpt-4.1-mini",
+        messages: [
+          {
+            role: "system",
+            content:
+              "You are Scout, a shopping assistant. Answer clearly, concisely, and only about the product.",
+          },
+          ...messages,
+        ],
+        temperature: 0.4,
+      }),
     });
 
-    const completion = await client.chat.completions.create({
-      model: "gpt-4.1-mini",
-      messages: [
-        {
-          role: "system",
-          content:
-            "You are Scout, a shopping assistant. Answer clearly, concisely, and only about the product."
-        },
-        ...messages
-      ],
-      temperature: 0.4
-    });
+    const data = await res.json();
 
     return new Response(
       JSON.stringify({
-        answer: completion.choices[0].message.content
+        answer: data?.choices?.[0]?.message?.content || "",
       }),
       { headers: { "Content-Type": "application/json" } }
     );
@@ -35,4 +37,5 @@ export const onRequestPost: PagesFunction = async ({ request, env }) => {
     );
   }
 };
+
 
