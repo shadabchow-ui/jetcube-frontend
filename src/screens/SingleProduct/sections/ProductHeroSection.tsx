@@ -391,13 +391,9 @@ export const ProductHeroSection = (): JSX.Element => {
     );
   };
 
-
   // ✅ Buy Now -> Square checkout (ONLY CHANGE)
   const buyNow = async () => {
     try {
-      const API_BASE =
-        import.meta.env.VITE_SQUARE_API_BASE || "https://square-api.shadabchow.workers.dev";
-
       const p = (product as any)?.price;
       const priceNum =
         typeof p === "number"
@@ -409,7 +405,12 @@ export const ProductHeroSection = (): JSX.Element => {
       const priceCents =
         Number.isFinite(priceNum) && priceNum > 0 ? Math.round(priceNum * 100) : 4999;
 
-      const res = await fetch(`${String(API_BASE).replace(/\/+$/, "")}/checkout`, {
+      const apiBase =
+        (import.meta as any).env?.VITE_SQUARE_API_BASE ||
+        "https://square-api.shadabchow.workers.dev";
+
+      const base = String(apiBase || "").replace(/\/+$/, "");
+      const res = await fetch(`${base}/checkout`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
