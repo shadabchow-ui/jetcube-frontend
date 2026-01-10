@@ -406,7 +406,7 @@ export const ProductHeroSection = (): JSX.Element => {
       const priceCents =
         Number.isFinite(priceNum) && priceNum > 0 ? Math.round(priceNum * 100) : 4999;
 
-      const apiBase = (import.meta.env.VITE_SQUARE_API_BASE || "http://localhost:4242").replace(/\/+$/, "");
+      const apiBase = (import.meta.env.VITE_SQUARE_API_BASE || "https://square-api.shadabchow.workers.dev").replace(/\/+$/, "");
 
       const res = await fetch(`${apiBase}/checkout`, {
         method: "POST",
@@ -430,8 +430,9 @@ export const ProductHeroSection = (): JSX.Element => {
         return;
       }
 
-      if (data?.checkoutUrl) {
-        window.location.href = data.checkoutUrl;
+      const redirectUrl = data?.checkoutUrl || data?.checkout_url || data?.url;
+      if (redirectUrl) {
+        window.location.href = String(redirectUrl);
         return;
       }
 
