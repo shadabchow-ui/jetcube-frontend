@@ -8,6 +8,15 @@
     <script>
       window.dataLayer = window.dataLayer || [];
       function gtag(){dataLayer.push(arguments);}
+
+      // ✅ Consent Mode default (deny until user chooses)
+      gtag('consent', 'default', {
+        ad_storage: 'denied',
+        analytics_storage: 'denied',
+        ad_user_data: 'denied',
+        ad_personalization: 'denied'
+      });
+
       gtag('js', new Date());
       gtag('config', 'G-SKJ3P10HEN');
     </script>
@@ -36,5 +45,6 @@
     <script type="module" src="./src/index.tsx"></script>
   </body>
 </html>
+
 
 
