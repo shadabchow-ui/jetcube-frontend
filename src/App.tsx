@@ -528,12 +528,92 @@ const router = createBrowserRouter([
 ]);
 
 /* ============================
+   ✅ CONSENT BANNER (ONLY ADDITION)
+   ============================ */
+declare global {
+  interface Window {
+    gtag?: (...args: any[]) => void;
+  }
+}
+
+type ConsentChoice = "granted" | "denied";
+const CONSENT_KEY = "ventari_consent_v1";
+
+function applyConsent(choice: ConsentChoice) {
+  window.gtag?.("consent", "update", {
+    ad_storage: choice,
+    analytics_storage: choice,
+    ad_user_data: choice,
+    ad_personalization: choice,
+  });
+}
+
+function ConsentBanner() {
+  const [open, setOpen] = React.useState(false);
+
+  React.useEffect(() => {
+    const saved = (localStorage.getItem(CONSENT_KEY) as ConsentChoice | null) || null;
+    if (saved) {
+      applyConsent(saved);
+      setOpen(false);
+    } else {
+      setOpen(true);
+    }
+  }, []);
+
+  if (!open) return null;
+
+  return (
+    <div className="fixed left-4 right-4 bottom-4 z-[9999]">
+      <div className="max-w-[900px] mx-auto bg-white border border-[#d5dbdb] rounded-xl shadow-lg p-4">
+        <div className="flex flex-col sm:flex-row sm:items-start gap-3">
+          <div className="flex-1">
+            <div className="text-[14px] font-semibold text-[#0F1111]">
+              Cookies & analytics
+            </div>
+            <div className="mt-1 text-[13px] text-[#565959] leading-relaxed">
+              We use cookies/analytics to understand traffic and improve the site.
+              You can accept or reject.
+            </div>
+          </div>
+
+          <div className="flex gap-2 sm:justify-end">
+            <button
+              className="px-4 py-2 rounded-lg border border-[#d5dbdb] text-[13px] font-semibold text-[#0F1111] hover:bg-gray-50"
+              onClick={() => {
+                localStorage.setItem(CONSENT_KEY, "denied");
+                applyConsent("denied");
+                setOpen(false);
+              }}
+            >
+              Reject
+            </button>
+
+            <button
+              className="px-4 py-2 rounded-lg bg-[#0F1111] text-white text-[13px] font-semibold hover:opacity-90"
+              onClick={() => {
+                localStorage.setItem(CONSENT_KEY, "granted");
+                applyConsent("granted");
+                setOpen(false);
+              }}
+            >
+              Accept
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ============================
    APP EXPORT
    ============================ */
 export const App = () => {
   return (
     <CartProvider>
       <WishlistProvider>
+        <ConsentBanner />
         <RouterProvider router={router} />
       </WishlistProvider>
     </CartProvider>
@@ -541,27 +621,3 @@ export const App = () => {
 };
 
 export default App;
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
