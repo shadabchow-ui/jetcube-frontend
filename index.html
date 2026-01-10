@@ -4,7 +4,8 @@
     <meta charset="utf-8" />
 
     <!-- Google tag (gtag.js) -->
-    <script async src="https://www.googletagmanager.com/gtag/js?id=G-SKJ3P1QHEN"></script>
+    <!-- ✅ FIXED: Measurement ID is consistent everywhere -->
+    <script async src="https://www.googletagmanager.com/gtag/js?id=G-SKJ3P10HEN"></script>
     <script>
       window.dataLayer = window.dataLayer || [];
       function gtag(){dataLayer.push(arguments);}
@@ -18,6 +19,8 @@
       });
 
       gtag('js', new Date());
+
+      // ✅ FIXED: same ID as script src
       gtag('config', 'G-SKJ3P10HEN');
     </script>
 
@@ -45,6 +48,7 @@
     <script type="module" src="./src/index.tsx"></script>
   </body>
 </html>
+
 
 
 
