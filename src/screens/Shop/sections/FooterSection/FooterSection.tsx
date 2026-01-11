@@ -37,6 +37,7 @@ const topColumns: LinkColumn[] = [
       { label: "Conditions of Use", to: "/help/conditions-of-use" },
       { label: "Privacy Notice", to: "/help/privacy-notice" },
       { label: "Accessibility", to: "/help/accessibility" },
+      { label: "Cookie Policy", to: "/help/cookiepolicy" },
     ],
   },
   {
