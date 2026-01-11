@@ -70,7 +70,7 @@ import * as DevicesModule from "./pages/help/Devices";
 import * as ConditionsOfUseModule from "./pages/help/ConditionsOfUse";
 import * as PrivacyNoticeModule from "./pages/help/PrivacyNotice";
 import * as AccessibilityModule from "./pages/help/Accessibility";
-import * as CookiePolicy from "./pages/help/cookiepolicy";
+import * as CookiePolicyModule from "./pages/help/cookiepolicy";
 
 /* ============================
    R2 Base (PUBLIC)
@@ -221,6 +221,7 @@ const Devices = pick<any>(DevicesModule, "Devices");
 const ConditionsOfUse = pick<any>(ConditionsOfUseModule, "ConditionsOfUse");
 const PrivacyNotice = pick<any>(PrivacyNoticeModule, "PrivacyNotice");
 const Accessibility = pick<any>(AccessibilityModule, "Accessibility");
+const CookiePolicy = pick<any>(CookiePolicyModule, "CookiePolicy");
 
 /* ============================
    PDP Provider
