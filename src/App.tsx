@@ -71,6 +71,7 @@ import * as DevicesModule from "./pages/help/Devices";
 import * as ConditionsOfUseModule from "./pages/help/ConditionsOfUse";
 import * as PrivacyNoticeModule from "./pages/help/PrivacyNotice";
 import * as AccessibilityModule from "./pages/help/Accessibility";
+import CookiePolicy from "./pages/cookiepolicy";
 
 /* ============================
    R2 Base (PUBLIC)
@@ -479,25 +480,26 @@ const router = createBrowserRouter([
       { path: "signup", element: <SignupPage /> },
       { path: "login", element: <LoginPage /> },
 
-      // Help
-      {
-        path: "help",
-        element: <HelpLayout />,
-        children: [
-          { index: true, element: <HelpIndex /> },
-          { path: "shipping", element: <Shipping /> },
-          { path: "returns", element: <Returns /> },
-          { path: "payments", element: <Payments /> },
-          { path: "conditions-of-use", element: <ConditionsOfUse /> },
-          { path: "privacy-notice", element: <PrivacyNotice /> },
-          { path: "accessibility", element: <Accessibility /> },
-          { path: "ads-privacy", element: <AdsPrivacy /> },
-          { path: "consumer-data", element: <ConsumerData /> },
-          { path: "product-safety", element: <ProductSafety /> },
-          { path: "devices", element: <Devices /> },
-          { path: "contact", element: <Contact /> },
-        ],
-      },
+// Help
+{
+  path: "help",
+  element: <HelpLayout />,
+  children: [
+    { index: true, element: <HelpIndex /> },
+    { path: "shipping", element: <Shipping /> },
+    { path: "returns", element: <Returns /> },
+    { path: "payments", element: <Payments /> },
+    { path: "conditions-of-use", element: <ConditionsOfUse /> },
+    { path: "privacy-notice", element: <PrivacyNotice /> },
+    { path: "accessibility", element: <Accessibility /> },
+    { path: "ads-privacy", element: <AdsPrivacy /> },
+    { path: "consumer-data", element: <ConsumerData /> },
+    { path: "product-safety", element: <ProductSafety /> },
+    { path: "devices", element: <Devices /> },
+    { path: "contact", element: <Contact /> },
+  ],
+},
+
 
       // PDP
       {
