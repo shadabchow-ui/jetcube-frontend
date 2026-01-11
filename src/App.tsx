@@ -67,11 +67,10 @@ import * as AdsPrivacyModule from "./pages/help/AdsPrivacy";
 import * as ConsumerDataModule from "./pages/help/ConsumerData";
 import * as ProductSafetyModule from "./pages/help/ProductSafety";
 import * as DevicesModule from "./pages/help/Devices";
-
 import * as ConditionsOfUseModule from "./pages/help/ConditionsOfUse";
 import * as PrivacyNoticeModule from "./pages/help/PrivacyNotice";
 import * as AccessibilityModule from "./pages/help/Accessibility";
-import CookiePolicy from "./pages/cookiepolicy";
+import * as CookiePolicy from "./pages/help/cookiepolicy";
 
 /* ============================
    R2 Base (PUBLIC)
