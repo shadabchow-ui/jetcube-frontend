@@ -481,6 +481,7 @@ const router = createBrowserRouter([
       { path: "login", element: <LoginPage /> },
 
 // Help
+// Help
 {
   path: "help",
   element: <HelpLayout />,
@@ -497,8 +498,10 @@ const router = createBrowserRouter([
     { path: "product-safety", element: <ProductSafety /> },
     { path: "devices", element: <Devices /> },
     { path: "contact", element: <Contact /> },
+    { path: "cookiepolicy", element: <CookiePolicy /> },
   ],
 },
+
 
 
       // PDP
