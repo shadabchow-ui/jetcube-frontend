@@ -13,6 +13,10 @@ export type IndexProduct = {
 
 const INDEX_URL = "/indexes/_index.cards.json";
 
+function isGzip(buf: Uint8Array) {
+  return buf.length >= 2 && buf[0] === 0x1f && buf[1] === 0x8b;
+}
+
 function normalizeProduct(raw: any): IndexProduct | null {
   const handle =
     raw.handle ||
@@ -52,40 +56,36 @@ export function useIndexProducts() {
 
     async function load() {
       try {
-        const res = await fetch(INDEX_URL, {
-          cache: "no-store",
-        });
+        const res = await fetch(INDEX_URL, { cache: "no-store" });
 
         if (!res.ok) {
           throw new Error(`Index fetch failed: ${res.status}`);
         }
 
-        const contentType = res.headers.get("content-type") || "";
+        const buffer = new Uint8Array(await res.arrayBuffer());
+
+        let jsonText: string;
+
+        if (isGzip(buffer)) {
+          jsonText = new TextDecoder().decode(ungzip(buffer));
+        } else {
+          jsonText = new TextDecoder().decode(buffer);
+        }
 
         let data: any;
-
-        if (contentType.includes("application/json")) {
-          data = await res.json();
-        } else {
-          const buf = new Uint8Array(await res.arrayBuffer());
-          const text = new TextDecoder().decode(ungzip(buf));
-          data = JSON.parse(text);
+        try {
+          data = JSON.parse(jsonText);
+        } catch {
+          throw new Error("Index payload is not valid JSON");
         }
 
-        // 🔑 Handle ALL known index shapes
         let rawItems: any[] = [];
 
-        if (Array.isArray(data)) {
-          rawItems = data;
-        } else if (Array.isArray(data.items)) {
-          rawItems = data.items;
-        } else if (Array.isArray(data.cards)) {
-          rawItems = data.cards;
-        } else if (data.index && Array.isArray(data.index)) {
-          rawItems = data.index;
-        } else {
-          throw new Error("Unknown index format");
-        }
+        if (Array.isArray(data)) rawItems = data;
+        else if (Array.isArray(data.items)) rawItems = data.items;
+        else if (Array.isArray(data.cards)) rawItems = data.cards;
+        else if (Array.isArray(data.index)) rawItems = data.index;
+        else throw new Error("Unknown index structure");
 
         const normalized = rawItems
           .map(normalizeProduct)
@@ -107,7 +107,6 @@ export function useIndexProducts() {
     }
 
     load();
-
     return () => {
       cancelled = true;
     };
@@ -115,4 +114,5 @@ export function useIndexProducts() {
 
   return { items, loading, error };
 }
+
 
