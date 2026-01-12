@@ -1,184 +1,170 @@
-// src/data/useIndexProducts.ts
-import { useEffect, useMemo, useRef, useState } from "react";
-import { ungzip } from "pako";
+import { useEffect, useMemo, useState } from "react";
+import pako from "pako";
 
 export type IndexProduct = {
-  handle: string;
   slug?: string;
+  handle?: string;
   url_slug?: string;
 
-  title: string;
+  title?: string;
+  name?: string;
+
   brand?: string;
+  vendor?: string;
+
   category?: string;
 
   image?: string | null;
   image_url?: string | null;
 
   price?: number | string | null;
-  was_price?: number | string | null;
+  currency?: string | null;
 
   searchable?: string;
 };
 
-type State = {
-  items: IndexProduct[];
-  loading: boolean;
-  error: string | null;
+export type ProductCardData = {
+  slug: string;
+  title: string;
+  brand?: string;
+  category?: string;
+  image?: string | null;
+  price?: string | null;
 };
 
-function isGzip(bytes: Uint8Array) {
+const INDEX_URL = "/indexes/_index.cards.json";
+
+function firstString(...vals: any[]): string | undefined {
+  for (const v of vals) {
+    if (typeof v === "string" && v.trim()) return v.trim();
+  }
+  return undefined;
+}
+
+function looksLikeGzip(bytes: Uint8Array) {
   return bytes.length >= 2 && bytes[0] === 0x1f && bytes[1] === 0x8b;
 }
 
-function decodeMaybeGzip(bytes: Uint8Array) {
-  // If Cloudflare serves gzip bytes but forgets the header, browsers won't auto-decompress.
-  if (isGzip(bytes)) {
-    const unzipped = ungzip(bytes);
-    return new TextDecoder("utf-8").decode(unzipped);
-  }
-  return new TextDecoder("utf-8").decode(bytes);
-}
-
-function safeString(v: any) {
-  return typeof v === "string" ? v : "";
-}
-
-function pickHandle(r: any) {
-  // accept legacy + new pipelines
-  return (
-    safeString(r?.handle) ||
-    safeString(r?.slug) ||
-    safeString(r?.url_slug) ||
-    safeString(r?.product_handle) ||
-    safeString(r?.id) ||
-    ""
-  );
-}
-
-function pickTitle(r: any) {
-  return safeString(r?.title) || safeString(r?.name) || safeString(r?.product_title) || "";
-}
-
-function normalizeRecord(r: any): IndexProduct | null {
-  const handle = pickHandle(r);
-  const title = pickTitle(r);
-
-  // Without these, Home.tsx builds cards from p.handle and HomeRow filters them out.
-  if (!handle || !title) return null;
-
-  const image =
-    (typeof r?.image_url === "string" && r.image_url) ||
-    (typeof r?.image === "string" && r.image) ||
-    (typeof r?.primary_image === "string" && r.primary_image) ||
-    null;
-
-  return {
-    handle,
-    slug: safeString(r?.slug) || undefined,
-    url_slug: safeString(r?.url_slug) || undefined,
-
-    title,
-    brand: safeString(r?.brand) || undefined,
-    category: safeString(r?.category) || undefined,
-
-    image: image,
-    image_url: image,
-
-    price: r?.price ?? null,
-    was_price: r?.was_price ?? r?.compare_at_price ?? null,
-
-    searchable: safeString(r?.searchable) || undefined,
-  };
-}
-
-async function fetchIndexJson(url: string, signal?: AbortSignal) {
+async function fetchJsonPossiblyGzipped(url: string): Promise<any> {
   const res = await fetch(url, {
     cache: "no-store",
-    signal,
+    headers: { accept: "application/json" },
   });
 
   if (!res.ok) {
-    throw new Error(`Index fetch failed: HTTP ${res.status}`);
+    throw new Error(`Failed to load ${url} (HTTP ${res.status})`);
   }
 
-  const ab = await res.arrayBuffer();
-  const bytes = new Uint8Array(ab);
+  // IMPORTANT: do NOT use res.text() here; the payload is gzipped bytes.
+  const buf = await res.arrayBuffer();
+  const bytes = new Uint8Array(buf);
 
-  let text = decodeMaybeGzip(bytes);
-  text = text.replace(/^\uFEFF/, "").trim(); // strip BOM just in case
-
-  // If content is still brotli/gzip bytes without headers, JSON.parse will fail here.
-  // The gzip case is handled above; for anything else we surface the first chars.
+  let text: string;
   try {
-    return JSON.parse(text);
+    if (looksLikeGzip(bytes)) {
+      const inflated = pako.ungzip(bytes);
+      text = new TextDecoder("utf-8").decode(inflated);
+    } else {
+      text = new TextDecoder("utf-8").decode(bytes);
+    }
+  } catch (e) {
+    // If something weird happens, last resort try text()
+    text = await res.text();
+  }
+
+  const trimmed = text.trim();
+
+  // Small safety: if Cloudflare ever returns HTML error pages, this helps debugging.
+  if (trimmed.startsWith("<!DOCTYPE") || trimmed.startsWith("<html")) {
+    throw new Error(`Expected JSON but received HTML from ${url}`);
+  }
+
+  try {
+    return JSON.parse(trimmed);
   } catch (e: any) {
-    const preview = text.slice(0, 80).replace(/\s+/g, " ");
-    throw new Error(`Invalid JSON from index (${url}). Preview: ${preview}`);
+    // include a tiny preview to help diagnose if needed
+    const preview = trimmed.slice(0, 120).replace(/\s+/g, " ");
+    throw new Error(`Invalid JSON from ${url}: ${e?.message || e}. Preview: ${preview}`);
   }
 }
 
-export function useIndexProducts() {
-  const [state, setState] = useState<State>({
-    items: [],
-    loading: true,
-    error: null,
-  });
+function normalizeItem(raw: IndexProduct): ProductCardData | null {
+  if (!raw || typeof raw !== "object") return null;
 
-  const abortRef = useRef<AbortController | null>(null);
+  const slug =
+    firstString(raw.slug, raw.handle, raw.url_slug) ??
+    "";
+
+  const title =
+    firstString(raw.title, raw.name) ??
+    "";
+
+  if (!slug || !title) return null;
+
+  const brand = firstString(raw.brand, raw.vendor);
+  const category = firstString(raw.category);
+  const image = (firstString(raw.image, raw.image_url) ?? null) as string | null;
+
+  let price: string | null = null;
+  if (raw.price !== undefined && raw.price !== null) {
+    if (typeof raw.price === "number") price = String(raw.price);
+    else if (typeof raw.price === "string" && raw.price.trim()) price = raw.price.trim();
+  }
+
+  return { slug, title, brand, category, image, price };
+}
+
+export function useIndexProducts() {
+  const [items, setItems] = useState<ProductCardData[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string>("");
 
   useEffect(() => {
-    abortRef.current?.abort();
-    const ac = new AbortController();
-    abortRef.current = ac;
+    let cancelled = false;
 
-    const run = async () => {
+    (async () => {
       try {
-        setState((s) => ({ ...s, loading: true, error: null }));
+        setLoading(true);
+        setError("");
 
-        // IMPORTANT: this must match the path you curl/see in Network:
-        // https://ventari.net/indexes/_index.cards.json
-        const url = "/indexes/_index.cards.json";
+        const data = await fetchJsonPossiblyGzipped(INDEX_URL);
 
-        const json = await fetchIndexJson(url, ac.signal);
+        // Your index might be either an array OR an object wrapper
+        const arr: IndexProduct[] = Array.isArray(data)
+          ? data
+          : Array.isArray(data?.items)
+            ? data.items
+            : Array.isArray(data?.data)
+              ? data.data
+              : [];
 
-        const arr: any[] = Array.isArray(json)
-          ? json
-          : Array.isArray((json as any)?.items)
-          ? (json as any).items
-          : Array.isArray((json as any)?.data)
-          ? (json as any).data
-          : [];
+        const normalized = arr
+          .map(normalizeItem)
+          .filter(Boolean) as ProductCardData[];
 
-        const items = arr.map(normalizeRecord).filter(Boolean) as IndexProduct[];
-
-        setState({
-          items,
-          loading: false,
-          error: null,
-        });
-      } catch (err: any) {
-        if (ac.signal.aborted) return;
-        setState({
-          items: [],
-          loading: false,
-          error: err?.message ? String(err.message) : "Unknown error",
-        });
+        if (!cancelled) {
+          setItems(normalized);
+        }
+      } catch (e: any) {
+        if (!cancelled) {
+          setItems([]);
+          setError(e?.message || String(e));
+        }
+      } finally {
+        if (!cancelled) setLoading(false);
       }
-    };
-
-    run();
+    })();
 
     return () => {
-      ac.abort();
+      cancelled = true;
     };
   }, []);
 
-  return useMemo(
-    () => ({
-      items: state.items,
-      loading: state.loading,
-      error: state.error,
-    }),
-    [state.items, state.loading, state.error]
-  );
+  const bySlug = useMemo(() => {
+    const m = new Map<string, ProductCardData>();
+    for (const p of items) m.set(p.slug, p);
+    return m;
+  }, [items]);
+
+  return { items, bySlug, loading, error };
 }
