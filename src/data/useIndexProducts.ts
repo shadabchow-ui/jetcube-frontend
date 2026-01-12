@@ -1,118 +1,198 @@
-import { useEffect, useState } from "react";
-import { ungzip } from "pako";
+import { useEffect, useMemo, useState } from "react";
+import pako from "pako";
 
 export type IndexProduct = {
-  handle: string;
-  title: string;
-  image: string | null;
-  price?: number;
-  was_price?: number;
-  rating?: number;
-  rating_count?: number;
+  // common identity fields across old/new pipelines
+  handle?: string;
+  slug?: string;
+  url_slug?: string;
+
+  title?: string;
+  name?: string;
+
+  // image field variations
+  imageUrl?: string | null;
+  image?: string | null;
+  image_url?: string | null;
+  image_src?: string | null;
+
+  brand?: string;
+  category?: string;
+  category_path?: string;
+
+  // optional precomputed search blob
+  searchable?: string;
 };
 
-const INDEX_URL = "/indexes/_index.cards.json";
+type HookState = {
+  items: IndexProduct[];
+  loading: boolean;
+  error: string | null;
+};
 
-function isGzip(buf: Uint8Array) {
-  return buf.length >= 2 && buf[0] === 0x1f && buf[1] === 0x8b;
+const SEARCH_INDEX_VERSION = import.meta.env.VITE_SEARCH_INDEX_VERSION || "";
+
+function safeStr(v: unknown): string {
+  return typeof v === "string" ? v : "";
 }
 
-function normalizeProduct(raw: any): IndexProduct | null {
-  const handle =
-    raw.handle ||
-    raw.slug ||
-    raw.id ||
-    raw.sku ||
-    null;
+function firstNonEmpty(...vals: unknown[]): string {
+  for (const v of vals) {
+    const s = safeStr(v).trim();
+    if (s) return s;
+  }
+  return "";
+}
 
-  if (!handle) return null;
+function stripToJson(text: string): string {
+  const t = text.trimStart();
 
-  const image =
-    raw.image ||
-    raw.image_url ||
-    raw.main_image ||
-    (Array.isArray(raw.images) ? raw.images[0] : null) ||
-    (Array.isArray(raw.gallery) ? raw.gallery[0] : null) ||
-    null;
+  // handle XSSI guards like ")]}',\n"
+  const xssi = t.startsWith(")]}',") ? t.slice(t.indexOf("\n") + 1) : t;
+
+  // try to slice from first { or [ to last } or ]
+  const startObj = xssi.indexOf("{");
+  const startArr = xssi.indexOf("[");
+  const start =
+    startObj === -1 ? startArr : startArr === -1 ? startObj : Math.min(startObj, startArr);
+
+  if (start === -1) return xssi;
+
+  const endObj = xssi.lastIndexOf("}");
+  const endArr = xssi.lastIndexOf("]");
+  const end = Math.max(endObj, endArr);
+
+  if (end === -1 || end <= start) return xssi.slice(start);
+
+  return xssi.slice(start, end + 1);
+}
+
+function coerceToArray(data: any): any[] {
+  if (Array.isArray(data)) return data;
+  if (data && Array.isArray(data.items)) return data.items;
+  if (data && Array.isArray(data.cards)) return data.cards;
+  if (data && Array.isArray(data.products)) return data.products;
+  return [];
+}
+
+function normalizeItem(raw: any): IndexProduct | null {
+  if (!raw || typeof raw !== "object") return null;
+
+  const handle = firstNonEmpty(raw.handle, raw.slug, raw.url_slug);
+  const title = firstNonEmpty(raw.title, raw.name);
+  const imageUrl = firstNonEmpty(raw.imageUrl, raw.image, raw.image_url, raw.image_src);
+  const brand = firstNonEmpty(raw.brand);
+  const category = firstNonEmpty(raw.category);
+  const category_path = firstNonEmpty(raw.category_path);
+
+  const searchable =
+    firstNonEmpty(raw.searchable) ||
+    [title, brand, category, category_path, handle].filter(Boolean).join(" ").toLowerCase();
 
   return {
-    handle,
-    title: raw.title || raw.name || handle,
-    image,
-    price: raw.price,
-    was_price: raw.was_price,
-    rating: raw.rating,
-    rating_count: raw.rating_count,
+    handle: raw.handle,
+    slug: raw.slug,
+    url_slug: raw.url_slug,
+
+    title,
+    name: raw.name,
+
+    imageUrl: imageUrl || null,
+    image: raw.image ?? null,
+    image_url: raw.image_url ?? null,
+    image_src: raw.image_src ?? null,
+
+    brand,
+    category,
+    category_path,
+    searchable,
   };
 }
 
-export function useIndexProducts() {
+async function fetchIndexText(url: string): Promise<string> {
+  const res = await fetch(url, {
+    cache: "no-store",
+    headers: {
+      // helps some edges not serve odd encodings
+      Accept: "application/json,text/plain,*/*",
+    },
+  });
+
+  if (!res.ok) {
+    throw new Error(`Index fetch failed (${res.status})`);
+  }
+
+  const buf = new Uint8Array(await res.arrayBuffer());
+
+  // If Cloudflare served raw gzip bytes (no content-encoding header),
+  // the payload starts with gzip magic 1F 8B.
+  const isGzip = buf.length >= 2 && buf[0] === 0x1f && buf[1] === 0x8b;
+
+  if (isGzip) {
+    const out = pako.ungzip(buf);
+    return new TextDecoder("utf-8").decode(out);
+  }
+
+  // If it’s already decompressed (normal case), decode as UTF-8.
+  return new TextDecoder("utf-8").decode(buf);
+}
+
+export function useIndexProducts(): HookState {
   const [items, setItems] = useState<IndexProduct[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
-    let cancelled = false;
-
-    async function load() {
-      try {
-        const res = await fetch(INDEX_URL, { cache: "no-store" });
-
-        if (!res.ok) {
-          throw new Error(`Index fetch failed: ${res.status}`);
-        }
-
-        const buffer = new Uint8Array(await res.arrayBuffer());
-
-        let jsonText: string;
-
-        if (isGzip(buffer)) {
-          jsonText = new TextDecoder().decode(ungzip(buffer));
-        } else {
-          jsonText = new TextDecoder().decode(buffer);
-        }
-
-        let data: any;
-        try {
-          data = JSON.parse(jsonText);
-        } catch {
-          throw new Error("Index payload is not valid JSON");
-        }
-
-        let rawItems: any[] = [];
-
-        if (Array.isArray(data)) rawItems = data;
-        else if (Array.isArray(data.items)) rawItems = data.items;
-        else if (Array.isArray(data.cards)) rawItems = data.cards;
-        else if (Array.isArray(data.index)) rawItems = data.index;
-        else throw new Error("Unknown index structure");
-
-        const normalized = rawItems
-          .map(normalizeProduct)
-          .filter(Boolean) as IndexProduct[];
-
-        if (!cancelled) {
-          setItems(normalized);
-          setError(null);
-        }
-      } catch (err: any) {
-        console.error("Index load error:", err);
-        if (!cancelled) {
-          setError(err.message || "Failed to load index");
-          setItems([]);
-        }
-      } finally {
-        if (!cancelled) setLoading(false);
-      }
-    }
-
-    load();
-    return () => {
-      cancelled = true;
-    };
+  const url = useMemo(() => {
+    const base = new URL("/indexes/_index.cards.json", window.location.origin).toString();
+    return SEARCH_INDEX_VERSION ? `${base}?v=${encodeURIComponent(SEARCH_INDEX_VERSION)}` : base;
   }, []);
+
+  useEffect(() => {
+    let alive = true;
+
+    (async () => {
+      try {
+        setLoading(true);
+        setError(null);
+
+        const rawText = await fetchIndexText(url);
+        const cleaned = stripToJson(rawText);
+
+        let parsed: any;
+        try {
+          parsed = JSON.parse(cleaned);
+        } catch {
+          // last attempt: sometimes there’s a BOM/garbage before JSON
+          parsed = JSON.parse(stripToJson(cleaned));
+        }
+
+        const arr = coerceToArray(parsed);
+        const normalized: IndexProduct[] = [];
+
+        for (const x of arr) {
+          const n = normalizeItem(x);
+          if (n) normalized.push(n);
+        }
+
+        if (!alive) return;
+
+        setItems(normalized);
+        setLoading(false);
+      } catch (e: any) {
+        if (!alive) return;
+        setItems([]);
+        setLoading(false);
+        setError(e?.message || "Failed to load index");
+      }
+    })();
+
+    return () => {
+      alive = false;
+    };
+  }, [url]);
 
   return { items, loading, error };
 }
+
 
 
