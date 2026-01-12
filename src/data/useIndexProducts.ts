@@ -39,11 +39,19 @@ export function useIndexProducts() {
           throw new Error(`Index fetch failed: ${res.status}`);
         }
 
-        // ⚠️ Cloudflare serves gzipped bytes without headers
         const buffer = await res.arrayBuffer();
+        const bytes = new Uint8Array(buffer);
 
-        // Decode gzip explicitly
-        const jsonText = ungzip(new Uint8Array(buffer), { to: "string" });
+        let jsonText: string;
+
+        try {
+          // Attempt gzip decode first (Cloudflare often gzips without headers)
+          jsonText = ungzip(bytes, { to: "string" });
+        } catch {
+          // Fallback: already plain JSON
+          jsonText = new TextDecoder("utf-8").decode(bytes);
+        }
+
         const data = JSON.parse(jsonText);
 
         if (!Array.isArray(data)) {
