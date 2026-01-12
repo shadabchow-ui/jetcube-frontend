@@ -17,20 +17,20 @@ export type ProductCardData = {
 
 type Props = {
   title: string;
-  items: ProductCardData[];
+  items?: ProductCardData[];
   viewAllHref?: string;
 };
 
-const HomeRow = ({ title, items, viewAllHref }: Props): JSX.Element => {
+const HomeRow = ({ title, items = [], viewAllHref }: Props): JSX.Element => {
+  // Be permissive — only remove null/undefined
   const safeItems = useMemo(() => {
-    const arr = Array.isArray(items) ? items : [];
-    // Filter out undefined/null and anything without handle/slug
-    return arr.filter((x) => {
-      if (!x) return false;
-      const h = (x as any).handle ?? (x as any).slug;
-      return typeof h === "string" && h.length > 0;
-    });
+    if (!Array.isArray(items)) return [];
+    return items.filter(Boolean);
   }, [items]);
+
+  if (safeItems.length === 0) {
+    return null; // prevents empty white boxes
+  }
 
   return (
     <section className="bg-white rounded-md border border-gray-200">
@@ -41,7 +41,10 @@ const HomeRow = ({ title, items, viewAllHref }: Props): JSX.Element => {
         </h2>
 
         {viewAllHref ? (
-          <Link to={viewAllHref} className="text-sm text-blue-700 hover:underline">
+          <Link
+            to={viewAllHref}
+            className="text-sm text-blue-700 hover:underline"
+          >
             View all
           </Link>
         ) : (
@@ -63,10 +66,15 @@ const HomeRow = ({ title, items, viewAllHref }: Props): JSX.Element => {
           "
         >
           {safeItems.map((p, idx) => {
-            const key = String((p as any).handle ?? (p as any).slug ?? idx);
+            const key =
+              p.handle ||
+              p.slug ||
+              p.id ||
+              `${title.replace(/\s+/g, "-")}-${idx}`;
+
             return (
               <div key={key} className="w-full">
-                <ProductCard p={p as any} />
+                <ProductCard p={p} />
               </div>
             );
           })}
@@ -77,6 +85,7 @@ const HomeRow = ({ title, items, viewAllHref }: Props): JSX.Element => {
 };
 
 export default HomeRow;
+
 
 
 
