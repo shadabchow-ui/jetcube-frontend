@@ -1,154 +1,72 @@
 import { useEffect, useState } from "react";
+import { ungzip } from "pako";
 
-/* -------------------------------------------------
-   Types
-------------------------------------------------- */
-
-export type IndexProduct = {
+type IndexProduct = {
   handle?: string;
   slug?: string;
-  asin?: string;
-  id?: string;
-
   title?: string;
-
-  price?: number | string;
-  was_price?: number | string;
-
-  rating?: number | string;
-  rating_count?: number | string;
-
-  image?: string | null;
-
-  category?: any;
-  category_path?: any;
-  category_keys?: any;
+  image?: string;
+  image_url?: string;
+  main_image?: string;
+  images?: string[];
+  gallery?: string[];
+  price?: number;
+  was_price?: number;
+  rating?: number;
+  rating_count?: number;
+  badge?: string;
+  category?: string;
+  category_path?: string[];
+  [key: string]: any;
 };
 
-export type UseIndexProductsReturn = {
-  items: IndexProduct[];
-  loading: boolean;
-  error: string | null;
-};
-
-/* -------------------------------------------------
-   Constants
-------------------------------------------------- */
-
-// 🚨 HARD LOCK: cards index ONLY
-const CARDS_INDEX_URL = "/indexes/_index.cards.json";
-
-/* -------------------------------------------------
-   Utils
-------------------------------------------------- */
-
-async function fetchJsonStrict(url: string): Promise<any> {
-  const res = await fetch(url, { cache: "no-store" });
-  if (!res.ok) {
-    throw new Error(`HTTP ${res.status} loading ${url}`);
-  }
-
-  const ct = res.headers.get("content-type") || "";
-  const text = await res.text();
-
-  // Guard against Vite / SPA HTML fallback
-  if (
-    ct.includes("text/html") ||
-    text.trim().startsWith("<!DOCTYPE") ||
-    text.trim().startsWith("<html")
-  ) {
-    throw new Error(`Expected JSON but received HTML from ${url}`);
-  }
-
-  try {
-    return JSON.parse(text);
-  } catch {
-    throw new Error(`Invalid JSON returned from ${url}`);
-  }
-}
-
-function toNumberMaybe(v: unknown): number | null {
-  if (typeof v === "number" && Number.isFinite(v)) return v;
-  if (typeof v === "string") {
-    const n = Number(v.replace(/[^0-9.]/g, ""));
-    return Number.isFinite(n) ? n : null;
-  }
-  return null;
-}
-
-/* -------------------------------------------------
-   Hook
-------------------------------------------------- */
-
-export function useIndexProducts(): UseIndexProductsReturn {
+export function useIndexProducts() {
   const [items, setItems] = useState<IndexProduct[]>([]);
-  const [loading, setLoading] = useState<boolean>(true);
+  const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
 
     async function load() {
-      setLoading(true);
-      setError(null);
-
       try {
-        const json = await fetchJsonStrict(CARDS_INDEX_URL);
+        setLoading(true);
+        setError(null);
 
-        if (!Array.isArray(json)) {
-          throw new Error("_index.cards.json must be an array");
+        const res = await fetch("/indexes/_index.cards.json");
+
+        if (!res.ok) {
+          throw new Error(`Index fetch failed: ${res.status}`);
         }
 
-        const normalized: IndexProduct[] = json
-          .map((p: any) => {
-            if (!p || typeof p !== "object") return null;
+        // ⚠️ Cloudflare serves gzipped bytes without headers
+        const buffer = await res.arrayBuffer();
 
-            const handle =
-              p.handle || p.slug || p.asin || p.id || null;
+        // Decode gzip explicitly
+        const jsonText = ungzip(new Uint8Array(buffer), { to: "string" });
+        const data = JSON.parse(jsonText);
 
-            if (!handle) return null;
-
-            return {
-              handle,
-              title: typeof p.title === "string" ? p.title : handle,
-              image: typeof p.image === "string" ? p.image : null,
-              price:
-                toNumberMaybe(p.price) ??
-                p.price ??
-                null,
-              was_price:
-                toNumberMaybe(p.was_price) ??
-                p.was_price ??
-                null,
-              rating:
-                toNumberMaybe(p.rating) ??
-                p.rating ??
-                null,
-              rating_count:
-                toNumberMaybe(p.rating_count) ??
-                p.rating_count ??
-                null,
-              category: p.category ?? null,
-              category_path: p.category_path ?? null,
-              category_keys: p.category_keys ?? null,
-            };
-          })
-          .filter(Boolean) as IndexProduct[];
+        if (!Array.isArray(data)) {
+          throw new Error("Index payload is not an array");
+        }
 
         if (!cancelled) {
-          setItems(normalized);
+          setItems(data);
         }
       } catch (err: any) {
         if (!cancelled) {
-          setError(err?.message || "Failed to load cards index");
-          setItems([]);
+          console.error("Failed to load index products:", err);
+          setError("Failed to load products");
         }
       } finally {
-        if (!cancelled) setLoading(false);
+        if (!cancelled) {
+          setLoading(false);
+        }
       }
     }
 
     load();
+
     return () => {
       cancelled = true;
     };
@@ -156,7 +74,3 @@ export function useIndexProducts(): UseIndexProductsReturn {
 
   return { items, loading, error };
 }
-
-export default useIndexProducts;
-
-
