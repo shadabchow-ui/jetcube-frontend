@@ -1,64 +1,66 @@
-import React, { useMemo } from "react";
-import ProductCard from "../components/ProductCard";
+import React from "react";
+import ProductCard, { type ProductCardData } from "../components/ProductCard";
+import { Link } from "react-router-dom";
 
-type HomeRowProps = {
+function safeStr(v: unknown): string {
+  return typeof v === "string" ? v : "";
+}
+
+function firstNonEmpty(...vals: unknown[]): string {
+  for (const v of vals) {
+    const s = safeStr(v).trim();
+    if (s) return s;
+  }
+  return "";
+}
+
+function normalizeText(s: string) {
+  return s
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+type Props = {
   title: string;
-  subtitle?: string;
-  products?: any[];
-  limit?: number;
+  items: ProductCardData[];
+  viewAllHref?: string;
+  query?: string;
 };
 
-const HomeRow: React.FC<HomeRowProps> = ({
-  title,
-  subtitle,
-  products,
-  limit = 12,
-}) => {
-  // 🔒 HARD GUARD — never assume shape
-  const items = useMemo(() => {
-    if (!products) return [];
+const HomeRow: React.FC<Props> = ({ title, items, viewAllHref = "/shop", query = "" }) => {
+  if (!Array.isArray(items) || items.length === 0) return null;
 
-    if (Array.isArray(products)) return products;
+  const q = normalizeText(query);
 
-    // tolerate wrapped shapes
-    if (Array.isArray((products as any)?.items))
-      return (products as any).items;
+  const itemsFiltered = q
+    ? items.filter((i) => {
+        if (!i || typeof i !== "object") return false;
+        const t = normalizeText(firstNonEmpty(i.title, i.name));
+        const c = normalizeText(firstNonEmpty((i as any).category, (i as any).category_path));
+        const b = normalizeText(firstNonEmpty((i as any).brand));
+        return t.includes(q) || c.includes(q) || b.includes(q);
+      })
+    : items;
 
-    if (Array.isArray((products as any)?.results))
-      return (products as any).results;
-
-    return [];
-  }, [products]);
-
-  const visible = items.slice(0, limit);
-
-  // ❗ If still empty, fail silently (no crash)
-  if (!visible.length) return null;
+  // If query filters everything out, don’t render an empty row shell
+  if (itemsFiltered.length === 0) return null;
 
   return (
-    <section className="mt-8 px-4">
-      <div className="mb-3 flex items-end justify-between">
-        <div>
-          <h2 className="text-lg font-semibold text-gray-900">{title}</h2>
-          {subtitle && (
-            <p className="text-sm text-gray-500">{subtitle}</p>
-          )}
-        </div>
+    <section className="mt-8">
+      <div className="mb-3 flex items-center justify-between">
+        <h2 className="text-lg font-semibold text-white">{title}</h2>
+        <Link to={viewAllHref} className="text-sm text-white/70 hover:text-white">
+          View all
+        </Link>
       </div>
 
-      <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-4">
-        {visible.map((p, i) => {
-          if (!p?.handle && !p?.slug) return null;
-
-          return (
-            <ProductCard
-              key={p.handle || p.slug || i}
-              p={{
-                ...p,
-                handle: p.handle || p.slug, // 🔑 normalize routing
-              }}
-            />
-          );
+      <div className="flex gap-4 overflow-x-auto pb-2">
+        {itemsFiltered.map((item, idx) => {
+          const key =
+            firstNonEmpty(item.handle, (item as any).slug, (item as any).url_slug) || `idx-${idx}`;
+          return <ProductCard key={key} item={item} />;
         })}
       </div>
     </section>
@@ -66,12 +68,3 @@ const HomeRow: React.FC<HomeRowProps> = ({
 };
 
 export default HomeRow;
-
-
-
-
-
-
-
-
-
