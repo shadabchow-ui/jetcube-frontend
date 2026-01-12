@@ -1,198 +1,184 @@
-import { useEffect, useMemo, useState } from "react";
-import pako from "pako";
+// src/data/useIndexProducts.ts
+import { useEffect, useMemo, useRef, useState } from "react";
+import { ungzip } from "pako";
 
 export type IndexProduct = {
-  // common identity fields across old/new pipelines
-  handle?: string;
+  handle: string;
   slug?: string;
   url_slug?: string;
 
-  title?: string;
-  name?: string;
-
-  // image field variations
-  imageUrl?: string | null;
-  image?: string | null;
-  image_url?: string | null;
-  image_src?: string | null;
-
+  title: string;
   brand?: string;
   category?: string;
-  category_path?: string;
 
-  // optional precomputed search blob
+  image?: string | null;
+  image_url?: string | null;
+
+  price?: number | string | null;
+  was_price?: number | string | null;
+
   searchable?: string;
 };
 
-type HookState = {
+type State = {
   items: IndexProduct[];
   loading: boolean;
   error: string | null;
 };
 
-const SEARCH_INDEX_VERSION = import.meta.env.VITE_SEARCH_INDEX_VERSION || "";
+function isGzip(bytes: Uint8Array) {
+  return bytes.length >= 2 && bytes[0] === 0x1f && bytes[1] === 0x8b;
+}
 
-function safeStr(v: unknown): string {
+function decodeMaybeGzip(bytes: Uint8Array) {
+  // If Cloudflare serves gzip bytes but forgets the header, browsers won't auto-decompress.
+  if (isGzip(bytes)) {
+    const unzipped = ungzip(bytes);
+    return new TextDecoder("utf-8").decode(unzipped);
+  }
+  return new TextDecoder("utf-8").decode(bytes);
+}
+
+function safeString(v: any) {
   return typeof v === "string" ? v : "";
 }
 
-function firstNonEmpty(...vals: unknown[]): string {
-  for (const v of vals) {
-    const s = safeStr(v).trim();
-    if (s) return s;
-  }
-  return "";
+function pickHandle(r: any) {
+  // accept legacy + new pipelines
+  return (
+    safeString(r?.handle) ||
+    safeString(r?.slug) ||
+    safeString(r?.url_slug) ||
+    safeString(r?.product_handle) ||
+    safeString(r?.id) ||
+    ""
+  );
 }
 
-function stripToJson(text: string): string {
-  const t = text.trimStart();
-
-  // handle XSSI guards like ")]}',\n"
-  const xssi = t.startsWith(")]}',") ? t.slice(t.indexOf("\n") + 1) : t;
-
-  // try to slice from first { or [ to last } or ]
-  const startObj = xssi.indexOf("{");
-  const startArr = xssi.indexOf("[");
-  const start =
-    startObj === -1 ? startArr : startArr === -1 ? startObj : Math.min(startObj, startArr);
-
-  if (start === -1) return xssi;
-
-  const endObj = xssi.lastIndexOf("}");
-  const endArr = xssi.lastIndexOf("]");
-  const end = Math.max(endObj, endArr);
-
-  if (end === -1 || end <= start) return xssi.slice(start);
-
-  return xssi.slice(start, end + 1);
+function pickTitle(r: any) {
+  return safeString(r?.title) || safeString(r?.name) || safeString(r?.product_title) || "";
 }
 
-function coerceToArray(data: any): any[] {
-  if (Array.isArray(data)) return data;
-  if (data && Array.isArray(data.items)) return data.items;
-  if (data && Array.isArray(data.cards)) return data.cards;
-  if (data && Array.isArray(data.products)) return data.products;
-  return [];
-}
+function normalizeRecord(r: any): IndexProduct | null {
+  const handle = pickHandle(r);
+  const title = pickTitle(r);
 
-function normalizeItem(raw: any): IndexProduct | null {
-  if (!raw || typeof raw !== "object") return null;
+  // Without these, Home.tsx builds cards from p.handle and HomeRow filters them out.
+  if (!handle || !title) return null;
 
-  const handle = firstNonEmpty(raw.handle, raw.slug, raw.url_slug);
-  const title = firstNonEmpty(raw.title, raw.name);
-  const imageUrl = firstNonEmpty(raw.imageUrl, raw.image, raw.image_url, raw.image_src);
-  const brand = firstNonEmpty(raw.brand);
-  const category = firstNonEmpty(raw.category);
-  const category_path = firstNonEmpty(raw.category_path);
-
-  const searchable =
-    firstNonEmpty(raw.searchable) ||
-    [title, brand, category, category_path, handle].filter(Boolean).join(" ").toLowerCase();
+  const image =
+    (typeof r?.image_url === "string" && r.image_url) ||
+    (typeof r?.image === "string" && r.image) ||
+    (typeof r?.primary_image === "string" && r.primary_image) ||
+    null;
 
   return {
-    handle: raw.handle,
-    slug: raw.slug,
-    url_slug: raw.url_slug,
+    handle,
+    slug: safeString(r?.slug) || undefined,
+    url_slug: safeString(r?.url_slug) || undefined,
 
     title,
-    name: raw.name,
+    brand: safeString(r?.brand) || undefined,
+    category: safeString(r?.category) || undefined,
 
-    imageUrl: imageUrl || null,
-    image: raw.image ?? null,
-    image_url: raw.image_url ?? null,
-    image_src: raw.image_src ?? null,
+    image: image,
+    image_url: image,
 
-    brand,
-    category,
-    category_path,
-    searchable,
+    price: r?.price ?? null,
+    was_price: r?.was_price ?? r?.compare_at_price ?? null,
+
+    searchable: safeString(r?.searchable) || undefined,
   };
 }
 
-async function fetchIndexText(url: string): Promise<string> {
+async function fetchIndexJson(url: string, signal?: AbortSignal) {
   const res = await fetch(url, {
     cache: "no-store",
-    headers: {
-      // helps some edges not serve odd encodings
-      Accept: "application/json,text/plain,*/*",
-    },
+    signal,
   });
 
   if (!res.ok) {
-    throw new Error(`Index fetch failed (${res.status})`);
+    throw new Error(`Index fetch failed: HTTP ${res.status}`);
   }
 
-  const buf = new Uint8Array(await res.arrayBuffer());
+  const ab = await res.arrayBuffer();
+  const bytes = new Uint8Array(ab);
 
-  // If Cloudflare served raw gzip bytes (no content-encoding header),
-  // the payload starts with gzip magic 1F 8B.
-  const isGzip = buf.length >= 2 && buf[0] === 0x1f && buf[1] === 0x8b;
+  let text = decodeMaybeGzip(bytes);
+  text = text.replace(/^\uFEFF/, "").trim(); // strip BOM just in case
 
-  if (isGzip) {
-    const out = pako.ungzip(buf);
-    return new TextDecoder("utf-8").decode(out);
+  // If content is still brotli/gzip bytes without headers, JSON.parse will fail here.
+  // The gzip case is handled above; for anything else we surface the first chars.
+  try {
+    return JSON.parse(text);
+  } catch (e: any) {
+    const preview = text.slice(0, 80).replace(/\s+/g, " ");
+    throw new Error(`Invalid JSON from index (${url}). Preview: ${preview}`);
   }
-
-  // If it’s already decompressed (normal case), decode as UTF-8.
-  return new TextDecoder("utf-8").decode(buf);
 }
 
-export function useIndexProducts(): HookState {
-  const [items, setItems] = useState<IndexProduct[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+export function useIndexProducts() {
+  const [state, setState] = useState<State>({
+    items: [],
+    loading: true,
+    error: null,
+  });
 
-  const url = useMemo(() => {
-    const base = new URL("/indexes/_index.cards.json", window.location.origin).toString();
-    return SEARCH_INDEX_VERSION ? `${base}?v=${encodeURIComponent(SEARCH_INDEX_VERSION)}` : base;
-  }, []);
+  const abortRef = useRef<AbortController | null>(null);
 
   useEffect(() => {
-    let alive = true;
+    abortRef.current?.abort();
+    const ac = new AbortController();
+    abortRef.current = ac;
 
-    (async () => {
+    const run = async () => {
       try {
-        setLoading(true);
-        setError(null);
+        setState((s) => ({ ...s, loading: true, error: null }));
 
-        const rawText = await fetchIndexText(url);
-        const cleaned = stripToJson(rawText);
+        // IMPORTANT: this must match the path you curl/see in Network:
+        // https://ventari.net/indexes/_index.cards.json
+        const url = "/indexes/_index.cards.json";
 
-        let parsed: any;
-        try {
-          parsed = JSON.parse(cleaned);
-        } catch {
-          // last attempt: sometimes there’s a BOM/garbage before JSON
-          parsed = JSON.parse(stripToJson(cleaned));
-        }
+        const json = await fetchIndexJson(url, ac.signal);
 
-        const arr = coerceToArray(parsed);
-        const normalized: IndexProduct[] = [];
+        const arr: any[] = Array.isArray(json)
+          ? json
+          : Array.isArray((json as any)?.items)
+          ? (json as any).items
+          : Array.isArray((json as any)?.data)
+          ? (json as any).data
+          : [];
 
-        for (const x of arr) {
-          const n = normalizeItem(x);
-          if (n) normalized.push(n);
-        }
+        const items = arr.map(normalizeRecord).filter(Boolean) as IndexProduct[];
 
-        if (!alive) return;
-
-        setItems(normalized);
-        setLoading(false);
-      } catch (e: any) {
-        if (!alive) return;
-        setItems([]);
-        setLoading(false);
-        setError(e?.message || "Failed to load index");
+        setState({
+          items,
+          loading: false,
+          error: null,
+        });
+      } catch (err: any) {
+        if (ac.signal.aborted) return;
+        setState({
+          items: [],
+          loading: false,
+          error: err?.message ? String(err.message) : "Unknown error",
+        });
       }
-    })();
+    };
+
+    run();
 
     return () => {
-      alive = false;
+      ac.abort();
     };
-  }, [url]);
+  }, []);
 
-  return { items, loading, error };
+  return useMemo(
+    () => ({
+      items: state.items,
+      loading: state.loading,
+      error: state.error,
+    }),
+    [state.items, state.loading, state.error]
+  );
 }
-
-
-
