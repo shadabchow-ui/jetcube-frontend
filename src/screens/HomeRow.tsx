@@ -5,7 +5,7 @@ import ProductCard, { type ProductLike } from "../components/ProductCard";
 type Props = {
   title: string;
   products?: ProductLike[];
-  viewAllHref?: string; // ex: "/shop" or "/c/womens-clothing"
+  viewAllHref?: string;
   className?: string;
 };
 
@@ -36,7 +36,6 @@ export function HomeRow({ title, products, viewAllHref, className = "" }: Props)
           <div className="overflow-x-auto">
             <div className="flex gap-3 min-w-max">
               {items.map((p, idx) => {
-                // keep keys stable even if no slug
                 const key = (p.slug || p.handle || p.url_slug || "") + ":" + idx;
                 return (
                   <div key={key} className="w-[160px] shrink-0">
