@@ -6,10 +6,8 @@ export type IndexProduct = {
   slug: string;
   title: string;
 
-  // image fields
   image: string | null;
 
-  // optional metadata
   price?: number | null;
   was_price?: number | null;
   rating?: number | null;
@@ -17,7 +15,6 @@ export type IndexProduct = {
   category?: string | null;
   brand?: string | null;
 
-  // optional helper fields used by other parts of the app
   searchable?: string;
 };
 
@@ -50,16 +47,8 @@ function joinUrl(base: string, path: string) {
 }
 
 function normalizeImageUrl(raw: any): string | null {
-  // Accept:
-  // - absolute urls (https://...)
-  // - protocol-relative (//...)
-  // - site-relative (/img/...)
-  // - R2 keys (products/...jpg)
-  // - objects like { url }, { src }
-  // - arrays like ["..."]
   if (!raw) return null;
 
-  // array => first usable
   if (Array.isArray(raw)) {
     for (const it of raw) {
       const u = normalizeImageUrl(it);
@@ -68,7 +57,6 @@ function normalizeImageUrl(raw: any): string | null {
     return null;
   }
 
-  // object => try common keys
   if (typeof raw === "object") {
     const o = raw as AnyObj;
     const candidate =
@@ -86,29 +74,20 @@ function normalizeImageUrl(raw: any): string | null {
     return normalizeImageUrl(candidate);
   }
 
-  // string
   const s = String(raw).trim();
   if (!s) return null;
 
-  // data URLs should pass through
   if (s.startsWith("data:")) return s;
-
-  // protocol-relative
   if (s.startsWith("//")) return `https:${s}`;
-
-  // absolute
   if (s.startsWith("https://")) return s;
   if (s.startsWith("http://")) return s.replace(/^http:\/\//i, "https://");
 
-  // site-relative path (served by same domain)
   if (s.startsWith("/")) return s;
 
-  // otherwise treat as R2 key
   return joinUrl(R2_PUBLIC_BASE, s);
 }
 
 function pickImage(item: AnyObj): string | null {
-  // Try lots of likely keys from different pipelines
   const direct =
     item.image ??
     item.img ??
@@ -127,14 +106,12 @@ function pickImage(item: AnyObj): string | null {
   const fromDirect = normalizeImageUrl(direct);
   if (fromDirect) return fromDirect;
 
-  // arrays of strings/objects
   const arrays =
     item.images ?? item.gallery ?? item.image_urls ?? item.imageUrls ?? null;
 
   const fromArrays = normalizeImageUrl(arrays);
   if (fromArrays) return fromArrays;
 
-  // nested objects
   const nested =
     item.media ??
     item.assets ??
@@ -159,7 +136,6 @@ function pickHandleSlug(item: AnyObj): { handle: string; slug: string } {
     safeStr(item.id) ||
     "";
 
-  // prefer slug-like, fall back to handle
   const slug =
     safeStr(item.slug) ||
     safeStr(item.url_slug) ||
@@ -229,17 +205,26 @@ function normalizeItem(raw: AnyObj): IndexProduct | null {
   };
 }
 
-async function fetchJsonOrGzip(url: string): Promise<any> {
+/**
+ * ✅ Reads response body exactly once, then tries:
+ * 1) decode utf-8 text -> JSON.parse
+ * 2) ungzip bytes -> JSON.parse
+ */
+async function fetchJsonMaybeGzip(url: string): Promise<any> {
   const res = await fetch(url, { cache: "no-store" });
   if (!res.ok) throw new Error(`Failed to fetch ${url} (${res.status})`);
 
-  // If server sends JSON, this will work.
-  // If server sends gzipped bytes, JSON parse will fail and we fall back.
+  const buf = await res.arrayBuffer();
+  const bytes = new Uint8Array(buf);
+
+  // Try plain JSON text first
   try {
-    return await res.json();
+    let text = new TextDecoder("utf-8").decode(bytes);
+    // strip BOM if present
+    if (text.charCodeAt(0) === 0xfeff) text = text.slice(1);
+    return JSON.parse(text);
   } catch {
-    const buf = await res.arrayBuffer();
-    const bytes = new Uint8Array(buf);
+    // Try gzipped JSON
     const inflated = ungzip(bytes, { to: "string" }) as unknown as string;
     return JSON.parse(inflated);
   }
@@ -260,7 +245,7 @@ export function useIndexProducts() {
       setError("");
 
       try {
-        const data = await fetchJsonOrGzip(cardsUrl);
+        const data = await fetchJsonMaybeGzip(cardsUrl);
 
         const arr: AnyObj[] = Array.isArray(data)
           ? data
