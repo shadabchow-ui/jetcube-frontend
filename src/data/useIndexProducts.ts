@@ -13,6 +13,12 @@ const INDEX_CARDS_PATH =
 
 const INDEX_VERSION = import.meta.env.VITE_INDEX_VERSION || "";
 
+// If your cards store images as relative paths (e.g. "img/....jpg" or "/img/....jpg"),
+// we’ll prefix them with this base. Set it in Cloudflare Pages env vars if needed.
+const R2_PUBLIC_BASE =
+  import.meta.env.VITE_R2_PUBLIC_BASE ||
+  "https://pub-efc133d84c664ca8ace8be57ec3e4d65.r2.dev";
+
 function joinUrl(path: string) {
   const p = String(path || "");
   if (!INDEX_VERSION) return p;
@@ -47,6 +53,20 @@ function unwrapToArray(parsed: any): any[] {
   return [];
 }
 
+function parseNumber(v: any): number | null {
+  if (v === null || v === undefined) return null;
+  if (typeof v === "number" && !Number.isNaN(v)) return v;
+
+  if (typeof v === "string") {
+    const cleaned = v.replace(/[^0-9.]+/g, "");
+    if (!cleaned) return null;
+    const n = Number(cleaned);
+    return Number.isNaN(n) ? null : n;
+  }
+
+  return null;
+}
+
 function pickHandle(raw: any) {
   return (
     raw?.handle ||
@@ -71,35 +91,110 @@ function pickTitle(raw: any) {
   );
 }
 
-function pickImage(raw: any) {
-  if (typeof raw?.image === "string") return raw.image;
-  if (typeof raw?.primaryImage === "string") return raw.primaryImage;
-  if (typeof raw?.thumbnail === "string") return raw.thumbnail;
-
-  const imgs = raw?.images;
-  if (Array.isArray(imgs) && typeof imgs[0] === "string") return imgs[0];
-  if (Array.isArray(imgs) && imgs[0] && typeof imgs[0].url === "string")
-    return imgs[0].url;
-
+function firstString(...vals: any[]): string | null {
+  for (const v of vals) {
+    if (typeof v === "string") {
+      const s = v.trim();
+      if (s) return s;
+    }
+  }
   return null;
 }
 
-function parseNumber(v: any): number | null {
-  if (v === null || v === undefined) return null;
-  if (typeof v === "number" && !Number.isNaN(v)) return v;
+function extractUrlFromObj(obj: any): string | null {
+  if (!obj || typeof obj !== "object") return null;
+  return firstString(
+    obj.url,
+    obj.src,
+    obj.href,
+    obj.image,
+    obj.imageUrl,
+    obj.image_url,
+    obj.large,
+    obj.largeUrl,
+    obj.hiRes,
+    obj.hires,
+    obj.medium,
+    obj.small
+  );
+}
 
-  if (typeof v === "string") {
-    const cleaned = v.replace(/[^0-9.]+/g, "");
-    if (!cleaned) return null;
-    const n = Number(cleaned);
-    return Number.isNaN(n) ? null : n;
+function resolveImageUrl(v: string | null): string | null {
+  if (!v) return null;
+  const s = v.trim();
+  if (!s) return null;
+
+  // already absolute
+  if (/^https?:\/\//i.test(s)) return s;
+  if (s.startsWith("//")) return `https:${s}`;
+
+  // relative => prefix with R2 base
+  const base = String(R2_PUBLIC_BASE || "").replace(/\/+$/, "");
+  if (!base) return s;
+
+  if (s.startsWith("/")) return `${base}${s}`;
+  return `${base}/${s}`;
+}
+
+function pickImage(raw: any) {
+  // 1) Most common direct keys (string)
+  const direct = firstString(
+    raw?.image,
+    raw?.img,
+    raw?.imageUrl,
+    raw?.image_url,
+    raw?.imageURL,
+    raw?.imgUrl,
+    raw?.img_url,
+    raw?.thumbnail,
+    raw?.thumb,
+    raw?.thumbnailUrl,
+    raw?.thumbnail_url,
+    raw?.primaryImage,
+    raw?.primary_image,
+    raw?.primaryImageUrl,
+    raw?.primary_image_url,
+    raw?.mainImage,
+    raw?.main_image,
+    raw?.mainImageUrl,
+    raw?.main_image_url,
+    raw?.heroImage,
+    raw?.hero_image
+  );
+  if (direct) return resolveImageUrl(direct);
+
+  // 2) Sometimes these are objects { url: "..." }
+  const obj1 =
+    extractUrlFromObj(raw?.image) ||
+    extractUrlFromObj(raw?.primaryImage) ||
+    extractUrlFromObj(raw?.mainImage) ||
+    extractUrlFromObj(raw?.thumbnail);
+  if (obj1) return resolveImageUrl(obj1);
+
+  // 3) Arrays: images: ["..."] or [{url:"..."}]
+  const imgs = raw?.images || raw?.imageUrls || raw?.image_urls;
+  if (Array.isArray(imgs) && imgs.length) {
+    const first = imgs[0];
+    if (typeof first === "string") return resolveImageUrl(first);
+    const fromObj = extractUrlFromObj(first);
+    if (fromObj) return resolveImageUrl(fromObj);
   }
 
+  // 4) Nested shapes sometimes used in scraped data
+  const nested =
+    extractUrlFromObj(raw?.media?.images?.[0]) ||
+    extractUrlFromObj(raw?.media?.primary) ||
+    extractUrlFromObj(raw?.assets?.images?.[0]) ||
+    extractUrlFromObj(raw?.hero?.image);
+  if (nested) return resolveImageUrl(nested);
+
   return null;
 }
 
-function buildSearchable(raw: any, fallback: { title: string; brand?: string | null; category?: string | null }) {
-  // If the index already provides searchable, preserve it.
+function buildSearchable(
+  raw: any,
+  fallback: { title: string; brand?: string | null; category?: string | null }
+) {
   const s = typeof raw?.searchable === "string" ? raw.searchable : "";
   if (s.trim()) return s;
 
@@ -109,6 +204,7 @@ function buildSearchable(raw: any, fallback: { title: string; brand?: string | n
     fallback.category || "",
     typeof raw?.asin === "string" ? raw.asin : "",
     typeof raw?.id === "string" ? raw.id : "",
+    typeof raw?.handle === "string" ? raw.handle : "",
   ]
     .join(" ")
     .toLowerCase()
@@ -121,7 +217,6 @@ function buildSearchable(raw: any, fallback: { title: string; brand?: string | n
 function normalizeCard(raw: any): ProductCardData | null {
   const handle = String(pickHandle(raw) || "").trim();
   const title = String(pickTitle(raw) || "").trim();
-
   if (!handle || !title) return null;
 
   const brand = typeof raw?.brand === "string" ? raw.brand : null;
@@ -146,7 +241,6 @@ function normalizeCard(raw: any): ProductCardData | null {
 
   const card: ProductCardData = {
     handle,
-    // legacy compat:
     slug: typeof raw?.slug === "string" ? raw.slug : handle,
 
     title,
