@@ -29,7 +29,6 @@ export type ProductLike = {
 type Props = {
   product: ProductLike;
   className?: string;
-  // Optional override if some rows link differently
   hrefOverride?: string;
 };
 
@@ -44,9 +43,7 @@ function pickSlug(p: ProductLike): string {
     safeText(p.url_slug) ||
     "";
 
-  // If the value already looks like a path, keep it
   if (raw.startsWith("/")) return raw;
-  // default PDP route you’re using
   return raw ? `/p/${raw}` : "/shop";
 }
 
@@ -56,10 +53,11 @@ function pickTitle(p: ProductLike): string {
 
 function pickPrice(p: ProductLike): string {
   if (typeof p.price_display === "string" && p.price_display.trim()) return p.price_display;
+
   if (typeof p.price === "number") return `$${p.price.toFixed(2)}`;
+
   const s = safeText(p.price);
   if (!s) return "";
-  // If it already contains $, keep; else format lightly
   return s.includes("$") ? s : `$${s}`;
 }
 
@@ -87,7 +85,7 @@ export function ProductCard({ product, className = "", hrefOverride }: Props) {
   const title = useMemo(() => pickTitle(product), [product]);
   const price = useMemo(() => pickPrice(product), [product]);
 
-  // ✅ IMPORTANT: We do NOT fetch images. We render the URL directly in <img src>.
+  // ✅ Important: render image directly; DO NOT fetch / blob / arrayBuffer.
   const initialImg = useMemo(() => pickImageUrl(product), [product]);
   const [imgOk, setImgOk] = useState(true);
 
@@ -104,7 +102,6 @@ export function ProductCard({ product, className = "", hrefOverride }: Props) {
     >
       <Link to={href} className="block">
         <div className="relative w-full bg-white">
-          {/* Image area */}
           <div className="w-full aspect-[4/5] flex items-center justify-center bg-white">
             {initialImg && imgOk ? (
               <img
@@ -120,16 +117,11 @@ export function ProductCard({ product, className = "", hrefOverride }: Props) {
           </div>
         </div>
 
-        {/* Meta */}
         <div className="px-3 py-2">
-          <div className="text-[12px] text-[#111] line-clamp-2 min-h-[32px]">
-            {title}
-          </div>
+          <div className="text-[12px] text-[#111] line-clamp-2 min-h-[32px]">{title}</div>
 
           <div className="mt-2 flex items-center justify-between gap-2">
-            <div className="text-[13px] font-medium text-[#111]">
-              {price || "\u00A0"}
-            </div>
+            <div className="text-[13px] font-medium text-[#111]">{price || "\u00A0"}</div>
 
             {(ratingText || reviewsText) && (
               <div className="text-[11px] text-[#555] whitespace-nowrap">
