@@ -1,170 +1,204 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import pako from "pako";
+import type { ProductCardData } from "../components/ProductCard";
 
-export type IndexProduct = {
-  slug?: string;
-  handle?: string;
-  url_slug?: string;
-
-  title?: string;
-  name?: string;
-
-  brand?: string;
-  vendor?: string;
-
-  category?: string;
-
-  image?: string | null;
-  image_url?: string | null;
-
-  price?: number | string | null;
-  currency?: string | null;
-
-  searchable?: string;
+type UseIndexProductsResult = {
+  items: ProductCardData[];
+  loading: boolean;
+  error: string | null;
 };
 
-export type ProductCardData = {
-  slug: string;
-  title: string;
-  brand?: string;
-  category?: string;
-  image?: string | null;
-  price?: string | null;
-};
+const INDEX_CARDS_PATH =
+  import.meta.env.VITE_INDEX_CARDS_PATH || "/indexes/_index.cards.json";
 
-const INDEX_URL = "/indexes/_index.cards.json";
+const INDEX_VERSION = import.meta.env.VITE_INDEX_VERSION || "";
 
-function firstString(...vals: any[]): string | undefined {
-  for (const v of vals) {
-    if (typeof v === "string" && v.trim()) return v.trim();
-  }
-  return undefined;
+function joinUrl(path: string) {
+  const p = String(path || "");
+  if (!INDEX_VERSION) return p;
+  const sep = p.includes("?") ? "&" : "?";
+  return `${p}${sep}v=${encodeURIComponent(INDEX_VERSION)}`;
 }
 
-function looksLikeGzip(bytes: Uint8Array) {
+function isGzip(bytes: Uint8Array) {
   return bytes.length >= 2 && bytes[0] === 0x1f && bytes[1] === 0x8b;
 }
 
-async function fetchJsonPossiblyGzipped(url: string): Promise<any> {
-  const res = await fetch(url, {
-    cache: "no-store",
-    headers: { accept: "application/json" },
-  });
+function decodeUtf8(bytes: Uint8Array) {
+  return new TextDecoder("utf-8").decode(bytes);
+}
 
-  if (!res.ok) {
-    throw new Error(`Failed to load ${url} (HTTP ${res.status})`);
+function unwrapToArray(parsed: any): any[] {
+  if (Array.isArray(parsed)) return parsed;
+
+  if (parsed && typeof parsed === "object") {
+    const candidates = [
+      parsed.cards,
+      parsed.items,
+      parsed.data,
+      parsed.products,
+      parsed.results,
+    ];
+    for (const c of candidates) {
+      if (Array.isArray(c)) return c;
+    }
   }
 
-  // IMPORTANT: do NOT use res.text() here; the payload is gzipped bytes.
-  const buf = await res.arrayBuffer();
+  return [];
+}
+
+function pickHandle(raw: any) {
+  return (
+    raw?.handle ||
+    raw?.slug ||
+    raw?.url_slug ||
+    raw?.urlSlug ||
+    raw?.id ||
+    raw?.asin ||
+    raw?.key ||
+    ""
+  );
+}
+
+function pickTitle(raw: any) {
+  return (
+    raw?.title ||
+    raw?.name ||
+    raw?.product_title ||
+    raw?.productTitle ||
+    raw?.displayTitle ||
+    ""
+  );
+}
+
+function pickImage(raw: any) {
+  if (typeof raw?.image === "string") return raw.image;
+  if (typeof raw?.primaryImage === "string") return raw.primaryImage;
+  if (typeof raw?.thumbnail === "string") return raw.thumbnail;
+
+  const imgs = raw?.images;
+  if (Array.isArray(imgs) && typeof imgs[0] === "string") return imgs[0];
+  if (Array.isArray(imgs) && imgs[0] && typeof imgs[0].url === "string")
+    return imgs[0].url;
+
+  return null;
+}
+
+function parseNumber(v: any): number | null {
+  if (v === null || v === undefined) return null;
+  if (typeof v === "number" && !Number.isNaN(v)) return v;
+
+  if (typeof v === "string") {
+    const cleaned = v.replace(/[^0-9.]+/g, "");
+    if (!cleaned) return null;
+    const n = Number(cleaned);
+    return Number.isNaN(n) ? null : n;
+  }
+
+  return null;
+}
+
+function buildSearchable(raw: any, fallback: { title: string; brand?: string | null; category?: string | null }) {
+  // If the index already provides searchable, preserve it.
+  const s = typeof raw?.searchable === "string" ? raw.searchable : "";
+  if (s.trim()) return s;
+
+  const parts = [
+    fallback.title,
+    fallback.brand || "",
+    fallback.category || "",
+    typeof raw?.asin === "string" ? raw.asin : "",
+    typeof raw?.id === "string" ? raw.id : "",
+  ]
+    .join(" ")
+    .toLowerCase()
+    .replace(/\s+/g, " ")
+    .trim();
+
+  return parts;
+}
+
+function normalizeCard(raw: any): ProductCardData | null {
+  const handle = String(pickHandle(raw) || "").trim();
+  const title = String(pickTitle(raw) || "").trim();
+
+  if (!handle || !title) return null;
+
+  const brand = typeof raw?.brand === "string" ? raw.brand : null;
+  const category = typeof raw?.category === "string" ? raw.category : null;
+
+  const price =
+    parseNumber(raw?.price) ??
+    parseNumber(raw?.currentPrice) ??
+    parseNumber(raw?.sale_price) ??
+    parseNumber(raw?.salePrice) ??
+    null;
+
+  const originalPrice =
+    parseNumber(raw?.originalPrice) ??
+    parseNumber(raw?.listPrice) ??
+    parseNumber(raw?.msrp) ??
+    null;
+
+  const rating = parseNumber(raw?.rating);
+  const reviewCount =
+    parseNumber(raw?.reviewCount) ?? parseNumber(raw?.reviews) ?? null;
+
+  const card: ProductCardData = {
+    handle,
+    // legacy compat:
+    slug: typeof raw?.slug === "string" ? raw.slug : handle,
+
+    title,
+    image: pickImage(raw),
+
+    price,
+    originalPrice,
+
+    rating,
+    reviewCount,
+
+    badge: typeof raw?.badge === "string" ? raw.badge : null,
+    brand,
+    category,
+
+    searchable: buildSearchable(raw, { title, brand, category }),
+  };
+
+  return card;
+}
+
+async function fetchIndexCards(): Promise<ProductCardData[]> {
+  const url = joinUrl(INDEX_CARDS_PATH);
+
+  const resp = await fetch(url, { cache: "no-store" });
+  if (!resp.ok) {
+    throw new Error(`Index fetch failed (${resp.status}) for ${url}`);
+  }
+
+  const buf = await resp.arrayBuffer();
   const bytes = new Uint8Array(buf);
 
-  let text: string;
+  let jsonText = "";
   try {
-    if (looksLikeGzip(bytes)) {
-      const inflated = pako.ungzip(bytes);
-      text = new TextDecoder("utf-8").decode(inflated);
+    if (isGzip(bytes)) {
+      const unzipped = pako.ungzip(bytes);
+      jsonText = decodeUtf8(unzipped);
     } else {
-      text = new TextDecoder("utf-8").decode(bytes);
+      jsonText = decodeUtf8(bytes);
     }
-  } catch (e) {
-    // If something weird happens, last resort try text()
-    text = await res.text();
-  }
-
-  const trimmed = text.trim();
-
-  // Small safety: if Cloudflare ever returns HTML error pages, this helps debugging.
-  if (trimmed.startsWith("<!DOCTYPE") || trimmed.startsWith("<html")) {
-    throw new Error(`Expected JSON but received HTML from ${url}`);
-  }
-
-  try {
-    return JSON.parse(trimmed);
   } catch (e: any) {
-    // include a tiny preview to help diagnose if needed
-    const preview = trimmed.slice(0, 120).replace(/\s+/g, " ");
-    throw new Error(`Invalid JSON from ${url}: ${e?.message || e}. Preview: ${preview}`);
-  }
-}
-
-function normalizeItem(raw: IndexProduct): ProductCardData | null {
-  if (!raw || typeof raw !== "object") return null;
-
-  const slug =
-    firstString(raw.slug, raw.handle, raw.url_slug) ??
-    "";
-
-  const title =
-    firstString(raw.title, raw.name) ??
-    "";
-
-  if (!slug || !title) return null;
-
-  const brand = firstString(raw.brand, raw.vendor);
-  const category = firstString(raw.category);
-  const image = (firstString(raw.image, raw.image_url) ?? null) as string | null;
-
-  let price: string | null = null;
-  if (raw.price !== undefined && raw.price !== null) {
-    if (typeof raw.price === "number") price = String(raw.price);
-    else if (typeof raw.price === "string" && raw.price.trim()) price = raw.price.trim();
+    throw new Error(`Failed to decode index bytes: ${e?.message || e}`);
   }
 
-  return { slug, title, brand, category, image, price };
-}
+  let parsed: any;
+  try {
+    parsed = JSON.parse(jsonText);
+  } catch (e: any) {
+    const head = jsonText.slice(0, 200);
+    throw new Error(
+      `Invalid JSON from index (first 200 chars): ${JSON.stringify(head)}`
+    );
+  }
 
-export function useIndexProducts() {
-  const [items, setItems] = useState<ProductCardData[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string>("");
-
-  useEffect(() => {
-    let cancelled = false;
-
-    (async () => {
-      try {
-        setLoading(true);
-        setError("");
-
-        const data = await fetchJsonPossiblyGzipped(INDEX_URL);
-
-        // Your index might be either an array OR an object wrapper
-        const arr: IndexProduct[] = Array.isArray(data)
-          ? data
-          : Array.isArray(data?.items)
-            ? data.items
-            : Array.isArray(data?.data)
-              ? data.data
-              : [];
-
-        const normalized = arr
-          .map(normalizeItem)
-          .filter(Boolean) as ProductCardData[];
-
-        if (!cancelled) {
-          setItems(normalized);
-        }
-      } catch (e: any) {
-        if (!cancelled) {
-          setItems([]);
-          setError(e?.message || String(e));
-        }
-      } finally {
-        if (!cancelled) setLoading(false);
-      }
-    })();
-
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
-  const bySlug = useMemo(() => {
-    const m = new Map<string, ProductCardData>();
-    for (const p of items) m.set(p.slug, p);
-    return m;
-  }, [items]);
-
-  return { items, bySlug, loading, error };
-}
+  const rawArr = unwrapToArr
