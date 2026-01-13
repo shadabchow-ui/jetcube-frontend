@@ -2,7 +2,12 @@ import React from "react";
 import { Link } from "react-router-dom";
 
 export type ProductCardData = {
+  // canonical id used by ProductCard + routing
   handle: string;
+
+  // legacy compatibility (some parts of app may still use slug)
+  slug?: string;
+
   title: string;
 
   image?: string | null;
@@ -15,6 +20,9 @@ export type ProductCardData = {
   badge?: string | null;
   brand?: string | null;
   category?: string | null;
+
+  // critical for Home/search filters in many codebases
+  searchable?: string;
 };
 
 function formatMoney(v?: number | null) {
@@ -32,7 +40,8 @@ function clampRating(v?: number | null) {
 }
 
 export default function ProductCard({ p }: { p: ProductCardData }) {
-  const href = p?.handle ? `/p/${p.handle}` : "/";
+  const handle = p?.handle || p?.slug || "";
+  const href = handle ? `/p/${handle}` : "/";
 
   const priceText = formatMoney(p.price ?? null);
   const originalText =
