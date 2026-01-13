@@ -201,4 +201,50 @@ async function fetchIndexCards(): Promise<ProductCardData[]> {
     );
   }
 
-  const rawArr = unwrapToArr
+  const rawArr = unwrapToArray(parsed);
+
+  const out: ProductCardData[] = [];
+  for (const raw of rawArr) {
+    const n = normalizeCard(raw);
+    if (n) out.push(n);
+  }
+
+  return out;
+}
+
+export function useIndexProducts(): UseIndexProductsResult {
+  const [items, setItems] = useState<ProductCardData[]>([]);
+  const [loading, setLoading] = useState<boolean>(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let alive = true;
+
+    (async () => {
+      try {
+        setLoading(true);
+        setError(null);
+
+        const data = await fetchIndexCards();
+
+        if (!alive) return;
+        setItems(data);
+      } catch (e: any) {
+        if (!alive) return;
+        setItems([]);
+        setError(e?.message || String(e));
+      } finally {
+        if (!alive) return;
+        setLoading(false);
+      }
+    })();
+
+    return () => {
+      alive = false;
+    };
+  }, []);
+
+  return { items, loading, error };
+}
+
+export default useIndexProducts;
