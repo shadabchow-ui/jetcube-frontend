@@ -1,186 +1,110 @@
-import { useEffect, useMemo, useState } from "react";
-import { ungzip } from "pako";
+import { useEffect, useState } from "react";
+
+/* -------------------------------------------------
+   Types
+------------------------------------------------- */
 
 export type IndexProduct = {
   handle?: string;
   slug?: string;
+  asin?: string;
+  id?: string;
+
   title?: string;
 
-  // common image fields
-  image?: string | null;
-  image_url?: string | null;
-  main_image?: string | null;
+  price?: number | string;
+  was_price?: number | string;
 
-  // arrays used by various generators
-  images?: any;
-  gallery?: any;
+  rating?: number | string;
+  rating_count?: number | string;
 
-  // extra fields (optional)
-  price?: number | null;
-  was_price?: number | null;
-  rating?: number | null;
-  rating_count?: number | null;
+  // IMPORTANT: keep raw image payload (string | object | array)
+  image?: any;
 
-  // allow unknown keys safely
-  [k: string]: any;
+  category?: any;
+  category_path?: any;
+  category_keys?: any;
 };
 
-type UseIndexProductsResult = {
+export type UseIndexProductsReturn = {
   items: IndexProduct[];
   loading: boolean;
   error: string | null;
 };
 
-// ✅ R2 public base (same pattern you already use elsewhere)
+/* -------------------------------------------------
+   Constants
+------------------------------------------------- */
+
+// ✅ R2 public base (fallback to your known public bucket if env not set)
 const R2_PUBLIC_BASE =
   import.meta.env.VITE_R2_PUBLIC_BASE ||
   "https://pub-efc133d84c664ca8ace8be57ec3e4d65.r2.dev";
 
-// Where the cards file lives.
-// If you serve from the site root as "/_index.cards.json", keep default.
-// If you serve from "/indexes/_index.cards.json", set VITE_INDEX_CARDS_PATH.
+// ✅ where the cards index lives
 const INDEX_CARDS_PATH =
-  import.meta.env.VITE_INDEX_CARDS_PATH || "/_index.cards.json";
+  import.meta.env.VITE_INDEX_CARDS_PATH || "/indexes/_index.cards.json";
 
-// optional version-busting
-const INDEX_VERSION = import.meta.env.VITE_SEARCH_INDEX_VERSION || "";
+// optional cache-bust (set to anything when you redeploy indexes)
+const INDEX_VERSION = import.meta.env.VITE_INDEX_VERSION || "";
 
-function safeStr(v: any): string {
-  return typeof v === "string" ? v : "";
+function joinUrl(base: string, path: string) {
+  const b = String(base || "").replace(/\/+$/, "");
+  const p = String(path || "").replace(/^\/+/, "");
+  return `${b}/${p}`;
 }
 
-function isProbablyUrl(s: string): boolean {
-  if (!s) return false;
-  return (
-    s.startsWith("http://") ||
-    s.startsWith("https://") ||
-    s.startsWith("//") ||
-    s.startsWith("/")
-  );
+const CARDS_INDEX_URL = (() => {
+  const url = joinUrl(R2_PUBLIC_BASE, INDEX_CARDS_PATH);
+  return INDEX_VERSION ? `${url}?v=${encodeURIComponent(INDEX_VERSION)}` : url;
+})();
+
+/* -------------------------------------------------
+   Utils
+------------------------------------------------- */
+
+async function fetchJsonStrict(url: string): Promise<any> {
+  const res = await fetch(url, { cache: "no-store" });
+  if (!res.ok) {
+    throw new Error(`HTTP ${res.status} loading ${url}`);
+  }
+
+  const ct = res.headers.get("content-type") || "";
+  const text = await res.text();
+
+  // Guard against Vite / SPA HTML fallback
+  if (
+    ct.includes("text/html") ||
+    text.trim().startsWith("<!DOCTYPE") ||
+    text.trim().startsWith("<html")
+  ) {
+    throw new Error(`Expected JSON but received HTML from ${url}`);
+  }
+
+  try {
+    return JSON.parse(text);
+  } catch {
+    throw new Error(`Invalid JSON returned from ${url}`);
+  }
 }
 
-function normalizeUrl(u: string): string {
-  let s = safeStr(u).trim();
-  if (!s) return "";
-
-  // protocol-relative (//m.media-amazon.com/...)
-  if (s.startsWith("//")) s = "https:" + s;
-
-  // sometimes people accidentally store without protocol but with domain
-  if (!s.startsWith("http://") && !s.startsWith("https://") && s.includes(".") && !s.startsWith("/")) {
-    // best-effort; if it's actually a relative filename, this won't help,
-    // but it won't break either.
-    s = "https://" + s;
+function toNumberMaybe(v: unknown): number | null {
+  if (typeof v === "number" && Number.isFinite(v)) return v;
+  if (typeof v === "string") {
+    const n = Number(v.replace(/[^0-9.]/g, ""));
+    return Number.isFinite(n) ? n : null;
   }
-
-  return s;
+  return null;
 }
 
-function firstStringFromUnknown(x: any): string {
-  if (!x) return "";
-  if (typeof x === "string") return x;
+/* -------------------------------------------------
+   Hook
+------------------------------------------------- */
 
-  // arrays of strings or objects
-  if (Array.isArray(x)) {
-    for (const v of x) {
-      const s = firstStringFromUnknown(v);
-      if (s) return s;
-    }
-    return "";
-  }
-
-  // objects like { url }, { src }, { href }
-  if (typeof x === "object") {
-    const candidates = [
-      x.url,
-      x.src,
-      x.href,
-      x.image,
-      x.image_url,
-      x.main_image,
-      x.original,
-      x.large,
-      x.medium,
-      x.small,
-    ];
-    for (const c of candidates) {
-      const s = firstStringFromUnknown(c);
-      if (s) return s;
-    }
-  }
-
-  return "";
-}
-
-function pickBestImage(raw: any): string {
-  if (!raw) return "";
-
-  // direct fields
-  const direct = [
-    raw.image,
-    raw.image_url,
-    raw.main_image,
-    raw.thumbnail,
-    raw.thumb,
-    raw.primary_image,
-    raw.hero_image,
-    raw.heroImage,
-    raw.imageUrl,
-    raw.img,
-  ];
-
-  for (const v of direct) {
-    const s = firstStringFromUnknown(v);
-    if (s && isProbablyUrl(s)) return normalizeUrl(s);
-  }
-
-  // arrays / galleries
-  const arrCandidates = [raw.images, raw.gallery, raw.media, raw.photos, raw.image_list];
-  for (const v of arrCandidates) {
-    const s = firstStringFromUnknown(v);
-    if (s && isProbablyUrl(s)) return normalizeUrl(s);
-  }
-
-  // sometimes nested like raw.product.image, raw.pdp.images, etc.
-  const nested = [
-    raw.product,
-    raw.pdp,
-    raw.data,
-    raw.item,
-    raw.card,
-  ];
-  for (const n of nested) {
-    const s = firstStringFromUnknown(n);
-    if (s && isProbablyUrl(s)) return normalizeUrl(s);
-  }
-
-  return "";
-}
-
-function isGzipBuffer(buf: ArrayBuffer): boolean {
-  const u8 = new Uint8Array(buf);
-  return u8.length >= 2 && u8[0] === 0x1f && u8[1] === 0x8b;
-}
-
-function buildUrl(): string {
-  const base = String(R2_PUBLIC_BASE || "").replace(/\/+$/, "");
-  const path = String(INDEX_CARDS_PATH || "").startsWith("/")
-    ? INDEX_CARDS_PATH
-    : "/" + INDEX_CARDS_PATH;
-
-  let url = `${base}${path}`;
-  if (INDEX_VERSION) {
-    url += (url.includes("?") ? "&" : "?") + "v=" + encodeURIComponent(INDEX_VERSION);
-  }
-  return url;
-}
-
-export function useIndexProducts(): UseIndexProductsResult {
+export function useIndexProducts(): UseIndexProductsReturn {
   const [items, setItems] = useState<IndexProduct[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
-
-  const url = useMemo(() => buildUrl(), []);
 
   useEffect(() => {
     let cancelled = false;
@@ -190,77 +114,48 @@ export function useIndexProducts(): UseIndexProductsResult {
       setError(null);
 
       try {
-        const res = await fetch(url, {
-          // allow browser caching; use version string to bust if needed
-          cache: "default",
-        });
+        const json = await fetchJsonStrict(CARDS_INDEX_URL);
 
-        if (!res.ok) {
-          throw new Error(`Index fetch failed: ${res.status} ${res.statusText}`);
+        if (!Array.isArray(json)) {
+          throw new Error("_index.cards.json must be an array");
         }
 
-        // ✅ read body ONCE
-        const buf = await res.arrayBuffer();
+        const normalized: IndexProduct[] = json
+          .map((p: any) => {
+            if (!p || typeof p !== "object") return null;
 
-        let text = "";
-        if (isGzipBuffer(buf)) {
-          const unzipped = ungzip(new Uint8Array(buf));
-          text = new TextDecoder("utf-8").decode(unzipped);
-        } else {
-          text = new TextDecoder("utf-8").decode(new Uint8Array(buf));
-        }
+            const handle = p.handle || p.slug || p.asin || p.id || null;
+            if (!handle) return null;
 
-        const parsed = JSON.parse(text);
+            // ✅ DON'T DROP IMAGE DATA:
+            // - keep p.image as-is (string/object/array)
+            // - also fall back to common alternates
+            const imageRaw =
+              p.image ?? p.images ?? p.img ?? p.image_url ?? p.primary_image ?? null;
 
-        const arr: any[] = Array.isArray(parsed)
-          ? parsed
-          : Array.isArray(parsed?.items)
-            ? parsed.items
-            : Array.isArray(parsed?.data)
-              ? parsed.data
-              : [];
+            return {
+              handle,
+              title: typeof p.title === "string" ? p.title : handle,
+              image: imageRaw,
+              price: toNumberMaybe(p.price) ?? p.price ?? null,
+              was_price: toNumberMaybe(p.was_price) ?? p.was_price ?? null,
+              rating: toNumberMaybe(p.rating) ?? p.rating ?? null,
+              rating_count: toNumberMaybe(p.rating_count) ?? p.rating_count ?? null,
+              category: p.category ?? null,
+              category_path: p.category_path ?? null,
+              category_keys: p.category_keys ?? null,
+            };
+          })
+          .filter(Boolean) as IndexProduct[];
 
-        const normalized: IndexProduct[] = arr.map((raw) => {
-          const r: IndexProduct = (raw && typeof raw === "object") ? { ...raw } : {};
-
-          // slug/handle sanity
-          const handle = safeStr(r.handle) || safeStr(r.slug) || safeStr((raw as any)?.url_slug);
-          const slug = safeStr(r.slug) || safeStr(r.handle) || handle;
-
-          // title sanity
-          const title = safeStr(r.title) || safeStr((raw as any)?.name) || safeStr((raw as any)?.product_title);
-
-          // ✅ image extraction
-          const img = pickBestImage(r) || pickBestImage(raw);
-
-          // write back into common fields so ProductCard can use any
-          r.handle = handle || r.handle;
-          r.slug = slug || r.slug;
-          r.title = title || r.title;
-
-          if (img) {
-            r.image = img;
-            r.image_url = img;
-            if (!r.main_image) r.main_image = img;
-          } else {
-            // keep explicit nulls to avoid “No image” logic relying on undefined
-            r.image = r.image ?? null;
-            r.image_url = r.image_url ?? null;
-            r.main_image = r.main_image ?? null;
-          }
-
-          return r;
-        });
-
+        if (!cancelled) setItems(normalized);
+      } catch (err: any) {
         if (!cancelled) {
-          setItems(normalized);
-          setLoading(false);
+          setError(err?.message || "Failed to load cards index");
+          setItems([]);
         }
-      } catch (e: any) {
-        if (!cancelled) {
-          setError(e?.message ? String(e.message) : "Failed to load index");
-          setLoading(false);
-        }
+      } finally {
+        if (!cancelled) setLoading(false);
       }
     }
 
@@ -268,7 +163,9 @@ export function useIndexProducts(): UseIndexProductsResult {
     return () => {
       cancelled = true;
     };
-  }, [url]);
+  }, []);
 
   return { items, loading, error };
 }
+
+export default useIndexProducts;
