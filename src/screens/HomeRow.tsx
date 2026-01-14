@@ -1,143 +1,234 @@
-import React from "react";
+import React, { useEffect, useMemo, useState } from "react";
+import { useNavigate } from "react-router-dom";
 
-type AnyProduct = any;
+type RawIndexItem = Record<string, any>;
 
-type HomeRowProps = {
-  title?: string;
-  // different places in your code may pass any of these:
-  products?: AnyProduct[];
-  items?: AnyProduct[];
-  row?: AnyProduct[];
-  data?: AnyProduct[];
-  viewAllHref?: string;
-  className?: string;
+type IndexItem = {
+  slug: string;
+  title: string;
+  brand?: string;
+  category?: string;
+  price?: number | null;
+  image?: string | null;
+  searchable: string;
 };
 
-function asString(v: any): string {
+function safeStr(v: any) {
   return typeof v === "string" ? v : "";
 }
 
-function firstNonEmpty(...vals: any[]): string {
+function normalizeText(s: string) {
+  return s
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function pickFirstString(...vals: any[]): string {
   for (const v of vals) {
-    const s = asString(v).trim();
-    if (s) return s;
+    if (typeof v === "string" && v.trim()) return v.trim();
   }
   return "";
 }
 
-function getSlug(p: AnyProduct): string {
-  return firstNonEmpty(
-    p?.slug,
-    p?.handle,
-    p?.url_slug,
-    p?.urlSlug,
-    p?.product_slug,
-    p?.productSlug,
-    p?.id ? String(p.id) : ""
+function pickFirstImage(raw: any): string | null {
+  const direct =
+    pickFirstString(
+      raw?.image,
+      raw?.img,
+      raw?.imageUrl,
+      raw?.image_url,
+      raw?.thumbnail,
+      raw?.thumb,
+      raw?.primaryImage,
+      raw?.primary_image,
+      raw?.hero,
+      raw?.heroImage,
+      raw?.hero_image
+    ) || "";
+
+  if (direct) return direct;
+
+  // common patterns: images: ["url", ...] or images: [{url}, ...]
+  const imgs = raw?.images;
+  if (Array.isArray(imgs) && imgs.length > 0) {
+    const first = imgs[0];
+    const s =
+      pickFirstString(first, first?.url, first?.src, first?.link) || "";
+    return s || null;
+  }
+
+  return null;
+}
+
+function normalizeSlug(raw: any): string {
+  return (
+    pickFirstString(raw?.slug, raw?.handle, raw?.url_slug, raw?.urlSlug) || ""
   );
 }
 
-function getTitle(p: AnyProduct): string {
-  return firstNonEmpty(
-    p?.title,
-    p?.name,
-    p?.product_title,
-    p?.productTitle,
-    p?.heading
+function normalizeTitle(raw: any): string {
+  return (
+    pickFirstString(raw?.title, raw?.name, raw?.product_title, raw?.productTitle) ||
+    ""
   );
 }
 
-function getPrice(p: AnyProduct): string {
+function normalizeBrand(raw: any): string {
+  return pickFirstString(raw?.brand, raw?.brand_name, raw?.brandName) || "";
+}
+
+function normalizeCategory(raw: any): string {
+  return pickFirstString(raw?.category, raw?.cat, raw?.category_name, raw?.categoryName) || "";
+}
+
+function normalizePrice(raw: any): number | null {
   const v =
-    p?.price ??
-    p?.priceValue ??
-    p?.price_current ??
-    p?.priceCurrent ??
-    p?.sale_price ??
-    p?.salePrice ??
-    p?.amount;
+    raw?.price ??
+    raw?.price_value ??
+    raw?.priceValue ??
+    raw?.sale_price ??
+    raw?.salePrice ??
+    null;
 
-  if (typeof v === "number" && Number.isFinite(v)) return v.toFixed(2);
-  const s = asString(v);
-  return s;
+  if (typeof v === "number" && Number.isFinite(v)) return v;
+  if (typeof v === "string" && v.trim()) {
+    const n = Number(v.replace(/[^0-9.]+/g, ""));
+    return Number.isFinite(n) ? n : null;
+  }
+  return null;
 }
 
-function getImage(p: AnyProduct): string {
-  // handle lots of possible key shapes
-  const img =
-    p?.image ??
-    p?.imageUrl ??
-    p?.img ??
-    p?.thumbnail ??
-    p?.thumb ??
-    p?.primaryImage ??
-    p?.mainImage ??
-    p?.heroImage ??
-    p?.displayImage ??
-    (Array.isArray(p?.images) ? p.images[0] : null) ??
-    (Array.isArray(p?.image_urls) ? p.image_urls[0] : null) ??
-    (Array.isArray(p?.imageUrls) ? p.imageUrls[0] : null) ??
-    (Array.isArray(p?.media?.images) ? p.media.images[0] : null);
+function normalizeItem(raw: RawIndexItem): IndexItem | null {
+  const slug = normalizeSlug(raw);
+  const title = normalizeTitle(raw);
 
-  return asString(img);
+  if (!slug || !title) return null;
+
+  const brand = normalizeBrand(raw) || undefined;
+  const category = normalizeCategory(raw) || undefined;
+  const image = pickFirstImage(raw);
+
+  const price = normalizePrice(raw);
+
+  const searchable = normalizeText(
+    [title, brand || "", category || "", slug].filter(Boolean).join(" ")
+  );
+
+  return {
+    slug,
+    title,
+    brand,
+    category,
+    price,
+    image,
+    searchable,
+  };
 }
 
-function getHref(p: AnyProduct): string {
-  const slug = getSlug(p);
-  if (!slug) return "#";
-  // your site uses /p/<slug>
-  return `/p/${slug}`;
+// ✅ R2 public base (your current default)
+const R2_PUBLIC_BASE =
+  import.meta.env.VITE_R2_PUBLIC_BASE ||
+  "https://pub-efc133d84c664ca8ace8be57ec3e4d65.r2.dev";
+
+// If you version-bust indexes, set VITE_INDEX_VERSION="20260113-1" etc.
+const INDEX_VERSION = import.meta.env.VITE_INDEX_VERSION || "";
+
+// Where the cards index lives (override if needed)
+const INDEX_CARDS_PATH =
+  import.meta.env.VITE_INDEX_CARDS_PATH || "/indexes/_index.cards.json";
+
+function withVersion(url: string) {
+  if (!INDEX_VERSION) return url;
+  const sep = url.includes("?") ? "&" : "?";
+  return `${url}${sep}v=${encodeURIComponent(INDEX_VERSION)}`;
 }
 
-function Card({ p }: { p: AnyProduct }) {
-  const href = getHref(p);
-  const title = getTitle(p) || "Untitled product";
-  const price = getPrice(p);
-  const image = getImage(p);
+// If you ever point this at a .json.gz that is NOT served with Content-Encoding: gzip,
+// Chrome can still decompress it client-side via DecompressionStream.
+async function fetchJson(url: string) {
+  const res = await fetch(url, { cache: "no-store" });
+  if (!res.ok) throw new Error(`Fetch failed: ${res.status} ${res.statusText}`);
+
+  const ce = (res.headers.get("content-encoding") || "").toLowerCase();
+  const isGzipByHeader = ce.includes("gzip");
+  const isGzipByName = url.toLowerCase().endsWith(".gz");
+
+  if (isGzipByName && !isGzipByHeader) {
+    // manual gzip decode
+    if (typeof (window as any).DecompressionStream === "function" && res.body) {
+      const ds = new (window as any).DecompressionStream("gzip");
+      const decompressed = res.body.pipeThrough(ds);
+      const text = await new Response(decompressed).text();
+      return JSON.parse(text);
+    }
+    // fallback (will likely fail if truly gzipped without header)
+    return await res.json();
+  }
+
+  return await res.json();
+}
+
+type HomeRowProps = {
+  title: string;
+  viewAllHref?: string;
+  // Optional: show only items matching this predicate
+  filter?: (item: IndexItem) => boolean;
+  // Optional: max cards shown
+  limit?: number;
+  // Optional: offset into the list
+  offset?: number;
+};
+
+function ProductCard({
+  item,
+  onClick,
+}: {
+  item: IndexItem;
+  onClick: () => void;
+}) {
+  const priceText =
+    typeof item.price === "number" && Number.isFinite(item.price)
+      ? `$${item.price.toFixed(2)}`
+      : "$0.00";
 
   return (
-    <a
-      href={href}
+    <div
+      onClick={onClick}
       style={{
-        display: "block",
-        textDecoration: "none",
-        color: "inherit",
-        border: "1px solid rgba(0,0,0,0.08)",
+        width: 200,
+        minWidth: 200,
+        border: "1px solid #e6e6e6",
         borderRadius: 8,
-        overflow: "hidden",
         background: "#fff",
+        overflow: "hidden",
+        cursor: "pointer",
       }}
+      role="button"
+      tabIndex={0}
     >
       <div
         style={{
-          width: "100%",
-          aspectRatio: "1 / 1",
-          background: "#f6f7f8",
+          height: 160,
           display: "flex",
           alignItems: "center",
           justifyContent: "center",
+          background: "#fafafa",
+          borderBottom: "1px solid #eee",
         }}
       >
-        {image ? (
+        {item.image ? (
           <img
-            src={image}
-            alt={title}
+            src={item.image}
+            alt={item.title}
+            style={{ maxWidth: "100%", maxHeight: "100%", objectFit: "contain" }}
             loading="lazy"
-            // ✅ critical for Amazon 403 hotlink blocks
+            // helps with some hotlink setups
             referrerPolicy="no-referrer"
-            style={{
-              width: "100%",
-              height: "100%",
-              objectFit: "contain",
-              display: "block",
-            }}
-            onError={(e) => {
-              // fallback to blank if Amazon blocks or URL is dead
-              (e.currentTarget as HTMLImageElement).src = "";
-            }}
           />
         ) : (
-          <div style={{ fontSize: 12, color: "#8a8f98" }}>No image</div>
+          <div style={{ fontSize: 12, color: "#999" }}>No image</div>
         )}
       </div>
 
@@ -148,68 +239,109 @@ function Card({ p }: { p: AnyProduct }) {
             lineHeight: "16px",
             height: 32,
             overflow: "hidden",
+            color: "#111",
           }}
+          title={item.title}
         >
-          {title}
+          {item.title}
         </div>
-
         <div style={{ marginTop: 6, fontWeight: 600, fontSize: 13 }}>
-          {price ? `$${price}` : "$0.00"}
+          {priceText}
         </div>
       </div>
-    </a>
+    </div>
   );
 }
 
-export function HomeRow(props: HomeRowProps) {
-  const title = props.title || "";
-  const list =
-    props.products || props.items || props.row || props.data || ([] as AnyProduct[]);
+export default function HomeRow({
+  title,
+  viewAllHref,
+  filter,
+  limit = 12,
+  offset = 0,
+}: HomeRowProps) {
+  const nav = useNavigate();
+  const [items, setItems] = useState<IndexItem[]>([]);
+  const [error, setError] = useState<string>("");
+
+  useEffect(() => {
+    let alive = true;
+
+    async function run() {
+      setError("");
+      try {
+        const url = withVersion(`${R2_PUBLIC_BASE}${INDEX_CARDS_PATH}`);
+        const raw = await fetchJson(url);
+
+        const arr: RawIndexItem[] = Array.isArray(raw)
+          ? raw
+          : Array.isArray(raw?.items)
+          ? raw.items
+          : [];
+
+        const normalized = arr
+          .map(normalizeItem)
+          .filter(Boolean) as IndexItem[];
+
+        if (!alive) return;
+        setItems(normalized);
+      } catch (e: any) {
+        if (!alive) return;
+        setItems([]);
+        setError(e?.message || "Index fetch failed");
+      }
+    }
+
+    run();
+    return () => {
+      alive = false;
+    };
+  }, []);
+
+  const visible = useMemo(() => {
+    const base = filter ? items.filter(filter) : items;
+    return base.slice(offset, offset + limit);
+  }, [items, filter, limit, offset]);
 
   return (
-    <section className={props.className} style={{ padding: "12px 0" }}>
+    <div style={{ width: "100%" }}>
       <div
         style={{
           display: "flex",
-          alignItems: "center",
           justifyContent: "space-between",
-          marginBottom: 10,
+          alignItems: "baseline",
+          padding: "10px 0",
         }}
       >
-        <h3 style={{ margin: 0, fontSize: 14, fontWeight: 700 }}>{title}</h3>
-
-        {props.viewAllHref ? (
-          <a
-            href={props.viewAllHref}
-            style={{ fontSize: 12, textDecoration: "none" }}
-          >
+        <div style={{ fontSize: 16, fontWeight: 600 }}>{title}</div>
+        {viewAllHref ? (
+          <a href={viewAllHref} style={{ fontSize: 12 }}>
             View all
           </a>
         ) : null}
       </div>
 
-      {Array.isArray(list) && list.length > 0 ? (
-        <div
-          style={{
-            display: "grid",
-            gridAutoFlow: "column",
-            gridAutoColumns: "180px",
-            gap: 12,
-            overflowX: "auto",
-            paddingBottom: 6,
-          }}
-        >
-          {list.map((p, idx) => (
-            <Card key={getSlug(p) || `${idx}`} p={p} />
-          ))}
-        </div>
-      ) : (
-        <div style={{ fontSize: 12, color: "#8a8f98" }}>
-          No products found for this row.
-        </div>
-      )}
-    </section>
+      {error ? (
+        <div style={{ color: "#c00", fontSize: 12 }}>{error}</div>
+      ) : null}
+
+      <div
+        style={{
+          display: "flex",
+          gap: 12,
+          overflowX: "auto",
+          paddingBottom: 10,
+        }}
+      >
+        {visible.map((it) => (
+          <ProductCard
+            key={it.slug}
+            item={it}
+            onClick={() => nav(`/p/${it.slug}`)}
+          />
+        ))}
+      </div>
+    </div>
   );
 }
 
-export default HomeRow;
