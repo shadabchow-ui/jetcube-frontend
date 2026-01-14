@@ -135,14 +135,14 @@ export const ShopHubSection = (): JSX.Element => {
                 <ul className="shop-hub-list">
                   {dep.children.map(child => (
                     <li key={child.path}>
-                      <Link to={`/c/${normalizeSlug(child.path)}`}>
+                      <Link to={`/c/${child.path}`}>
                         {childTitle(child.path, dep.path)}
                       </Link>
                     </li>
                   ))}
 
                   <li className="shop-hub-all">
-                    <Link to={`/c/${normalizeSlug(dep.path)}`}>
+                    <Link to={`/c/${dep.path}`}>
                       <strong>Shop all {dep.title}</strong>
                     </Link>
                   </li>
@@ -157,3 +157,4 @@ export const ShopHubSection = (): JSX.Element => {
 };
 
 export default ShopHubSection;
+
