@@ -33,6 +33,7 @@ import * as CartModule from "./screens/Cart";
 import * as CheckoutModule from "./screens/Checkout";
 import * as CartSidebarModule from "./screens/CartSidebar";
 import * as ProductComparisonModule from "./screens/ProductComparison";
+import * as CategoryDirectory from "./screens/CategoryDirectory";
 
 /* ============================
    Pages
@@ -460,6 +461,7 @@ const router = createBrowserRouter([
       { path: "shop", element: <Shop /> },
       { path: "search", element: <SearchResultsPage /> },
       { path: "c/*", element: <CategoryPage /> },
+      { path: "category-directory", element: <CategoryDirectory /> },
 
       // ✅ ORDERS
       { path: "orders", element: <OrdersPage /> },
