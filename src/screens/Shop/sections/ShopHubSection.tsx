@@ -1,6 +1,7 @@
 import React, { useMemo } from "react";
 import { Link } from "react-router-dom";
 import rawCategories from "@/data/_category_urls.json";
+import "./ShopHubSection.css";
 
 /* ---------------------------------------
    Types
@@ -125,3 +126,4 @@ export const ShopHubSection = (): JSX.Element => {
 };
 
 export default ShopHubSection;
+
