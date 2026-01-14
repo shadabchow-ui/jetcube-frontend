@@ -29,6 +29,14 @@ function titleFromPath(path: string) {
     .join(" ");
 }
 
+function distributeIntoColumns<T>(items: T[], columns: number): T[][] {
+  const result: T[][] = Array.from({ length: columns }, () => []);
+  items.forEach((item, index) => {
+    result[index % columns].push(item);
+  });
+  return result;
+}
+
 /* ---------------------------------------
    Walmart-style grouping
 --------------------------------------- */
@@ -36,7 +44,7 @@ function titleFromPath(path: string) {
 function buildDepartments(categories: RawCategory[]): Department[] {
   const departments: Record<string, Department> = {};
 
-  // First pass: depth 1 = departments
+  // Depth 1 = department
   for (const cat of categories) {
     if (cat.depth === 1) {
       departments[cat.path] = {
@@ -47,7 +55,7 @@ function buildDepartments(categories: RawCategory[]): Department[] {
     }
   }
 
-  // Second pass: depth 2 = visible subcategories
+  // Depth 2 = visible subcategories
   for (const cat of categories) {
     if (cat.depth === 2 && cat.parent && departments[cat.parent]) {
       departments[cat.parent].children.push(cat);
@@ -59,7 +67,7 @@ function buildDepartments(categories: RawCategory[]): Department[] {
     ...dep,
     children: dep.children
       .sort((a, b) => a.path.localeCompare(b.path))
-      .slice(0, 10) // Walmart-style cap
+      .slice(0, 10)
   }));
 }
 
@@ -73,32 +81,42 @@ export const ShopHubSection = (): JSX.Element => {
     []
   );
 
+  // Walmart uses column-first layout
+  const columns = useMemo(
+    () => distributeIntoColumns(departments, 3),
+    [departments]
+  );
+
   return (
     <section className="shop-hub">
       <h1 className="shop-hub-title">All Departments</h1>
 
       <div className="shop-hub-grid">
-        {departments.map(dep => (
-          <div key={dep.path} className="shop-hub-section">
-            <h2 className="shop-hub-heading">
-              <Link to={`/c/${dep.path}`}>{dep.title}</Link>
-            </h2>
+        {columns.map((column, colIndex) => (
+          <div key={colIndex} className="shop-hub-column">
+            {column.map(dep => (
+              <div key={dep.path} className="shop-hub-section">
+                <h2 className="shop-hub-heading">
+                  <Link to={`/c/${dep.path}`}>{dep.title}</Link>
+                </h2>
 
-            <ul className="shop-hub-list">
-              {dep.children.map(child => (
-                <li key={child.path}>
-                  <Link to={`/c/${child.path}`}>
-                    {titleFromPath(child.path)}
-                  </Link>
-                </li>
-              ))}
+                <ul className="shop-hub-list">
+                  {dep.children.map(child => (
+                    <li key={child.path}>
+                      <Link to={`/c/${child.path}`}>
+                        {titleFromPath(child.path)}
+                      </Link>
+                    </li>
+                  ))}
 
-              <li className="shop-hub-all">
-                <Link to={`/c/${dep.path}`}>
-                  <strong>Shop all {dep.title}</strong>
-                </Link>
-              </li>
-            </ul>
+                  <li className="shop-hub-all">
+                    <Link to={`/c/${dep.path}`}>
+                      <strong>Shop all {dep.title}</strong>
+                    </Link>
+                  </li>
+                </ul>
+              </div>
+            ))}
           </div>
         ))}
       </div>
