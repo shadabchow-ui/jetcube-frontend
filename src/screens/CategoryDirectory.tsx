@@ -4,11 +4,12 @@ export default function CategoryDirectory() {
       src="/category-directory/index.html"
       title="Category Directory"
       style={{
-        width: '100%',
-        height: '100vh',
-        border: 'none',
-        background: '#0b0f19',
+        width: "100%",
+        height: "100vh",
+        border: "none",
+        background: "#0b0f19",
       }}
     />
   );
 }
+
