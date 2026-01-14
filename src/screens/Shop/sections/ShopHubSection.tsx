@@ -1,27 +1,22 @@
-import React, { useMemo } from 'react'
-import { Link } from 'react-router-dom'
-import rawCategories from '@/data/_category_urls.json'
+import React, { useMemo } from "react";
+import { Link } from "react-router-dom";
+import rawCategories from "@/data/_category_urls.json";
 
 /* ---------------------------------------
    Types
 --------------------------------------- */
 
 type RawCategory = {
-  url: string
-  path: string
-  depth: number
-  parent: string | null
-  product_count: number
-}
+  path: string;
+  depth: number;
+  parent: string | null;
+};
 
-type CategoryNode = {
-  title: string
-  url: string
-  path: string
-  depth: number
-  product_count: number
-  children: CategoryNode[]
-}
+type Department = {
+  title: string;
+  path: string;
+  children: RawCategory[];
+};
 
 /* ---------------------------------------
    Helpers
@@ -29,114 +24,86 @@ type CategoryNode = {
 
 function titleFromPath(path: string) {
   return path
-    .split('-')
+    .split("-")
     .map(w => w.charAt(0).toUpperCase() + w.slice(1))
-    .join(' ')
-}
-
-function normalizePath(path: string) {
-  return path
-    .replace(/-and-/g, '-')
-    .replace(/&/g, '')
-    .replace(/--+/g, '-')
-    .toLowerCase()
+    .join(" ");
 }
 
 /* ---------------------------------------
-   Hierarchy Builder
+   Walmart-style grouping
 --------------------------------------- */
 
-function buildCategoryTree(categories: RawCategory[]): CategoryNode[] {
-  const byPath = new Map<string, CategoryNode>()
-  const byUrl = new Map<string, CategoryNode>()
-  const roots: CategoryNode[] = []
+function buildDepartments(categories: RawCategory[]): Department[] {
+  const departments: Record<string, Department> = {};
 
-  const sorted = [...categories].sort((a, b) => a.depth - b.depth)
-
-  for (const cat of sorted) {
-    const normPath = normalizePath(cat.path)
-
-    // Deduplicate
-    if (byPath.has(normPath)) {
-      byPath.get(normPath)!.product_count += cat.product_count
-      continue
+  // First pass: depth 1 = departments
+  for (const cat of categories) {
+    if (cat.depth === 1) {
+      departments[cat.path] = {
+        title: titleFromPath(cat.path),
+        path: cat.path,
+        children: []
+      };
     }
-
-    const node: CategoryNode = {
-      title: titleFromPath(cat.path),
-      url: cat.url,
-      path: cat.path,
-      depth: cat.depth,
-      product_count: cat.product_count,
-      children: []
-    }
-
-    // Parent resolution
-    if (cat.parent) {
-      const parentNorm = normalizePath(cat.parent)
-      if (byPath.has(parentNorm)) {
-        byPath.get(parentNorm)!.children.push(node)
-      } else {
-        roots.push(node)
-      }
-    } else if (cat.depth === 1) {
-      roots.push(node)
-    } else {
-      // Fallback: URL prefix
-      const parent = [...byUrl.values()]
-        .filter(p => cat.url.startsWith(p.url + '/'))
-        .sort((a, b) => b.url.length - a.url.length)[0]
-
-      if (parent) parent.children.push(node)
-      else roots.push(node)
-    }
-
-    byPath.set(normPath, node)
-    byUrl.set(cat.url, node)
   }
 
-  return roots
+  // Second pass: depth 2 = visible subcategories
+  for (const cat of categories) {
+    if (cat.depth === 2 && cat.parent && departments[cat.parent]) {
+      departments[cat.parent].children.push(cat);
+    }
+  }
+
+  // Sort + cap children (Walmart behavior)
+  return Object.values(departments).map(dep => ({
+    ...dep,
+    children: dep.children
+      .sort((a, b) => a.path.localeCompare(b.path))
+      .slice(0, 10) // Walmart-style cap
+  }));
 }
 
 /* ---------------------------------------
    Component
 --------------------------------------- */
 
-const ShopHubSection: React.FC = () => {
-  const sections = useMemo(
-    () => buildCategoryTree(rawCategories as RawCategory[]),
+export const ShopHubSection = (): JSX.Element => {
+  const departments = useMemo(
+    () => buildDepartments(rawCategories as RawCategory[]),
     []
-  )
+  );
 
   return (
     <section className="shop-hub">
       <h1 className="shop-hub-title">All Departments</h1>
 
       <div className="shop-hub-grid">
-        {sections.map(section => (
-          <div key={section.url} className="shop-hub-column">
-            <Link to={section.url} className="shop-hub-heading">
-              {section.title}
-            </Link>
+        {departments.map(dep => (
+          <div key={dep.path} className="shop-hub-section">
+            <h2 className="shop-hub-heading">
+              <Link to={`/c/${dep.path}`}>{dep.title}</Link>
+            </h2>
 
-            {section.children.length > 0 && (
-              <ul className="shop-hub-list">
-                {section.children.map(sub => (
-                  <li key={sub.url}>
-                    <Link to={sub.url} className="shop-hub-link">
-                      {sub.title}
-                    </Link>
-                  </li>
-                ))}
-              </ul>
-            )}
+            <ul className="shop-hub-list">
+              {dep.children.map(child => (
+                <li key={child.path}>
+                  <Link to={`/c/${child.path}`}>
+                    {titleFromPath(child.path)}
+                  </Link>
+                </li>
+              ))}
+
+              <li className="shop-hub-all">
+                <Link to={`/c/${dep.path}`}>
+                  <strong>Shop all {dep.title}</strong>
+                </Link>
+              </li>
+            </ul>
           </div>
         ))}
       </div>
     </section>
-  )
-}
+  );
+};
 
-export { ShopHubSection }
-export default ShopHubSection
-
+export default ShopHubSection;
