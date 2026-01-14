@@ -1,12 +1,23 @@
+/* ---------------------------------------
+   ShopHub – Walmart-style directory
+--------------------------------------- */
+
 .shop-hub {
-  padding: 24px 0;
+  padding: 24px 0 48px;
+  background: #ffffff;
 }
 
+/* Page title */
 .shop-hub-title {
   font-size: 20px;
   font-weight: 600;
   margin-bottom: 24px;
+  color: #1a1a1a;
 }
+
+/* ---------------------------------------
+   Grid + Columns
+--------------------------------------- */
 
 .shop-hub-grid {
   display: grid;
@@ -17,18 +28,48 @@
 .shop-hub-column {
   display: flex;
   flex-direction: column;
-  gap: 32px;
+  gap: 24px;
 }
 
+/* ---------------------------------------
+   Section cards (critical for Walmart feel)
+--------------------------------------- */
+
 .shop-hub-section {
-  line-height: 1.4;
+  background: #ffffff;
+  border: 1px solid #e6e6e6;
+  border-radius: 6px;
+  padding: 16px 18px;
+  line-height: 1.35;
+  transition: border-color 0.15s ease;
 }
+
+.shop-hub-section:hover {
+  border-color: #cfcfcf;
+}
+
+/* ---------------------------------------
+   Department heading
+--------------------------------------- */
 
 .shop-hub-heading {
   font-size: 15px;
   font-weight: 600;
   margin-bottom: 6px;
 }
+
+.shop-hub-heading a {
+  color: #1a1a1a;
+  text-decoration: none;
+}
+
+.shop-hub-heading a:hover {
+  text-decoration: underline;
+}
+
+/* ---------------------------------------
+   Subcategory list
+--------------------------------------- */
 
 .shop-hub-list {
   list-style: none;
@@ -37,19 +78,57 @@
 }
 
 .shop-hub-list li {
-  margin: 4px 0;
+  margin: 2px 0;
   font-size: 13px;
 }
 
 .shop-hub-list a {
+  color: #0066c0; /* Walmart / Amazon style blue */
   text-decoration: none;
-  color: #0066c0; /* Amazon/Walmart-style blue */
 }
 
 .shop-hub-list a:hover {
   text-decoration: underline;
 }
 
+/* ---------------------------------------
+   "Shop all" anchor
+--------------------------------------- */
+
 .shop-hub-all {
   margin-top: 6px;
+}
+
+.shop-hub-all a {
+  color: #2e2f32;
+  font-weight: 600;
+  font-size: 13px;
+}
+
+.shop-hub-all a:hover {
+  text-decoration: underline;
+}
+
+/* ---------------------------------------
+   Responsive behavior (important)
+--------------------------------------- */
+
+/* Tablet */
+@media (max-width: 1024px) {
+  .shop-hub-grid {
+    grid-template-columns: repeat(2, 1fr);
+    gap: 32px;
+  }
+}
+
+/* Mobile */
+@media (max-width: 640px) {
+  .shop-hub-grid {
+    grid-template-columns: 1fr;
+    gap: 24px;
+  }
+
+  .shop-hub-title {
+    font-size: 18px;
+  }
 }
