@@ -1,141 +1,203 @@
+// src/components/ProductCard.tsx
 import React, { useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 
+type AnyObj = Record<string, any>;
+
 type ProductLike = {
   slug?: string;
-  id?: string;
-  asin?: string;
+  handle?: string;
+  url_slug?: string;
+
   title?: string;
+  brand?: string;
+
   image?: string | null;
+  img?: string | null;
+  thumbnail?: string | null;
+  thumb?: string | null;
+  imageUrl?: string | null;
+  image_url?: string | null;
+
+  images?: any; // string[] or object[]
   price?: number | string | null;
   rating?: number | string | null;
-  ratingCount?: number | string | null;
+  reviews?: number | string | null;
+
+  [k: string]: any;
 };
 
-const R2_PUBLIC_BASE =
-  import.meta.env.VITE_R2_PUBLIC_BASE ||
-  "https://pub-efc133d84c664ca8ace8be57ec3e4d65.r2.dev";
-
-// Optional: set this in Cloudflare Pages env if you want your own proxy later.
-// For now, this default proxy fixes Amazon 403 hotlinking.
-const IMAGE_PROXY_BASE =
-  import.meta.env.VITE_IMAGE_PROXY_BASE || "https://images.weserv.nl/?url=";
-
-function joinUrl(base: string, path: string) {
-  const b = String(base || "").replace(/\/+$/, "");
-  const p = String(path || "").replace(/^\/+/, "");
-  return `${b}/${p}`;
+function toStringOrEmpty(v: any): string {
+  return typeof v === "string" ? v : "";
 }
 
-function getId(p: ProductLike) {
-  return p.slug || p.id || p.asin || "";
-}
+function firstStringFromArray(arr: any): string {
+  if (!Array.isArray(arr) || arr.length === 0) return "";
+  const first = arr[0];
 
-function normalizeImageUrl(raw?: string | null) {
-  const u = (raw || "").trim();
-  if (!u) return "";
+  if (typeof first === "string") return first;
 
-  // Already absolute
-  if (/^https?:\/\//i.test(u)) return u;
-
-  // If it's a relative path, assume it's in R2 or public assets.
-  if (u.startsWith("/")) return u;
-
-  // Otherwise treat as a key under R2.
-  return joinUrl(R2_PUBLIC_BASE, u);
-}
-
-function shouldProxy(u: string) {
-  try {
-    const url = new URL(u);
-    const host = url.hostname.toLowerCase();
-    // Amazon commonly blocks direct embedding/hotlinking.
-    return host.includes("m.media-amazon.com") || host.includes("images-amazon.com");
-  } catch {
-    return false;
+  if (first && typeof first === "object") {
+    return (
+      toStringOrEmpty(first.url) ||
+      toStringOrEmpty(first.src) ||
+      toStringOrEmpty(first.href) ||
+      toStringOrEmpty(first.image) ||
+      ""
+    );
   }
+
+  return "";
 }
 
-function toProxiedUrl(u: string) {
-  // weserv expects url without scheme sometimes; it also works with full URL in many cases.
-  // The safest is to pass host+path+query without the protocol.
-  try {
-    const url = new URL(u);
-    const noProto = `${url.host}${url.pathname}${url.search}`;
-    return `${IMAGE_PROXY_BASE}${encodeURIComponent(noProto)}`;
-  } catch {
-    return u;
+function pickImage(p: ProductLike): string {
+  // direct common keys
+  const direct =
+    toStringOrEmpty(p.image) ||
+    toStringOrEmpty(p.img) ||
+    toStringOrEmpty(p.thumbnail) ||
+    toStringOrEmpty(p.thumb) ||
+    toStringOrEmpty(p.imageUrl) ||
+    toStringOrEmpty(p.image_url);
+
+  if (direct) return direct;
+
+  // nested objects
+  const imageObj = (p.image && typeof p.image === "object" ? (p.image as AnyObj) : null);
+  if (imageObj) {
+    const nested =
+      toStringOrEmpty(imageObj.url) ||
+      toStringOrEmpty(imageObj.src) ||
+      toStringOrEmpty(imageObj.href);
+    if (nested) return nested;
   }
+
+  // arrays (very common)
+  const fromImages =
+    firstStringFromArray(p.images) ||
+    firstStringFromArray((p as AnyObj).image_urls) ||
+    firstStringFromArray((p as AnyObj).imageUrls);
+
+  if (fromImages) return fromImages;
+
+  // last-ditch: sometimes cards store {primaryImage:{src}} etc.
+  const candidates = [
+    (p as AnyObj).primaryImage,
+    (p as AnyObj).mainImage,
+    (p as AnyObj).heroImage,
+    (p as AnyObj).primary_image,
+    (p as AnyObj).main_image,
+    (p as AnyObj).hero_image,
+  ];
+
+  for (const c of candidates) {
+    if (!c) continue;
+    if (typeof c === "string") return c;
+    if (typeof c === "object") {
+      const s = toStringOrEmpty(c.url) || toStringOrEmpty(c.src) || toStringOrEmpty(c.href);
+      if (s) return s;
+    }
+  }
+
+  return "";
 }
 
-export function ProductCard({
-  product,
-  className = "",
-}: {
-  product: ProductLike;
-  className?: string;
-}) {
-  const id = getId(product);
+function resolveSlug(p: ProductLike): string {
+  return (
+    toStringOrEmpty(p.slug) ||
+    toStringOrEmpty(p.handle) ||
+    toStringOrEmpty(p.url_slug)
+  );
+}
 
+function formatPrice(v: any): string {
+  const n =
+    typeof v === "number"
+      ? v
+      : typeof v === "string"
+      ? Number(v.replace(/[^0-9.]+/g, ""))
+      : 0;
+
+  const safe = Number.isFinite(n) ? n : 0;
+  return safe.toLocaleString(undefined, { style: "currency", currency: "USD" });
+}
+
+export function ProductCard({ product }: { product: ProductLike }) {
   const [imgFailed, setImgFailed] = useState(false);
 
-  const title = (product.title || "").trim() || id || "Untitled";
-  const priceText =
-    product.price === null || product.price === undefined || product.price === ""
-      ? ""
-      : typeof product.price === "number"
-      ? `$${product.price.toFixed(2)}`
-      : String(product.price);
+  const slug = useMemo(() => resolveSlug(product), [product]);
+  const href = slug ? `/p/${slug}` : "#";
 
-  const rawImg = useMemo(() => normalizeImageUrl(product.image), [product.image]);
+  const imgSrc = useMemo(() => pickImage(product), [product]);
+  const title = product.title || "Untitled item";
 
-  const imgSrc = useMemo(() => {
-    if (!rawImg) return "";
-    if (shouldProxy(rawImg)) return toProxiedUrl(rawImg);
-    return rawImg;
-  }, [rawImg]);
-
-  const href = id ? `/p/${id}` : "/shop";
+  const showImage = !!imgSrc && !imgFailed;
 
   return (
     <Link
       to={href}
-      className={[
-        "block bg-white border border-[#e7e7e7] rounded-sm overflow-hidden hover:shadow-sm transition",
-        className,
-      ].join(" ")}
-      aria-label={title}
+      style={{
+        display: "block",
+        border: "1px solid #eee",
+        borderRadius: 8,
+        background: "#fff",
+        color: "inherit",
+        textDecoration: "none",
+        overflow: "hidden",
+        minWidth: 190,
+      }}
     >
-      <div className="w-full aspect-[4/3] bg-[#fafafa] flex items-center justify-center">
-        {!imgSrc || imgFailed ? (
-          <div className="text-[12px] text-[#888]">No image</div>
-        ) : (
+      <div
+        style={{
+          height: 170,
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          background: "#fafafa",
+          borderBottom: "1px solid #eee",
+        }}
+      >
+        {showImage ? (
           <img
             src={imgSrc}
             alt={title}
             loading="lazy"
-            className="w-full h-full object-contain"
+            referrerPolicy="no-referrer"
+            style={{
+              maxWidth: "100%",
+              maxHeight: "100%",
+              objectFit: "contain",
+              display: "block",
+            }}
             onError={() => setImgFailed(true)}
           />
+        ) : (
+          <div style={{ fontSize: 12, opacity: 0.55 }}>No image</div>
         )}
       </div>
 
-      <div className="p-3">
-        <div className="text-[13px] text-[#0F1111] line-clamp-2 min-h-[34px]">
+      <div style={{ padding: 10 }}>
+        <div
+          style={{
+            fontSize: 12,
+            lineHeight: "16px",
+            height: 32,
+            overflow: "hidden",
+            display: "-webkit-box",
+            WebkitLineClamp: 2 as any,
+            WebkitBoxOrient: "vertical" as any,
+            marginBottom: 6,
+          }}
+          title={title}
+        >
           {title}
         </div>
 
-        <div className="mt-2 flex items-center justify-between gap-2">
-          <div className="text-[14px] font-semibold text-[#0F1111]">
-            {priceText || "$0.00"}
-          </div>
-          <div className="text-[12px] text-[#565959]">
-            {product.rating ? `${product.rating}★` : ""}
-          </div>
+        <div style={{ fontSize: 13, fontWeight: 600 }}>
+          {formatPrice(product.price)}
         </div>
       </div>
     </Link>
   );
 }
 
-export default ProductCard;
