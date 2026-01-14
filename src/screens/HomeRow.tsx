@@ -1,59 +1,76 @@
+// src/screens/HomeRow.tsx
 import React from "react";
 import { Link } from "react-router-dom";
-import ProductCard from "../components/ProductCard";
+import { ProductCard } from "../components/ProductCard";
 
-type HomeRowItem = {
+export type HomeRowItem = {
   slug?: string;
-  id?: string;
-  asin?: string;
+  handle?: string;
+  url_slug?: string;
+
   title?: string;
+  brand?: string;
+
+  // image variants (cards often differ)
   image?: string | null;
+  img?: string | null;
+  thumbnail?: string | null;
+  thumb?: string | null;
+  imageUrl?: string | null;
+  image_url?: string | null;
+
+  images?: any; // string[] or {src/url}[]
   price?: number | string | null;
   rating?: number | string | null;
-  ratingCount?: number | string | null;
+  reviews?: number | string | null;
 };
 
-export function HomeRow({
-  title,
-  items,
-  viewAllHref,
-}: {
+type Props = {
   title: string;
   items: HomeRowItem[];
-  viewAllHref?: string;
-}) {
-  const list = Array.isArray(items) ? items : [];
+  viewAllHref?: string; // e.g. "/c/womens-clothing"
+  className?: string;
+};
+
+export function HomeRow({ title, items, viewAllHref, className }: Props) {
+  if (!items || items.length === 0) return null;
 
   return (
-    <section className="w-full">
-      <div className="flex items-center justify-between mb-3">
-        <div className="text-[16px] font-semibold text-[#0F1111]">{title}</div>
+    <section className={className} style={{ marginBottom: 24 }}>
+      <div
+        style={{
+          display: "flex",
+          alignItems: "baseline",
+          justifyContent: "space-between",
+          gap: 12,
+          marginBottom: 10,
+        }}
+      >
+        <h2 style={{ fontSize: 16, fontWeight: 600, margin: 0 }}>{title}</h2>
 
         {viewAllHref ? (
           <Link
             to={viewAllHref}
-            className="text-[12px] text-[#007185] hover:underline"
+            style={{ fontSize: 12, textDecoration: "none" }}
           >
             View all
           </Link>
         ) : null}
       </div>
 
-      <div className="w-full overflow-x-auto">
-        <div className="flex gap-3 min-w-[900px]">
-          {list.map((p, idx) => {
-            const key = p.slug || p.id || p.asin || `${title}-${idx}`;
-            return (
-              <div key={key} className="w-[220px] shrink-0">
-                <ProductCard product={p} />
-              </div>
-            );
-          })}
-
-          {list.length === 0 ? (
-            <div className="text-[13px] text-[#565959] py-6">No items.</div>
-          ) : null}
-        </div>
+      <div
+        style={{
+          display: "grid",
+          gridAutoFlow: "column",
+          gridAutoColumns: "minmax(190px, 1fr)",
+          gap: 12,
+          overflowX: "auto",
+          paddingBottom: 6,
+        }}
+      >
+        {items.map((p, idx) => (
+          <ProductCard key={(p.slug || p.handle || p.url_slug || "") + idx} product={p} />
+        ))}
       </div>
     </section>
   );
