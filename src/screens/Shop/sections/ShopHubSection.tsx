@@ -1,4 +1,5 @@
-import React, { useEffect, useState } from "react";
+import React from "react";
+import categoryUrls from "../../../data/_category_urls.json";
 
 type Category = {
   url: string;
@@ -8,60 +9,77 @@ type Category = {
   product_count: number;
 };
 
-export function ShopHubSection() {
-  const [categories, setCategories] = useState<Category[]>([]);
-  const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    fetch("/data/category_urls.json")
-      .then((res) => res.json())
-      .then((data) => {
-        setCategories(data);
-        setLoading(false);
-      })
-      .catch(() => setLoading(false));
-  }, []);
-
-  if (loading) {
-    return <div style={{ padding: 40 }}>Loading departments…</div>;
-  }
-
-  // Top-level categories only (depth === 1)
-  const topLevel = categories.filter((c) => c.depth === 1);
+export const ShopHubSection: React.FC = () => {
+  // Top-level departments only
+  const departments = (categoryUrls as Category[]).filter(
+    (c) => c.parent === null && c.product_count > 0
+  );
 
   return (
-    <section style={{ maxWidth: 1400, margin: "0 auto", padding: "40px 24px" }}>
-      <h1 style={{ fontSize: 28, fontWeight: 600, marginBottom: 32 }}>
+    <section
+      style={{
+        maxWidth: "1400px",
+        margin: "0 auto",
+        padding: "32px 24px",
+      }}
+    >
+      <h1
+        style={{
+          fontSize: "28px",
+          fontWeight: 600,
+          marginBottom: "24px",
+        }}
+      >
         All Departments
       </h1>
 
       <div
         style={{
           display: "grid",
-          gridTemplateColumns: "repeat(auto-fill, minmax(260px, 1fr))",
-          gap: 32,
+          gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))",
+          gap: "16px",
         }}
       >
-        {topLevel.map((cat) => (
-          <div key={cat.path}>
-            <a
-              href={cat.url}
-              style={{
-                fontSize: 16,
-                fontWeight: 600,
-                color: "#007185",
-                textDecoration: "none",
-              }}
-            >
-              {cat.path.replace(/-/g, " ")}
-            </a>
-
-            <div style={{ fontSize: 12, color: "#666", marginTop: 4 }}>
-              {cat.product_count.toLocaleString()} products
-            </div>
-          </div>
+        {departments.map((cat) => (
+          <a
+            key={cat.path}
+            href={cat.url}
+            style={{
+              display: "block",
+              padding: "14px 16px",
+              border: "1px solid #e5e7eb",
+              borderRadius: "6px",
+              textDecoration: "none",
+              color: "#111827",
+              fontSize: "15px",
+              fontWeight: 500,
+              background: "#fff",
+            }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.background = "#f9fafb";
+              e.currentTarget.style.borderColor = "#d1d5db";
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.background = "#fff";
+              e.currentTarget.style.borderColor = "#e5e7eb";
+            }}
+          >
+            {formatCategoryName(cat.path)}
+          </a>
         ))}
       </div>
     </section>
   );
+};
+
+// ---------- helpers ----------
+
+function formatCategoryName(path: string): string {
+  return path
+    .replace(/-/g, " ")
+    .replace(/\b\w/g, (c) => c.toUpperCase());
 }
+
+export default ShopHubSection;
+
+
