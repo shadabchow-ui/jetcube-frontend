@@ -33,7 +33,6 @@ import * as CartModule from "./screens/Cart";
 import * as CheckoutModule from "./screens/Checkout";
 import * as CartSidebarModule from "./screens/CartSidebar";
 import * as ProductComparisonModule from "./screens/ProductComparison";
-import * as CategoryDirectory from "./screens/CategoryDirectory";
 
 /* ============================
    Pages
