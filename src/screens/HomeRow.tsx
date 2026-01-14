@@ -1,7 +1,7 @@
 // src/screens/HomeRow.tsx
 import React from "react";
 import { Link } from "react-router-dom";
-import { ProductCard } from "../components/ProductCard";
+import { ProductCard } from "./ProductCard";
 
 export type HomeRowItem = {
   slug?: string;
