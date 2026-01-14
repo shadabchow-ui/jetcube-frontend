@@ -460,8 +460,7 @@ const router = createBrowserRouter([
       { path: "shop", element: <Shop /> },
       { path: "search", element: <SearchResultsPage /> },
       { path: "c/*", element: <CategoryPage /> },
-      { path: "category-directory", element: <CategoryDirectory /> },
-
+      
       // ✅ ORDERS
       { path: "orders", element: <OrdersPage /> },
       { path: "orders/:id", element: <OrderDetailsPage /> },
