@@ -137,4 +137,6 @@ const ShopHubSection: React.FC = () => {
   )
 }
 
+export { ShopHubSection }
 export default ShopHubSection
+
