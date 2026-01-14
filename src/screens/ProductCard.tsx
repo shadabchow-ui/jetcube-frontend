@@ -1,139 +1,150 @@
-// src/components/ProductCard.tsx
-import React, { useMemo, useState } from "react";
-import { Link } from "react-router-dom";
+import React from "react";
 
-export type ProductLike = {
+type AnyProduct = any;
+
+export type ProductCardProps = {
+  product?: AnyProduct;
+
+  // direct props (if you don’t pass `product`)
   slug?: string;
-  url_slug?: string;
-  handle?: string;
-
+  href?: string;
   title?: string;
-  name?: string;
-
-  price?: number | string;
-  price_display?: string;
-
   image?: string | null;
-  image_url?: string | null;
-  main_image?: string | null;
-  thumbnail?: string | null;
-  images?: Array<string | null | undefined>;
+  price?: string | number | null;
 
-  rating?: number | string;
-  reviews?: number | string;
-
-  brand?: string;
-  category?: string;
-};
-
-type Props = {
-  product: ProductLike;
   className?: string;
-  hrefOverride?: string;
 };
 
-function safeText(v: any): string {
-  return typeof v === "string" ? v : v == null ? "" : String(v);
+function asString(v: any): string {
+  return typeof v === "string" ? v : "";
 }
 
-function pickSlug(p: ProductLike): string {
-  const raw =
-    safeText(p.slug) ||
-    safeText(p.handle) ||
-    safeText(p.url_slug) ||
-    "";
-
-  if (raw.startsWith("/")) return raw;
-  return raw ? `/p/${raw}` : "/shop";
-}
-
-function pickTitle(p: ProductLike): string {
-  return safeText(p.title) || safeText(p.name) || "Untitled product";
-}
-
-function pickPrice(p: ProductLike): string {
-  if (typeof p.price_display === "string" && p.price_display.trim()) return p.price_display;
-
-  if (typeof p.price === "number") return `$${p.price.toFixed(2)}`;
-
-  const s = safeText(p.price);
-  if (!s) return "";
-  return s.includes("$") ? s : `$${s}`;
-}
-
-function pickImageUrl(p: ProductLike): string {
-  const direct =
-    safeText(p.image) ||
-    safeText(p.image_url) ||
-    safeText(p.main_image) ||
-    safeText(p.thumbnail);
-
-  if (direct) return direct;
-
-  if (Array.isArray(p.images)) {
-    for (const v of p.images) {
-      const s = safeText(v);
-      if (s) return s;
-    }
+function firstNonEmpty(...vals: any[]): string {
+  for (const v of vals) {
+    const s = asString(v).trim();
+    if (s) return s;
   }
-
   return "";
 }
 
-export function ProductCard({ product, className = "", hrefOverride }: Props) {
-  const href = useMemo(() => hrefOverride || pickSlug(product), [hrefOverride, product]);
-  const title = useMemo(() => pickTitle(product), [product]);
-  const price = useMemo(() => pickPrice(product), [product]);
+function getSlug(p: AnyProduct): string {
+  return firstNonEmpty(p?.slug, p?.handle, p?.url_slug, p?.urlSlug);
+}
 
-  // ✅ Important: render image directly; DO NOT fetch / blob / arrayBuffer.
-  const initialImg = useMemo(() => pickImageUrl(product), [product]);
-  const [imgOk, setImgOk] = useState(true);
+function getTitle(p: AnyProduct): string {
+  return firstNonEmpty(p?.title, p?.name, p?.product_title, p?.productTitle);
+}
 
-  const ratingText = safeText(product.rating);
-  const reviewsText = safeText(product.reviews);
+function getPrice(p: AnyProduct): string {
+  const v =
+    p?.price ??
+    p?.priceValue ??
+    p?.price_current ??
+    p?.priceCurrent ??
+    p?.sale_price ??
+    p?.salePrice ??
+    p?.amount;
+
+  if (typeof v === "number" && Number.isFinite(v)) return v.toFixed(2);
+  return asString(v);
+}
+
+function getImage(p: AnyProduct): string {
+  const img =
+    p?.image ??
+    p?.imageUrl ??
+    p?.img ??
+    p?.thumbnail ??
+    p?.thumb ??
+    p?.primaryImage ??
+    p?.mainImage ??
+    p?.heroImage ??
+    (Array.isArray(p?.images) ? p.images[0] : null) ??
+    (Array.isArray(p?.image_urls) ? p.image_urls[0] : null) ??
+    (Array.isArray(p?.imageUrls) ? p.imageUrls[0] : null);
+
+  return asString(img);
+}
+
+export function ProductCard(props: ProductCardProps) {
+  const p = props.product;
+
+  const slug = props.slug || (p ? getSlug(p) : "");
+  const href = props.href || (slug ? `/p/${slug}` : "#");
+
+  const title = props.title || (p ? getTitle(p) : "") || "Untitled product";
+
+  const priceRaw =
+    props.price ?? (p ? getPrice(p) : "") ?? "";
+  const price =
+    typeof priceRaw === "number" ? priceRaw.toFixed(2) : asString(priceRaw);
+
+  const image =
+    props.image ?? (p ? getImage(p) : "") ?? "";
 
   return (
-    <div
-      className={
-        "rounded-[6px] border border-[#e6e6e6] bg-white overflow-hidden " +
-        "hover:shadow-sm transition-shadow " +
-        className
-      }
+    <a
+      href={href}
+      className={props.className}
+      style={{
+        display: "block",
+        textDecoration: "none",
+        color: "inherit",
+        border: "1px solid rgba(0,0,0,0.08)",
+        borderRadius: 8,
+        overflow: "hidden",
+        background: "#fff",
+      }}
     >
-      <Link to={href} className="block">
-        <div className="relative w-full bg-white">
-          <div className="w-full aspect-[4/5] flex items-center justify-center bg-white">
-            {initialImg && imgOk ? (
-              <img
-                src={initialImg}
-                alt={title}
-                loading="lazy"
-                className="w-full h-full object-contain"
-                onError={() => setImgOk(false)}
-              />
-            ) : (
-              <div className="text-[12px] text-[#9b9b9b] select-none">No image</div>
-            )}
-          </div>
+      <div
+        style={{
+          width: "100%",
+          aspectRatio: "1 / 1",
+          background: "#f6f7f8",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+        }}
+      >
+        {image ? (
+          <img
+            src={image}
+            alt={title}
+            loading="lazy"
+            // ✅ this is what prevents Amazon 403 in many cases
+            referrerPolicy="no-referrer"
+            style={{
+              width: "100%",
+              height: "100%",
+              objectFit: "contain",
+              display: "block",
+            }}
+            onError={(e) => {
+              (e.currentTarget as HTMLImageElement).src = "";
+            }}
+          />
+        ) : (
+          <div style={{ fontSize: 12, color: "#8a8f98" }}>No image</div>
+        )}
+      </div>
+
+      <div style={{ padding: 10 }}>
+        <div
+          style={{
+            fontSize: 12,
+            lineHeight: "16px",
+            height: 32,
+            overflow: "hidden",
+          }}
+        >
+          {title}
         </div>
 
-        <div className="px-3 py-2">
-          <div className="text-[12px] text-[#111] line-clamp-2 min-h-[32px]">{title}</div>
-
-          <div className="mt-2 flex items-center justify-between gap-2">
-            <div className="text-[13px] font-medium text-[#111]">{price || "\u00A0"}</div>
-
-            {(ratingText || reviewsText) && (
-              <div className="text-[11px] text-[#555] whitespace-nowrap">
-                {ratingText ? `${ratingText}` : ""}
-                {ratingText && reviewsText ? " · " : ""}
-                {reviewsText ? `${reviewsText}` : ""}
-              </div>
-            )}
-          </div>
+        <div style={{ marginTop: 6, fontWeight: 600, fontSize: 13 }}>
+          {price ? `$${price}` : "$0.00"}
         </div>
-      </Link>
-    </div>
+      </div>
+    </a>
   );
 }
 
