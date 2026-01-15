@@ -1,49 +1,56 @@
 import React, { useEffect, useState } from "react";
 import { useParams } from "react-router-dom";
 
-type CategoryData = {
-  products: any[];
-  category?: string;
+type Product = {
+  id?: string;
+  title?: string;
+  image?: string;
+  price?: number;
 };
 
-const R2_BASE =
-  "https://pub-efc133d84c664ca8ace8be57ec3e4d65.r2.dev/products/category_products";
+type CategoryData = {
+  category?: string;
+  products: Product[];
+};
+
+const R2_BASE = "https://ventari.net/indexes/category_products";
 
 export default function CategoryPage(): JSX.Element {
-  const { categoryPath = "" } = useParams();
+  const { categoryPath = "" } = useParams<{ categoryPath: string }>();
 
   const [data, setData] = useState<CategoryData | null>(null);
   const [loading, setLoading] = useState(true);
   const [notFound, setNotFound] = useState(false);
 
   useEffect(() => {
-    async function load() {
+    async function loadCategory() {
       setLoading(true);
       setNotFound(false);
 
       // Convert URL path → R2 filename
-      // appliances/ranges-ovens-cooktops
-      // → appliances__ranges-ovens-cooktops.json
-      const filename =
-        categoryPath.replace(/\//g, "__") + ".json";
+      // home-and-kitchen/heating-cooling → home-and-kitchen__heating-cooling.json
+      const filename = `${categoryPath.replace(/\//g, "__")}.json`;
 
       try {
         const res = await fetch(`${R2_BASE}/${filename}`);
 
         if (!res.ok) {
-          throw new Error("Not found");
+          throw new Error("Category not found");
         }
 
         const json = await res.json();
         setData(json);
-      } catch {
+      } catch (err) {
+        console.error("Category load failed:", err);
         setNotFound(true);
       } finally {
         setLoading(false);
       }
     }
 
-    load();
+    if (categoryPath) {
+      loadCategory();
+    }
   }, [categoryPath]);
 
   if (loading) {
@@ -59,7 +66,7 @@ export default function CategoryPage(): JSX.Element {
     );
   }
 
-  if (!data || !data.products?.length) {
+  if (!data || !data.products || data.products.length === 0) {
     return (
       <div className="category-empty">
         <h1>No products found</h1>
@@ -70,17 +77,33 @@ export default function CategoryPage(): JSX.Element {
   return (
     <section className="category-page">
       <h1 className="category-title">
-        {data.category ?? categoryPath.replace(/-/g, " ")}
+        {data.category ??
+          categoryPath
+            .split("/")
+            .pop()
+            ?.replace(/-/g, " ")
+            .replace(/\b\w/g, (c) => c.toUpperCase())}
       </h1>
 
       <div className="category-grid">
-        {data.products.map((p, i) => (
-          <div key={i} className="product-card">
-            {/* Replace with your real ProductCard */}
-            <pre>{JSON.stringify(p, null, 2)}</pre>
+        {data.products.map((product, index) => (
+          <div key={index} className="product-card">
+            {/* Replace with your real ProductCard later */}
+            <img
+              src={product.image}
+              alt={product.title}
+              loading="lazy"
+            />
+            <div className="product-title">{product.title}</div>
+            {product.price && (
+              <div className="product-price">
+                ${product.price.toFixed(2)}
+              </div>
+            )}
           </div>
         ))}
       </div>
     </section>
   );
 }
+
