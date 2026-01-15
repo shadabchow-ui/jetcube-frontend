@@ -16,7 +16,8 @@ type CategoryData = {
 const R2_BASE = "https://ventari.net/indexes/category_products";
 
 export default function CategoryPage(): JSX.Element {
-  const { categorySlug = "" } = useParams<{ categorySlug: string }>();
+  const params = useParams();
+  const categoryPath = (params["*"] ?? "").replace(/^\/+/, "");
 
   const [data, setData] = useState<CategoryData | null>(null);
   const [loading, setLoading] = useState(true);
@@ -29,7 +30,7 @@ export default function CategoryPage(): JSX.Element {
 
       // Convert URL path → R2 filename
       // home-and-kitchen/heating-cooling → home-and-kitchen__heating-cooling.json
-      const filename = `${categorySlug.replace(/\//g, "__")}.json`;
+      const filename = `${categoryPath.replace(/\//g, "__")}.json`;
 
       try {
         const res = await fetch(`${R2_BASE}/${filename}`);
@@ -48,10 +49,13 @@ export default function CategoryPage(): JSX.Element {
       }
     }
 
-    if (categorySlug) {
+    if (categoryPath) {
       loadCategory();
+    } else {
+      setLoading(false);
+      setNotFound(true);
     }
-  }, [categorySlug]);
+  }, [categoryPath]);
 
   if (loading) {
     return <div className="category-loading">Loading…</div>;
@@ -78,7 +82,7 @@ export default function CategoryPage(): JSX.Element {
     <section className="category-page">
       <h1 className="category-title">
         {data.category ??
-          categorySlug
+          categoryPath
             .split("/")
             .pop()
             ?.replace(/-/g, " ")
