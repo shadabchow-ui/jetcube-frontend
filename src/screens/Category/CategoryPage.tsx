@@ -16,7 +16,7 @@ type CategoryData = {
 const R2_BASE = "https://ventari.net/indexes/category_products";
 
 export default function CategoryPage(): JSX.Element {
-  const { categoryPath = "" } = useParams<{ categoryPath: string }>();
+  const { categorySlug = "" } = useParams<{ categorySlug: string }>();
 
   const [data, setData] = useState<CategoryData | null>(null);
   const [loading, setLoading] = useState(true);
@@ -29,7 +29,7 @@ export default function CategoryPage(): JSX.Element {
 
       // Convert URL path → R2 filename
       // home-and-kitchen/heating-cooling → home-and-kitchen__heating-cooling.json
-      const filename = `${categoryPath.replace(/\//g, "__")}.json`;
+      const filename = `${categorySlug.replace(/\//g, "__")}.json`;
 
       try {
         const res = await fetch(`${R2_BASE}/${filename}`);
@@ -48,10 +48,10 @@ export default function CategoryPage(): JSX.Element {
       }
     }
 
-    if (categoryPath) {
+    if (categorySlug) {
       loadCategory();
     }
-  }, [categoryPath]);
+  }, [categorySlug]);
 
   if (loading) {
     return <div className="category-loading">Loading…</div>;
@@ -78,7 +78,7 @@ export default function CategoryPage(): JSX.Element {
     <section className="category-page">
       <h1 className="category-title">
         {data.category ??
-          categoryPath
+          categorySlug
             .split("/")
             .pop()
             ?.replace(/-/g, " ")
@@ -89,16 +89,10 @@ export default function CategoryPage(): JSX.Element {
         {data.products.map((product, index) => (
           <div key={index} className="product-card">
             {/* Replace with your real ProductCard later */}
-            <img
-              src={product.image}
-              alt={product.title}
-              loading="lazy"
-            />
+            <img src={product.image} alt={product.title} loading="lazy" />
             <div className="product-title">{product.title}</div>
             {product.price && (
-              <div className="product-price">
-                ${product.price.toFixed(2)}
-              </div>
+              <div className="product-price">${product.price.toFixed(2)}</div>
             )}
           </div>
         ))}
@@ -106,4 +100,3 @@ export default function CategoryPage(): JSX.Element {
     </section>
   );
 }
-
