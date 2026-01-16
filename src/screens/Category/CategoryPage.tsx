@@ -1,6 +1,9 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { useLocation } from "react-router-dom";
-import { ProductCard } from "../screens/ProductCard";
+
+// ✅ FIX: correct path from src/screens/Category/CategoryPage.tsx -> src/screens/ProductCard
+import * as ProductCardModule from "../ProductCard";
+const ProductCard: any = (ProductCardModule as any).ProductCard ?? (ProductCardModule as any).default;
 
 /**
  * Category routing expects:
@@ -165,9 +168,7 @@ export default function CategoryPage() {
         <div>
           <div style={{ fontWeight: 600 }}>Category not found</div>
           <div style={{ opacity: 0.8 }}>{error}</div>
-          <div style={{ opacity: 0.8 }}>
-            This category is not available yet.
-          </div>
+          <div style={{ opacity: 0.8 }}>This category is not available yet.</div>
         </div>
       )}
 
@@ -188,7 +189,7 @@ export default function CategoryPage() {
           }}
         >
           {products.map((p: any) => (
-            <ProductCard key={p?.slug ?? Math.random()} product={p} />
+            <ProductCard key={p?.slug ?? `${Math.random()}`} product={p} />
           ))}
         </div>
       )}
