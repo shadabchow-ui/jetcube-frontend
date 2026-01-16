@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useState } from "react";
 import { useLocation } from "react-router-dom";
 
 // ✅ FIX: correct relative path (CategoryPage.tsx -> ../ProductCard.tsx)
-import ProductCard from "../ProductCard";
+import { ProductCard } from "../ProductCard";
 
 /**
  * Category routing expects:
