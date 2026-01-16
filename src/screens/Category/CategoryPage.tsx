@@ -28,12 +28,22 @@ export default function CategoryPage(): JSX.Element {
       setLoading(true);
       setNotFound(false);
 
-      // Convert URL path → R2 filename
+      // Preferred: nested folder path
+      // home-and-kitchen/heating-cooling → home-and-kitchen/heating-cooling.json
+      const slashFilename = `${categoryPath}.json`;
+
+      // Fallback: flattened naming
       // home-and-kitchen/heating-cooling → home-and-kitchen__heating-cooling.json
-      const filename = `${categoryPath.replace(/\//g, "__")}.json`;
+      const flatFilename = `${categoryPath.replace(/\//g, "__")}.json`;
 
       try {
-        const res = await fetch(`${R2_BASE}/${filename}`);
+        // 1) Try slash-path first
+        let res = await fetch(`${R2_BASE}/${encodeURI(slashFilename)}`);
+
+        // 2) If not found, try flattened fallback
+        if (!res.ok) {
+          res = await fetch(`${R2_BASE}/${encodeURI(flatFilename)}`);
+        }
 
         if (!res.ok) {
           throw new Error("Category not found");
