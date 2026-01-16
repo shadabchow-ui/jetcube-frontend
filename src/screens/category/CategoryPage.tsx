@@ -59,6 +59,17 @@ function normalizeCategoryIndexToSet(indexData: CategoryIndexShape) {
   return out;
 }
 
+/**
+ * 🔒 HARD NORMALIZATION
+ * Guarantees an array for rendering
+ */
+function normalizeProducts(data: any): any[] {
+  if (Array.isArray(data)) return data;
+  if (Array.isArray(data?.products)) return data.products;
+  if (Array.isArray(data?.items)) return data.items;
+  return [];
+}
+
 export default function CategoryPage() {
   const location = useLocation();
 
@@ -102,6 +113,7 @@ export default function CategoryPage() {
         const res = await fetch(url, { cache: "no-store" });
 
         if (!res.ok) {
+          // legacy fallback
           const legacy = `${cleanedParts.join("__")}.json`;
           const legacyRes = await fetch(
             `${CATEGORY_PRODUCTS_BASE}/${legacy}`,
@@ -112,11 +124,17 @@ export default function CategoryPage() {
             throw new Error(`Category file not found (${res.status})`);
           }
 
-          if (!cancelled) setProducts(await legacyRes.json());
+          const legacyData = await legacyRes.json();
+          if (!cancelled) {
+            setProducts(normalizeProducts(legacyData));
+          }
           return;
         }
 
-        if (!cancelled) setProducts(await res.json());
+        const data = await res.json();
+        if (!cancelled) {
+          setProducts(normalizeProducts(data));
+        }
       } catch (e: any) {
         if (!cancelled) setError(e?.message ?? "Unknown error");
       } finally {
@@ -156,9 +174,13 @@ export default function CategoryPage() {
             gap: 14,
           }}
         >
-          {products.map((p) => (
-            <ProductCard key={p?.slug ?? crypto.randomUUID()} product={p} />
-          ))}
+          {Array.isArray(products) &&
+            products.map((p) => (
+              <ProductCard
+                key={p?.slug ?? crypto.randomUUID()}
+                product={p}
+              />
+            ))}
         </div>
       )}
     </div>
