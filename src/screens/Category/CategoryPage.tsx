@@ -13,7 +13,11 @@ type CategoryData = {
   products: Product[];
 };
 
-const R2_BASE = "https://ventari.net/indexes/category_products";
+type CategoryIndex = Record<string, string>;
+
+const R2_BASE = "https://ventari.net/indexes";
+const CATEGORY_PRODUCTS_BASE = `${R2_BASE}/category_products`;
+const CATEGORY_INDEX_URL = `${R2_BASE}/category_urls.json`;
 
 export default function CategoryPage(): JSX.Element {
   const params = useParams();
@@ -28,26 +32,20 @@ export default function CategoryPage(): JSX.Element {
       setLoading(true);
       setNotFound(false);
 
-      // Preferred: nested folder path
-      // home-and-kitchen/heating-cooling → home-and-kitchen/heating-cooling.json
-      const slashFilename = `${categoryPath}.json`;
-
-      // Fallback: flattened naming
-      // home-and-kitchen/heating-cooling → home-and-kitchen__heating-cooling.json
-      const flatFilename = `${categoryPath.replace(/\//g, "__")}.json`;
-
       try {
-        // 1) Try slash-path first
-        let res = await fetch(`${R2_BASE}/${encodeURI(slashFilename)}`);
+        // 1️⃣ Load category → filename index
+        const indexRes = await fetch(CATEGORY_INDEX_URL);
+        if (!indexRes.ok) throw new Error("Category index missing");
 
-        // 2) If not found, try flattened fallback
-        if (!res.ok) {
-          res = await fetch(`${R2_BASE}/${encodeURI(flatFilename)}`);
-        }
+        const index: CategoryIndex = await indexRes.json();
 
-        if (!res.ok) {
-          throw new Error("Category not found");
-        }
+        // 2️⃣ Resolve exact filename
+        const filename = index[categoryPath];
+        if (!filename) throw new Error("Category not indexed");
+
+        // 3️⃣ Fetch category products JSON
+        const res = await fetch(`${CATEGORY_PRODUCTS_BASE}/${filename}`);
+        if (!res.ok) throw new Error("Category JSON missing");
 
         const json = await res.json();
         setData(json);
@@ -102,11 +100,12 @@ export default function CategoryPage(): JSX.Element {
       <div className="category-grid">
         {data.products.map((product, index) => (
           <div key={index} className="product-card">
-            {/* Replace with your real ProductCard later */}
             <img src={product.image} alt={product.title} loading="lazy" />
             <div className="product-title">{product.title}</div>
             {product.price && (
-              <div className="product-price">${product.price.toFixed(2)}</div>
+              <div className="product-price">
+                ${product.price.toFixed(2)}
+              </div>
             )}
           </div>
         ))}
