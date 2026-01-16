@@ -1,9 +1,8 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { useLocation } from "react-router-dom";
 
-// ✅ FIX: correct path from src/screens/Category/CategoryPage.tsx -> src/screens/ProductCard
-import * as ProductCardModule from "../ProductCard";
-const ProductCard: any = (ProductCardModule as any).ProductCard ?? (ProductCardModule as any).default;
+// ✅ FIX: correct relative path (CategoryPage.tsx -> ../ProductCard.tsx)
+import ProductCard from "../ProductCard";
 
 /**
  * Category routing expects:
@@ -24,7 +23,6 @@ const CATEGORY_INDEX_URL = `${R2_BASE}/_category_urls.json`;
 // ✅ Your uploaded folder in R2
 const CATEGORY_PRODUCTS_BASE = `${R2_BASE}/category_products`;
 
-// If you ever need to support old naming again, we can fallback, but primary is hyphen-joined.
 function toCategoryFilenameFromPath(pathname: string) {
   const raw = pathname.replace(/^\/+|\/+$/g, "");
   const parts = raw.split("/").filter(Boolean).map(decodeURIComponent);
@@ -33,9 +31,6 @@ function toCategoryFilenameFromPath(pathname: string) {
   const cleaned = parts[0] === "c" ? parts.slice(1) : parts;
 
   // Join segments with hyphen to match your new generated files
-  // Example:
-  //  ["clothing-shoes-and-jewelry","women","clothing","sweaters"]
-  //   -> "clothing-shoes-and-jewelry-women-clothing-sweaters.json"
   const filename = `${cleaned.join("-")}.json`;
 
   return { cleanedParts: cleaned, filename };
@@ -122,7 +117,6 @@ export default function CategoryPage() {
 
         if (!res.ok) {
           // Optional: fallback for older "__" naming if you ever need it
-          // (kept minimal; won’t interfere with your new scheme)
           const legacy = `${cleanedParts.join("__")}.json`;
           const legacyUrl = `${CATEGORY_PRODUCTS_BASE}/${legacy}`;
           const legacyRes = await fetch(legacyUrl, { cache: "no-store" });
