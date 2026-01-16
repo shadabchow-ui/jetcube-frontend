@@ -1,135 +1,146 @@
-import { useEffect, useMemo, useState } from "react";
-import { useLocation, Link } from "react-router-dom";
+import React, { useEffect, useMemo, useState } from "react";
+import { useLocation } from "react-router-dom";
+import { ProductCard } from "../screens/ProductCard";
 
-// NOTE: Adjust these if your origin differs in dev/prod
-const CATEGORY_URLS_PRIMARY = `${window.location.origin}/indexes/_category_urls.json`;
-const CATEGORY_URLS_FALLBACK = `${window.location.origin}/indexes/category_urls.json`;
-const CATEGORY_PRODUCTS_BASE = `${window.location.origin}/indexes/category_products`;
+/**
+ * Category routing expects:
+ *  - /c/<department>/<sub>/<sub>...
+ *  - OR /<department>/<sub>/<sub>...   (wildcard route)
+ *
+ * Data sources:
+ *  - indexes/_category_urls.json           (category index)
+ *  - indexes/category_products/<file>.json (category products)
+ */
 
-type CategoryUrlsMap = Record<string, string>;
+// Keep your base exactly as-is (don’t change env assumptions)
+const R2_BASE = "https://ventari.net/indexes";
 
-type Product = {
-  slug?: string;
-  title?: string;
-  brand?: string;
-  category?: string;
-  image?: string;
-  path?: string;
-  searchable?: boolean;
-  price?: number | null;
-};
+// ✅ Your actual file in R2 (your Network tab showed category_urls.json 404)
+const CATEGORY_INDEX_URL = `${R2_BASE}/_category_urls.json`;
 
-function slugifyCategoryName(name: string) {
-  return name
-    .toLowerCase()
-    .replace(/&/g, "and")
-    .replace(/,/g, "")
-    .replace(/\s*>\s*/g, " ")
-    .replace(/[^a-z0-9\s-]/g, "")
-    .trim()
-    .replace(/\s+/g, "-");
+// ✅ Your uploaded folder in R2
+const CATEGORY_PRODUCTS_BASE = `${R2_BASE}/category_products`;
+
+// If you ever need to support old naming again, we can fallback, but primary is hyphen-joined.
+function toCategoryFilenameFromPath(pathname: string) {
+  const raw = pathname.replace(/^\/+|\/+$/g, "");
+  const parts = raw.split("/").filter(Boolean).map(decodeURIComponent);
+
+  // Support both /c/... and non-/c/...
+  const cleaned = parts[0] === "c" ? parts.slice(1) : parts;
+
+  // Join segments with hyphen to match your new generated files
+  // Example:
+  //  ["clothing-shoes-and-jewelry","women","clothing","sweaters"]
+  //   -> "clothing-shoes-and-jewelry-women-clothing-sweaters.json"
+  const filename = `${cleaned.join("-")}.json`;
+
+  return { cleanedParts: cleaned, filename };
 }
 
-async function fetchJsonWithFallback<T>(primaryUrl: string, fallbackUrl: string): Promise<T> {
-  const r1 = await fetch(primaryUrl, { cache: "no-store" });
-  if (r1.ok) return (await r1.json()) as T;
+type CategoryIndexShape =
+  | Record<string, any>
+  | string[]
+  | Array<{ url?: string; path?: string; slug?: string }>;
 
-  const r2 = await fetch(fallbackUrl, { cache: "no-store" });
-  if (!r2.ok) throw new Error(`Failed to load ${primaryUrl} and ${fallbackUrl}`);
-  return (await r2.json()) as T;
+function normalizeCategoryIndexToSet(indexData: CategoryIndexShape) {
+  const out = new Set<string>();
+
+  // Case 1: object map { "<path>": {...}, ... }
+  if (indexData && typeof indexData === "object" && !Array.isArray(indexData)) {
+    Object.keys(indexData).forEach((k) => {
+      const kk = String(k || "").replace(/^\/+|\/+$/g, "");
+      if (kk) out.add(kk);
+    });
+    return out;
+  }
+
+  // Case 2: array of strings ["a/b/c", ...]
+  if (Array.isArray(indexData)) {
+    for (const item of indexData) {
+      if (typeof item === "string") {
+        const s = item.replace(/^\/+|\/+$/g, "");
+        if (s) out.add(s);
+        continue;
+      }
+      if (item && typeof item === "object") {
+        const s =
+          (item.url ?? item.path ?? item.slug ?? "")
+            .toString()
+            .replace(/^\/+|\/+$/g, "");
+        if (s) out.add(s);
+      }
+    }
+  }
+
+  return out;
 }
 
 export default function CategoryPage() {
   const location = useLocation();
 
-  const urlSlug = useMemo(() => {
-    // Supports:
-    // - /c/<slug>   (old)
-    // - /<slug>     (new root categories)
-    const raw = location.pathname.replace(/^\//, "");
-    if (!raw) return "";
-    if (raw.startsWith("c/")) return raw.slice(2);
-    return raw;
-  }, [location.pathname]);
-
-  const [categoryName, setCategoryName] = useState<string | null>(null);
-  const [products, setProducts] = useState<Product[] | null>(null);
   const [loading, setLoading] = useState(true);
-  const [notFound, setNotFound] = useState(false);
+  const [categoryExists, setCategoryExists] = useState<boolean | null>(null);
+  const [products, setProducts] = useState<any[]>([]);
   const [error, setError] = useState<string | null>(null);
+
+  const { cleanedParts, filename } = useMemo(
+    () => toCategoryFilenameFromPath(location.pathname),
+    [location.pathname]
+  );
+
+  const categoryPathKey = useMemo(() => cleanedParts.join("/"), [cleanedParts]);
 
   useEffect(() => {
     let cancelled = false;
 
     async function run() {
+      setLoading(true);
+      setError(null);
+      setProducts([]);
+      setCategoryExists(null);
+
       try {
-        setLoading(true);
-        setNotFound(false);
-        setError(null);
-        setProducts(null);
-        setCategoryName(null);
+        // 1) Load category index
+        const idxRes = await fetch(CATEGORY_INDEX_URL, { cache: "no-store" });
+        if (!idxRes.ok) {
+          throw new Error(`Failed to load category index (${idxRes.status})`);
+        }
+        const idxJson = (await idxRes.json()) as CategoryIndexShape;
+        const idxSet = normalizeCategoryIndexToSet(idxJson);
 
-        if (!urlSlug) {
-          setNotFound(true);
-          setLoading(false);
+        // If index is empty, don’t block; still try to fetch category file.
+        const existsInIndex = idxSet.size ? idxSet.has(categoryPathKey) : true;
+        if (!cancelled) setCategoryExists(existsInIndex);
+
+        // 2) Fetch category products (hyphen filename)
+        const url = `${CATEGORY_PRODUCTS_BASE}/${filename}`;
+        const res = await fetch(url, { cache: "no-store" });
+
+        if (!res.ok) {
+          // Optional: fallback for older "__" naming if you ever need it
+          // (kept minimal; won’t interfere with your new scheme)
+          const legacy = `${cleanedParts.join("__")}.json`;
+          const legacyUrl = `${CATEGORY_PRODUCTS_BASE}/${legacy}`;
+          const legacyRes = await fetch(legacyUrl, { cache: "no-store" });
+
+          if (!legacyRes.ok) {
+            throw new Error(`Category file not found (${res.status})`);
+          }
+
+          const legacyData = await legacyRes.json();
+          const legacyProducts = Array.isArray(legacyData) ? legacyData : [];
+          if (!cancelled) setProducts(legacyProducts);
           return;
         }
 
-        // 1) Load category URL map (your real file is _category_urls.json)
-        const map = await fetchJsonWithFallback<CategoryUrlsMap>(
-          CATEGORY_URLS_PRIMARY,
-          CATEGORY_URLS_FALLBACK
-        );
-
-        // Normalize lookups (handle encoding)
-        const decoded = (() => {
-          try {
-            return decodeURIComponent(urlSlug);
-          } catch {
-            return urlSlug;
-          }
-        })();
-
-        const foundName =
-          map[urlSlug] ||
-          map[decoded] ||
-          map[urlSlug.replaceAll("%2F", "/")] ||
-          map[decoded.replaceAll("%2F", "/")] ||
-          null;
-
-        if (!foundName) {
-          if (!cancelled) {
-            setNotFound(true);
-            setLoading(false);
-          }
-          return;
-        }
-
-        if (!cancelled) setCategoryName(foundName);
-
-        // 2) Fetch category products file by slugified category name
-        const fileSlug = slugifyCategoryName(foundName);
-        const productsUrl = `${CATEGORY_PRODUCTS_BASE}/${fileSlug}.json`;
-
-        const resp = await fetch(productsUrl, { cache: "no-store" });
-        if (!resp.ok) {
-          if (!cancelled) {
-            setNotFound(true);
-            setLoading(false);
-          }
-          return;
-        }
-
-        const data = (await resp.json()) as Product[];
-        if (!cancelled) {
-          setProducts(Array.isArray(data) ? data : []);
-          setLoading(false);
-        }
+        const data = await res.json();
+        const arr = Array.isArray(data) ? data : [];
+        if (!cancelled) setProducts(arr);
       } catch (e: any) {
-        if (!cancelled) {
-          setError(e?.message || "Unknown error");
-          setLoading(false);
-        }
+        if (!cancelled) setError(e?.message ?? "Unknown error");
+      } finally {
+        if (!cancelled) setLoading(false);
       }
     }
 
@@ -137,115 +148,50 @@ export default function CategoryPage() {
     return () => {
       cancelled = true;
     };
-  }, [urlSlug]);
+  }, [categoryPathKey, cleanedParts, filename]);
 
-  if (loading) {
-    return (
-      <div style={{ padding: 24 }}>
-        <div style={{ fontSize: 18, fontWeight: 600 }}>Loading…</div>
-      </div>
-    );
-  }
-
-  if (error) {
-    return (
-      <div style={{ padding: 24 }}>
-        <div style={{ fontSize: 18, fontWeight: 600 }}>Unexpected Application Error!</div>
-        <div style={{ marginTop: 8 }}>{error}</div>
-      </div>
-    );
-  }
-
-  if (notFound || !categoryName) {
-    return (
-      <div style={{ padding: 24 }}>
-        <div style={{ fontSize: 18, fontWeight: 600 }}>Category not found</div>
-        <div style={{ marginTop: 6 }}>This category is not available yet.</div>
-      </div>
-    );
-  }
+  const heading = useMemo(() => {
+    if (!cleanedParts.length) return "All Departments";
+    return cleanedParts.join(" > ");
+  }, [cleanedParts]);
 
   return (
-    <div style={{ padding: 24 }}>
-      <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between" }}>
+    <div style={{ padding: "16px 16px 40px" }}>
+      <h2 style={{ margin: "0 0 12px" }}>{heading}</h2>
+
+      {loading && <div>Loading...</div>}
+
+      {!loading && error && (
         <div>
-          <div style={{ fontSize: 22, fontWeight: 700 }}>{categoryName}</div>
-          <div style={{ marginTop: 6, opacity: 0.8 }}>
-            {products ? `${products.length.toLocaleString()} products` : ""}
+          <div style={{ fontWeight: 600 }}>Category not found</div>
+          <div style={{ opacity: 0.8 }}>{error}</div>
+          <div style={{ opacity: 0.8 }}>
+            This category is not available yet.
           </div>
         </div>
-        <Link to="/categories" style={{ textDecoration: "none", fontWeight: 600 }}>
-          All Departments
-        </Link>
-      </div>
+      )}
 
-      <div style={{ marginTop: 18 }}>
-        {!products || products.length === 0 ? (
-          <div>No products found for this category.</div>
-        ) : (
-          <div
-            style={{
-              display: "grid",
-              gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))",
-              gap: 16,
-            }}
-          >
-            {products.map((p, idx) => (
-              <Link
-                key={`${p.slug || p.path || idx}`}
-                to={p.path || (p.slug ? `/p/${p.slug}` : "#")}
-                style={{
-                  textDecoration: "none",
-                  color: "inherit",
-                  border: "1px solid rgba(0,0,0,0.08)",
-                  borderRadius: 12,
-                  padding: 12,
-                  background: "#fff",
-                }}
-              >
-                <div
-                  style={{
-                    width: "100%",
-                    aspectRatio: "1 / 1",
-                    borderRadius: 10,
-                    background: "rgba(0,0,0,0.04)",
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    overflow: "hidden",
-                  }}
-                >
-                  {p.image ? (
-                    <img
-                      src={p.image}
-                      alt={p.title || "Product"}
-                      style={{ width: "100%", height: "100%", objectFit: "contain" }}
-                      loading="lazy"
-                    />
-                  ) : (
-                    <div style={{ opacity: 0.6, fontSize: 12 }}>No image</div>
-                  )}
-                </div>
+      {!loading && !error && categoryExists === false && (
+        <div style={{ marginBottom: 12, opacity: 0.85 }}>
+          Category not found
+          <br />
+          This category is not available yet.
+        </div>
+      )}
 
-                <div style={{ marginTop: 10, fontWeight: 600, fontSize: 14, lineHeight: 1.3 }}>
-                  {p.title || "Untitled product"}
-                </div>
-
-                {p.brand ? (
-                  <div style={{ marginTop: 6, fontSize: 12, opacity: 0.7 }}>{p.brand}</div>
-                ) : null}
-
-                {/* Price is optional in your index-derived category files; keep safe */}
-                {typeof p.price === "number" ? (
-                  <div style={{ marginTop: 8, fontSize: 14, fontWeight: 700 }}>
-                    ${p.price.toFixed(2)}
-                  </div>
-                ) : null}
-              </Link>
-            ))}
-          </div>
-        )}
-      </div>
+      {!loading && !error && (
+        <div
+          style={{
+            display: "grid",
+            gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))",
+            gap: 14,
+          }}
+        >
+          {products.map((p: any) => (
+            <ProductCard key={p?.slug ?? Math.random()} product={p} />
+          ))}
+        </div>
+      )}
     </div>
   );
 }
