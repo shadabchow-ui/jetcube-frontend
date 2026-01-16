@@ -38,7 +38,7 @@ import * as ProductComparisonModule from "./screens/ProductComparison";
    Pages
    ============================ */
 import * as SearchResultsPageModule from "./pages/SearchResultsPage";
-import * as CategoryPageModule from "./screens/Category/CategoryPage";
+import * as CategoryPageModule from "./screens/category/CategoryPage";
 
 import OrdersPage from "./pages/OrdersPage";
 import OrderDetailsPage from "./pages/OrderDetailsPage";
