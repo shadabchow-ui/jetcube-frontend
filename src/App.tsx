@@ -1,452 +1,630 @@
-import "./App.css";
-import React, { useEffect, useMemo, useRef, useState, lazy, Suspense } from "react";
-import { createBrowserRouter, RouterProvider, Outlet, useLocation, useNavigate, Link } from "react-router-dom";
-import { Menu, Search, ShoppingCart, User, Heart, Shield, Truck, RefreshCw, FileText, ExternalLink } from "lucide-react";
+import React from "react";
+import {
+  RouterProvider,
+  createBrowserRouter,
+  Navigate,
+  useParams,
+} from "react-router-dom";
 
-import { useCart } from "./context/CartContext";
-import { useWishlist } from "./context/WishlistContext";
+/* ============================
+   Layout
+   ============================ */
+import MainLayout from "./layouts/MainLayout";
+import HelpLayout from "./layouts/HelpLayout";
 
-import Home from "./pages/Home";
-import SearchResultsPage from "./pages/SearchResultsPage";
-import ProductPage from "./pages/ProductPage";
-import CheckoutPage from "./pages/CheckoutPage";
-import AboutPage from "./pages/AboutPage";
-import ContactPage from "./pages/ContactPage";
-import PrivacyPolicyPage from "./pages/PrivacyPolicyPage";
-import TermsPage from "./pages/TermsPage";
-import DisclaimerPage from "./pages/DisclaimerPage";
-import AccessibilityPage from "./pages/AccessibilityPage";
-import CookiePolicyPage from "./pages/CookiePolicyPage";
+/* ============================
+   PDP Context
+   ============================ */
+import * as PdpContext from "./pdp/ProductPdpContext";
 
-import ShopHub from "./pages/ShopHub";
-import CartPage from "./pages/CartPage";
-import WishlistPage from "./pages/WishlistPage";
+/* ============================
+   Cart Context
+   ============================ */
+import { CartProvider } from "./context/CartContext";
+import { WishlistProvider } from "./context/WishlistContext";
+
+/* ============================
+   Screens / Pages
+   ============================ */
+import * as HomeModule from "./screens/Home";
+import * as ShopModule from "./screens/Shop";
+import * as SingleProductModule from "./screens/SingleProduct";
+import * as CartModule from "./screens/Cart";
+import * as CheckoutModule from "./screens/Checkout";
+import * as CartSidebarModule from "./screens/CartSidebar";
+import * as ProductComparisonModule from "./screens/ProductComparison";
+
+/* ============================
+   Pages
+   ============================ */
+import * as SearchResultsPageModule from "./pages/SearchResultsPage";
+import * as CategoryPageModule from "./screens/Category/CategoryPage";
+
 import OrdersPage from "./pages/OrdersPage";
+import OrderDetailsPage from "./pages/OrderDetailsPage";
+import SignupPage from "./pages/SignupPage";
+import LoginPage from "./pages/LoginPage";
+import AccountPage from "./pages/AccountPage";
+import WishlistPage from "./pages/WishlistPage";
 
-// IMPORTANT: CategoryPage is a default export in its module.
-// Some bundlers may wrap it; we normalize below.
-import CategoryPageModule from "./pages/CategoryPage";
-const CategoryPage: React.FC = (CategoryPageModule as any).default
-  ? (CategoryPageModule as any).default
-  : (CategoryPageModule as any);
+/* ============================
+   Brand Pages (now in /pages/help)
+   ============================ */
+import * as AboutUsModule from "./pages/help/AboutUs";
+import * as CareersModule from "./pages/help/Careers";
+import * as PressModule from "./pages/help/Press";
+import * as SustainabilityModule from "./pages/help/Sustainability";
+import * as NewsletterModule from "./pages/help/Newsletter";
 
-function TopNav() {
-  const { items } = useCart();
-  const { wishlistCount } = useWishlist();
-  const location = useLocation();
-  const navigate = useNavigate();
+/* ============================
+   Help / Legal Pages
+   ============================ */
+import * as HelpIndexModule from "./pages/help/HelpIndex";
+import * as ContactModule from "./pages/help/Contact";
+import * as ShippingModule from "./pages/help/Shipping";
+import * as ReturnsModule from "./pages/help/Returns";
+import * as PaymentsModule from "./pages/help/Payments";
+import * as AdsPrivacyModule from "./pages/help/AdsPrivacy";
+import * as ConsumerDataModule from "./pages/help/ConsumerData";
+import * as ProductSafetyModule from "./pages/help/ProductSafety";
+import * as DevicesModule from "./pages/help/Devices";
+import * as ConditionsOfUseModule from "./pages/help/ConditionsOfUse";
+import * as PrivacyNoticeModule from "./pages/help/PrivacyNotice";
+import * as AccessibilityModule from "./pages/help/Accessibility";
+import * as CookiePolicyModule from "./pages/help/cookiepolicy";
 
-  const [q, setQ] = useState("");
+/* ============================
+   R2 Base (PUBLIC)
+   ============================ */
+const R2_PUBLIC_BASE =
+  import.meta.env.VITE_R2_PUBLIC_BASE ||
+  "https://pub-efc133d84c664ca8ace8be57ec3e4d65.r2.dev";
 
-  useEffect(() => {
-    // Clear search box when navigating
-    setQ("");
-  }, [location.pathname]);
+function joinUrl(base: string, path: string) {
+  const b = String(base || "").replace(/\/+$/, "");
+  const p = String(path || "").replace(/^\/+/, "");
+  return `${b}/${p}`;
+}
 
-  const cartCount = useMemo(() => items.reduce((sum, it) => sum + (it.qty || 1), 0), [items]);
+/* ============================
+   ✅ BAND-AID: Cache the huge _index.json in memory
+   - Prevents re-downloading ~103MB on every PDP navigation
+   - Shares a single in-flight promise across concurrent requests
+   ============================ */
+let INDEX_CACHE: any[] | null = null;
+let INDEX_PROMISE: Promise<any[]> | null = null;
 
-  function onSubmit(e: React.FormEvent) {
-    e.preventDefault();
-    const query = q.trim();
-    if (!query) return;
-    navigate(`/search?q=${encodeURIComponent(query)}`);
+async function loadIndexOnce(): Promise<any[]> {
+  if (INDEX_CACHE) return INDEX_CACHE;
+  if (INDEX_PROMISE) return INDEX_PROMISE;
+
+  const url = joinUrl(R2_PUBLIC_BASE, "indexes/_index.json");
+
+  INDEX_PROMISE = fetch(encodeURI(url), { cache: "force-cache" })
+    .then(async (res) => {
+      const text = await res.text();
+
+      // Detect Vite/HTML misroutes (or 404 HTML pages)
+      if (text.trim().startsWith("<")) {
+        throw new Error(`Expected JSON at ${url} but got HTML (file missing or misrouted)`);
+      }
+
+      if (!res.ok) {
+        throw new Error(`HTTP ${res.status} at ${url}: ${text.slice(0, 140)}`);
+      }
+
+      let parsed: any;
+      try {
+        parsed = JSON.parse(text);
+      } catch {
+        throw new Error(`Expected JSON at ${url} but got non-JSON: ${text.slice(0, 140)}`);
+      }
+
+      const arr = Array.isArray(parsed) ? parsed : [];
+      INDEX_CACHE = arr;
+      return arr;
+    })
+    .finally(() => {
+      INDEX_PROMISE = null;
+    });
+
+  return INDEX_PROMISE;
+}
+
+/* ============================
+   ✅ FAST PDP LOOKUP: sharded handle → URL
+   - Avoids waiting on the ~103MB _index.json before product fetch
+   - Files are generated by rebuild_index_from_pdp.py into:
+     indexes/pdp_paths/xx.json
+   ============================ */
+type PdpShard = Record<string, string>;
+
+let PDP_SHARD_CACHE: Record<string, PdpShard> = {};
+let PDP_SHARD_PROMISE: Record<string, Promise<PdpShard | null> | null> = {};
+
+function shardKeyFromHandle(h: string): string {
+  const s = (h || "").trim().toLowerCase();
+  const a = s[0] || "_";
+  const b = s[1] || "_";
+  const clean = (c: string) => (/[a-z0-9]/.test(c) ? c : "_");
+  return `${clean(a)}${clean(b)}`;
+}
+
+async function loadPdpShardOnce(key: string): Promise<PdpShard | null> {
+  if (PDP_SHARD_CACHE[key]) return PDP_SHARD_CACHE[key];
+  if (PDP_SHARD_PROMISE[key]) return PDP_SHARD_PROMISE[key] as Promise<PdpShard | null>;
+
+  const url = joinUrl(R2_PUBLIC_BASE, `indexes/pdp_paths/${key}.json`);
+
+  PDP_SHARD_PROMISE[key] = fetch(encodeURI(url), { cache: "force-cache" })
+    .then(async (res) => {
+      const text = await res.text();
+
+      // If shard doesn't exist yet (404) or returns HTML, treat as missing and fall back
+      if (!res.ok) return null;
+      if (text.trim().startsWith("<")) return null;
+
+      try {
+        const parsed = JSON.parse(text);
+        const obj = parsed && typeof parsed === "object" ? parsed : null;
+        if (obj) PDP_SHARD_CACHE[key] = obj as PdpShard;
+        return obj as PdpShard;
+      } catch {
+        return null;
+      }
+    })
+    .finally(() => {
+      PDP_SHARD_PROMISE[key] = null;
+    });
+
+  return PDP_SHARD_PROMISE[key] as Promise<PdpShard | null>;
+}
+
+/* ============================
+   Helper: pick named export if it exists, else default
+   ============================ */
+function pick<T = any>(mod: any, named: string): T {
+  return (mod?.[named] ?? mod?.default) as T;
+}
+
+/* ============================
+   Pages
+   ============================ */
+const Home = pick<any>(HomeModule, "Home");
+const Shop = pick<any>(ShopModule, "Shop");
+const SingleProduct = pick<any>(SingleProductModule, "SingleProduct");
+const Cart = pick<any>(CartModule, "Cart");
+const Checkout = pick<any>(CheckoutModule, "Checkout");
+const CartSidebar = pick<any>(CartSidebarModule, "CartSidebar");
+const ProductComparison = pick<any>(ProductComparisonModule, "ProductComparison");
+const SearchResultsPage = pick<any>(SearchResultsPageModule, "SearchResultsPage");
+const CategoryPage = pick<any>(CategoryPageModule, "CategoryPage");
+
+/* Brand */
+const AboutUs = pick<any>(AboutUsModule, "AboutUs");
+const Careers = pick<any>(CareersModule, "Careers");
+const Press = pick<any>(PressModule, "Press");
+const Sustainability = pick<any>(SustainabilityModule, "Sustainability");
+const Newsletter = pick<any>(NewsletterModule, "Newsletter");
+
+/* Help */
+const HelpIndex = pick<any>(HelpIndexModule, "HelpIndex");
+const Contact = pick<any>(ContactModule, "Contact");
+const Shipping = pick<any>(ShippingModule, "Shipping");
+const Returns = pick<any>(ReturnsModule, "Returns");
+const Payments = pick<any>(PaymentsModule, "Payments");
+const AdsPrivacy = pick<any>(AdsPrivacyModule, "AdsPrivacy");
+const ConsumerData = pick<any>(ConsumerDataModule, "ConsumerData");
+const ProductSafety = pick<any>(ProductSafetyModule, "ProductSafety");
+const Devices = pick<any>(DevicesModule, "Devices");
+
+/* Legal */
+const ConditionsOfUse = pick<any>(ConditionsOfUseModule, "ConditionsOfUse");
+const PrivacyNotice = pick<any>(PrivacyNoticeModule, "PrivacyNotice");
+const Accessibility = pick<any>(AccessibilityModule, "Accessibility");
+const CookiePolicy = pick<any>(CookiePolicyModule, "CookiePolicy");
+
+/* ============================
+   PDP Provider
+   ============================ */
+const ProductPdpProvider =
+  pick<any>(PdpContext, "ProductPdpProvider") || (({ children }: any) => <>{children}</>);
+
+/* ============================
+   PDP ROUTE
+   ============================ */
+function ProductRoute({ children }: { children: React.ReactNode }) {
+  const { id } = useParams<{ id: string }>();
+  const handle = decodeURIComponent((id || "")).trim();
+  const [product, setProduct] = React.useState<any>(null);
+  const [error, setError] = React.useState<string | null>(null);
+
+  React.useEffect(() => {
+    let cancelled = false;
+
+    async function fetchJson(url: string) {
+      // encodeURI is important because your batch folders have spaces (batch 1, batch 2, ...)
+      const res = await fetch(encodeURI(url), { cache: "force-cache" });
+      const text = await res.text();
+
+      // Vite sometimes serves index.html (200 OK) for missing files. Detect that.
+      if (text.trim().startsWith("<")) {
+        throw new Error(`Expected JSON at ${url} but got HTML (file missing or misrouted)`);
+      }
+
+      if (!res.ok) {
+        throw new Error(`HTTP ${res.status} at ${url}: ${text.slice(0, 140)}`);
+      }
+
+      try {
+        return JSON.parse(text);
+      } catch {
+        throw new Error(`Expected JSON at ${url} but got non-JSON: ${text.slice(0, 140)}`);
+      }
+    }
+
+    function resolveMappedToUrl(v: any): string | null {
+      if (v == null) return null;
+      const s = String(v).trim();
+      if (!s) return null;
+
+      // Full URL already
+      if (s.startsWith("http://") || s.startsWith("https://")) return s;
+
+      // Root-relative path
+      if (s.startsWith("/")) return joinUrl(R2_PUBLIC_BASE, s);
+
+      // ✅ IMPORTANT: if it already looks like a path (contains "/"), treat as a path under R2
+      // Examples: "products/batch 2/part_01/x.json" or "indexes/pdp_paths/ti.json"
+      if (s.includes("/")) return joinUrl(R2_PUBLIC_BASE, s);
+
+      // Filename with .json (assume under /products/)
+      if (s.endsWith(".json")) return joinUrl(R2_PUBLIC_BASE, `products/${s}`);
+
+      // Otherwise assume it's a handle/filename base under /products/
+      return joinUrl(R2_PUBLIC_BASE, `products/${s}.json`);
+    }
+
+    async function load() {
+      try {
+        setError(null);
+        setProduct(null);
+
+        if (!handle) throw new Error("Missing product handle");
+
+        // ✅ FASTEST FLOW:
+        // Try sharded handle → URL lookup first (indexes/pdp_paths/xx.json)
+        try {
+          const key = shardKeyFromHandle(handle);
+          const shard = await loadPdpShardOnce(key);
+
+          const mapped = shard?.[handle];
+          const directUrl = resolveMappedToUrl(mapped);
+          if (directUrl) {
+            const p = await fetchJson(directUrl);
+            if (!cancelled) setProduct(p);
+            return;
+          }
+        } catch {
+          // fall through to _index.json and legacy fallbacks
+        }
+
+        // ✅ NEW PRIMARY FLOW:
+        // 1) Load indexes/_index.json from R2 (CACHED IN MEMORY)
+        // 2) Find by slug
+        // 3) Fetch entry.path (full R2 URL)
+        try {
+          const index = await loadIndexOnce();
+
+          if (Array.isArray(index)) {
+            const entry = index.find((p: any) => p?.slug === handle);
+
+            if (entry?.path) {
+              const entryUrl = resolveMappedToUrl(entry.path) || entry.path;
+              const p = await fetchJson(entryUrl);
+              if (!cancelled) setProduct(p);
+              return;
+            }
+          }
+        } catch {
+          // keep legacy fallbacks below
+        }
+
+        const looksLikeAsin = /^[A-Za-z0-9]{10}$/.test(handle);
+        const asinKey = handle.toUpperCase();
+
+        // 1) Try handle-based filename first (works if file is /products/<handle>.json)
+        try {
+          const byHandle = await fetchJson(
+            joinUrl(R2_PUBLIC_BASE, `products/${handle}.json`)
+          );
+          if (!cancelled) setProduct(byHandle);
+          return;
+        } catch {
+          // continue
+        }
+
+        // 2) Load map (your script writes asin_map.json; keep _asin_map.json fallback)
+        let asinToPath: any = null;
+        try {
+          asinToPath = await fetchJson(joinUrl(R2_PUBLIC_BASE, "products/asin_map.json"));
+        } catch {
+          asinToPath = await fetchJson(joinUrl(R2_PUBLIC_BASE, "products/_asin_map.json"));
+        }
+
+        // 3) First try direct key match (THIS is what you need now)
+        // Your map keys include slugs like "idyllwind-womens-..." and values like "/products/batch 1/...json"
+        const direct =
+          asinToPath?.[handle] ||
+          asinToPath?.[handle.toLowerCase()] ||
+          asinToPath?.[handle.toUpperCase()];
+
+        const directUrl = resolveMappedToUrl(direct);
+        if (directUrl) {
+          const p = await fetchJson(directUrl);
+          if (!cancelled) setProduct(p);
+          return;
+        }
+
+        // 4) If user is on /p/<ASIN>, try ASIN lookup too
+        if (looksLikeAsin) {
+          const mapped =
+            asinToPath?.[asinKey] ||
+            asinToPath?.[handle] ||
+            asinToPath?.[handle.toLowerCase()];
+
+          const mappedUrl = resolveMappedToUrl(mapped);
+          if (mappedUrl) {
+            const p = await fetchJson(mappedUrl);
+            if (!cancelled) setProduct(p);
+            return;
+          }
+
+          // Legacy fallback: maybe you still have /products/<ASIN>.json
+          const byAsin = await fetchJson(
+            joinUrl(R2_PUBLIC_BASE, `products/${asinKey}.json`)
+          );
+          if (!cancelled) setProduct(byAsin);
+          return;
+        }
+
+        throw new Error("Product not found");
+      } catch (e: any) {
+        if (!cancelled) setError(e?.message || "Failed to load product");
+      }
+    }
+
+    load();
+    return () => {
+      cancelled = true;
+    };
+  }, [handle]);
+
+  if (error) {
+    return (
+      <div className="max-w-[1200px] mx-auto px-4 py-8">
+        <div className="border border-red-200 bg-red-50 text-red-800 rounded p-4">
+          <div className="font-semibold">Product failed to load</div>
+          <div className="text-sm mt-1">{error}</div>
+        </div>
+      </div>
+    );
   }
 
-  return (
-    <div className="topnav">
-      <div className="topnav-inner">
-        <div className="left">
-          <button
-            className="burger"
-            aria-label="Open menu"
-            onClick={() => window.dispatchEvent(new CustomEvent("ventari:open-menu"))}
-          >
-            <Menu size={20} />
-          </button>
-          <Link to="/" className="brand" aria-label="Ventari Home">
-            <span className="brand-mark">v</span>
-          </Link>
-        </div>
-
-        <form className="search" onSubmit={onSubmit}>
-          <input
-            value={q}
-            onChange={(e) => setQ(e.target.value)}
-            placeholder="Search Ventari"
-            aria-label="Search"
-          />
-          <button type="submit" aria-label="Search">
-            <Search size={18} />
-          </button>
-        </form>
-
-        <div className="right">
-          <button className="icon-btn" onClick={() => navigate("/orders")} aria-label="Account">
-            <User size={20} />
-            <span className="icon-label">Account</span>
-          </button>
-
-          <button className="icon-btn" onClick={() => navigate("/wishlist")} aria-label="Wishlist">
-            <Heart size={20} />
-            <span className="badge">{wishlistCount}</span>
-          </button>
-
-          <button className="icon-btn" onClick={() => navigate("/cart")} aria-label="Cart">
-            <ShoppingCart size={20} />
-            <span className="badge">{cartCount}</span>
-          </button>
-        </div>
+  if (!product) {
+    return (
+      <div className="max-w-[1200px] mx-auto px-4 py-8 text-sm text-gray-600">
+        Loading product…
       </div>
-    </div>
-  );
+    );
+  }
+
+  return <ProductPdpProvider product={product}>{children}</ProductPdpProvider>;
 }
 
-function SideMenu() {
-  const navigate = useNavigate();
-  const [open, setOpen] = useState(false);
-
-  useEffect(() => {
-    function onOpen() {
-      setOpen(true);
-    }
-    window.addEventListener("ventari:open-menu", onOpen as any);
-    return () => window.removeEventListener("ventari:open-menu", onOpen as any);
-  }, []);
-
-  if (!open) return null;
-
-  return (
-    <div className="sidemenu-overlay" onClick={() => setOpen(false)}>
-      <div className="sidemenu" onClick={(e) => e.stopPropagation()}>
-        <div className="sidemenu-header">
-          <div className="sidemenu-title">Menu</div>
-          <button className="close" onClick={() => setOpen(false)} aria-label="Close menu">
-            ✕
-          </button>
-        </div>
-
-        <button
-          className="sidemenu-item"
-          onClick={() => {
-            setOpen(false);
-            navigate("/shop");
-          }}
-        >
-          Shop
-        </button>
-
-        <button
-          className="sidemenu-item"
-          onClick={() => {
-            setOpen(false);
-            navigate("/wishlist");
-          }}
-        >
-          Wishlist
-        </button>
-
-        <button
-          className="sidemenu-item"
-          onClick={() => {
-            setOpen(false);
-            navigate("/orders");
-          }}
-        >
-          Orders
-        </button>
-
-        <div className="sidemenu-divider" />
-
-        <button
-          className="sidemenu-item"
-          onClick={() => {
-            setOpen(false);
-            navigate("/help/conditions-of-use");
-          }}
-        >
-          Conditions of Use
-        </button>
-
-        <button
-          className="sidemenu-item"
-          onClick={() => {
-            setOpen(false);
-            navigate("/help/privacy-notice");
-          }}
-        >
-          Privacy Notice
-        </button>
-
-        <button
-          className="sidemenu-item"
-          onClick={() => {
-            setOpen(false);
-            navigate("/help/cookie-policy");
-          }}
-        >
-          Cookie Policy
-        </button>
-
-        <button
-          className="sidemenu-item"
-          onClick={() => {
-            setOpen(false);
-            navigate("/help/accessibility");
-          }}
-        >
-          Accessibility
-        </button>
-
-        <button
-          className="sidemenu-item"
-          onClick={() => {
-            setOpen(false);
-            navigate("/help/terms");
-          }}
-        >
-          Terms and Conditions
-        </button>
-
-        <button
-          className="sidemenu-item"
-          onClick={() => {
-            setOpen(false);
-            navigate("/help/disclaimer");
-          }}
-        >
-          Disclaimer
-        </button>
-
-        <button
-          className="sidemenu-item"
-          onClick={() => {
-            setOpen(false);
-            navigate("/help/contact");
-          }}
-        >
-          Contact
-        </button>
-
-        <button
-          className="sidemenu-item"
-          onClick={() => {
-            setOpen(false);
-            navigate("/help/about");
-          }}
-        >
-          About
-        </button>
-      </div>
-    </div>
-  );
-}
-
-function Footer() {
-  return (
-    <footer className="footer">
-      <div className="footer-inner">
-        <div className="footer-cols">
-          <div className="footer-col">
-            <h4>Get to Know Us</h4>
-            <Link to="/help/about">About Ventari</Link>
-            <Link to="/help/accessibility">Accessibility</Link>
-            <Link to="/help/contact">Contact Ventari</Link>
-          </div>
-
-          <div className="footer-col">
-            <h4>Shopping Confidence</h4>
-            <Link to="/help/privacy-notice">Privacy Notice</Link>
-            <Link to="/help/conditions-of-use">Conditions of Use</Link>
-            <Link to="/help/terms">Terms and Conditions</Link>
-          </div>
-
-          <div className="footer-col">
-            <h4>Legal</h4>
-            <Link to="/help/disclaimer">Disclaimer</Link>
-            <Link to="/help/cookie-policy">Cookie Policy</Link>
-          </div>
-
-          <div className="footer-col">
-            <h4>Discover & Experience</h4>
-            <Link to="/shop">Shop</Link>
-            <Link to="/search?q=">Search</Link>
-            <Link to="/shop#categories">Categories</Link>
-          </div>
-        </div>
-
-        <div className="footer-bottom">
-          <div className="footer-bottom-links">
-            <Link to="/help/conditions-of-use">Conditions of Use</Link>
-            <Link to="/help/privacy-notice">Privacy Notice</Link>
-            <Link to="/help/cookie-policy">Your Ads Privacy Choices</Link>
-          </div>
-          <div className="footer-copy">© 2026 Ventari. All rights reserved.</div>
-        </div>
-      </div>
-    </footer>
-  );
-}
-
-function MainLayout() {
-  return (
-    <div className="app-shell">
-      <TopNav />
-      <SideMenu />
-      <div className="app-content">
-        <Outlet />
-      </div>
-      <Footer />
-    </div>
-  );
-}
-
-function OrdersEmpty() {
-  return (
-    <div className="page">
-      <div className="page-inner">
-        <h1>Your Orders</h1>
-        <p className="muted">You don’t have any orders yet.</p>
-
-        <div className="card">
-          <div className="card-row">
-            <Truck size={18} />
-            <div>
-              <div className="card-title">Track packages</div>
-              <div className="card-subtitle">When you place an order, tracking appears here.</div>
-            </div>
-          </div>
-          <div className="card-row">
-            <Shield size={18} />
-            <div>
-              <div className="card-title">Order support</div>
-              <div className="card-subtitle">Returns, refunds, and help with issues.</div>
-            </div>
-          </div>
-        </div>
-
-        <div style={{ marginTop: 16 }}>
-          <Link to="/shop" className="btn">
-            Start shopping
-          </Link>
-        </div>
-      </div>
-    </div>
-  );
-}
-
+/* ============================
+   ORDER COMPLETE (NEW ROUTE TARGET)
+   ============================ */
 function OrderComplete() {
-  const navigate = useNavigate();
-  const location = useLocation();
-  const params = new URLSearchParams(location.search);
-
-  const orderId = params.get("order_id") || "";
-  const total = params.get("total") || "";
-  const currency = params.get("currency") || "USD";
-  const last4 = params.get("last4") || "";
-  const brand = params.get("brand") || "Card";
-
   return (
-    <div className="page">
-      <div className="page-inner">
-        <div className="success-hero">
-          <div className="success-badge">Payment successful</div>
-          <h1>Thanks for your order</h1>
-          <p className="muted">
-            Your payment was processed successfully. You’ll see your order details below.
-          </p>
+    <div className="max-w-[1200px] mx-auto px-4 py-10">
+      <div className="bg-white border border-[#d5dbdb] rounded p-6">
+        <div className="text-[22px] font-bold text-[#0F1111]">Order complete</div>
+        <div className="mt-2 text-[14px] text-[#565959]">
+          Thanks! Your payment was successful.
         </div>
-
-        <div className="card" style={{ marginTop: 16 }}>
-          <div className="kv">
-            <div className="k">Order ID</div>
-            <div className="v mono">{orderId || "—"}</div>
-          </div>
-
-          <div className="kv">
-            <div className="k">Total</div>
-            <div className="v">
-              {total ? `${Number(total).toFixed(2)} ${currency}` : "—"}
-            </div>
-          </div>
-
-          <div className="kv">
-            <div className="k">Payment</div>
-            <div className="v">
-              {brand} {last4 ? `•••• ${last4}` : ""}
-            </div>
-          </div>
-        </div>
-
-        <div className="card" style={{ marginTop: 16 }}>
-          <div className="card-row">
-            <FileText size={18} />
-            <div>
-              <div className="card-title">What’s next?</div>
-              <div className="card-subtitle">
-                If you need help, contact support and include your order ID.
-              </div>
-            </div>
-          </div>
-        </div>
-
-        <div className="btn-row" style={{ marginTop: 16 }}>
-          <button className="btn" onClick={() => navigate("/orders")}>
+        <div className="mt-5 flex flex-wrap gap-3">
+          <a
+            href="/orders"
+            className="inline-flex items-center justify-center bg-[#ffd814] hover:bg-[#f7ca00] text-black text-[13px] font-semibold px-4 py-2 rounded"
+          >
             View orders
-          </button>
-          <button className="btn secondary" onClick={() => navigate("/shop")}>
-            Keep shopping
-          </button>
+          </a>
+          <a href="/shop" className="text-[#007185] hover:underline text-[13px]">
+            Continue shopping
+          </a>
         </div>
       </div>
     </div>
   );
 }
 
+/* ============================
+   ROUTER
+   ============================ */
 const router = createBrowserRouter([
   {
     path: "/",
     element: <MainLayout />,
-    children: [
-      { index: true, element: <Home /> },
+children: [
+  { index: true, element: <Home /> },
+  { path: "shop", element: <Shop /> },
+  { path: "search", element: <SearchResultsPage /> },
+  { path: "c/*", element: <CategoryPage /> },
 
-      // Shop Hub (All Departments)
-      { path: "shop", element: <ShopHub /> },
+  // ✅ ORDERS
+  { path: "orders", element: <OrdersPage /> },
+  { path: "orders/:id", element: <OrderDetailsPage /> },
 
-      // Search
-      { path: "search", element: <SearchResultsPage /> },
+  // ✅ ACCOUNT
+  { path: "account", element: <AccountPage /> },
 
-      // Category pages
-      { path: "c/*", element: <CategoryPage /> },
+  // ✅ WISHLIST
+  { path: "wishlist", element: <WishlistPage /> },
 
-      // Product pages
-      { path: "p/:slug", element: <ProductPage /> },
+      // Brand
+      { path: "about", element: <AboutUs /> },
+      { path: "careers", element: <Careers /> },
+      { path: "press", element: <Press /> },
+      { path: "sustainability", element: <Sustainability /> },
+      { path: "newsletter", element: <Newsletter /> },
+      { path: "signup", element: <SignupPage /> },
+      { path: "login", element: <LoginPage /> },
+
+// Help
+// Help
+{
+  path: "help",
+  element: <HelpLayout />,
+  children: [
+    { index: true, element: <HelpIndex /> },
+    { path: "shipping", element: <Shipping /> },
+    { path: "returns", element: <Returns /> },
+    { path: "payments", element: <Payments /> },
+    { path: "conditions-of-use", element: <ConditionsOfUse /> },
+    { path: "privacy-notice", element: <PrivacyNotice /> },
+    { path: "accessibility", element: <Accessibility /> },
+    { path: "ads-privacy", element: <AdsPrivacy /> },
+    { path: "consumer-data", element: <ConsumerData /> },
+    { path: "product-safety", element: <ProductSafety /> },
+    { path: "devices", element: <Devices /> },
+    { path: "contact", element: <Contact /> },
+    { path: "cookiepolicy", element: <CookiePolicy /> },
+  ],
+},
+
+
+
+      // PDP
+      {
+        path: "p/:id",
+        element: (
+          <ProductRoute>
+            <SingleProduct />
+          </ProductRoute>
+        ),
+      },
 
       // Cart / Checkout
-      { path: "cart", element: <CartPage /> },
-      { path: "checkout", element: <CheckoutPage /> },
+      { path: "cart", element: <Cart /> },
+      { path: "checkout", element: <Checkout /> },
+      { path: "cart-sidebar", element: <CartSidebar /> },
 
-      // Wishlist / Orders
-      { path: "wishlist", element: <WishlistPage /> },
-      { path: "orders", element: <OrdersPage /> },
-      { path: "orders/empty", element: <OrdersEmpty /> },
+      // ✅ ORDER COMPLETE (NEW)
       { path: "order-complete", element: <OrderComplete /> },
 
-      // Help / Legal
-      { path: "help/about", element: <AboutPage /> },
-      { path: "help/contact", element: <ContactPage /> },
-      { path: "help/privacy-notice", element: <PrivacyPolicyPage /> },
-      { path: "help/conditions-of-use", element: <TermsPage /> },
-      { path: "help/terms", element: <TermsPage /> },
-      { path: "help/disclaimer", element: <DisclaimerPage /> },
-      { path: "help/accessibility", element: <AccessibilityPage /> },
-      { path: "help/cookie-policy", element: <CookiePolicyPage /> },
+      // Comparison
+      { path: "product-comparison", element: <ProductComparison /> },
 
-      // Fallback: treat unknown routes as category routes (legacy /<category-path>)
+      // Fallbacks
+      { path: "single-product", element: <Navigate to="/shop" replace /> },
       { path: "*", element: <CategoryPage /> },
     ],
   },
 ]);
 
-export default function App() {
-  return <RouterProvider router={router} />;
+/* ============================
+   ✅ CONSENT BANNER (ONLY ADDITION)
+   ============================ */
+declare global {
+  interface Window {
+    gtag?: (...args: any[]) => void;
+  }
 }
+
+type ConsentChoice = "granted" | "denied";
+const CONSENT_KEY = "ventari_consent_v1";
+
+function applyConsent(choice: ConsentChoice) {
+  window.gtag?.("consent", "update", {
+    ad_storage: choice,
+    analytics_storage: choice,
+    ad_user_data: choice,
+    ad_personalization: choice,
+  });
+}
+
+function ConsentBanner() {
+  const [open, setOpen] = React.useState(false);
+
+  React.useEffect(() => {
+    const saved = (localStorage.getItem(CONSENT_KEY) as ConsentChoice | null) || null;
+    if (saved) {
+      applyConsent(saved);
+      setOpen(false);
+    } else {
+      setOpen(true);
+    }
+  }, []);
+
+  if (!open) return null;
+
+  return (
+    <div className="fixed left-4 right-4 bottom-4 z-[9999]">
+      <div className="max-w-[900px] mx-auto bg-white border border-[#d5dbdb] rounded-xl shadow-lg p-4">
+        <div className="flex flex-col sm:flex-row sm:items-start gap-3">
+          <div className="flex-1">
+            <div className="text-[14px] font-semibold text-[#0F1111]">
+              Cookies & analytics
+            </div>
+            <div className="mt-1 text-[13px] text-[#565959] leading-relaxed">
+              We use cookies/analytics to understand traffic and improve the site.
+              You can accept or reject.
+            </div>
+          </div>
+
+          <div className="flex gap-2 sm:justify-end">
+            <button
+              className="px-4 py-2 rounded-lg border border-[#d5dbdb] text-[13px] font-semibold text-[#0F1111] hover:bg-gray-50"
+              onClick={() => {
+                localStorage.setItem(CONSENT_KEY, "denied");
+                applyConsent("denied");
+                setOpen(false);
+              }}
+            >
+              Reject
+            </button>
+
+            <button
+              className="px-4 py-2 rounded-lg bg-[#0F1111] text-white text-[13px] font-semibold hover:opacity-90"
+              onClick={() => {
+                localStorage.setItem(CONSENT_KEY, "granted");
+                applyConsent("granted");
+                setOpen(false);
+              }}
+            >
+              Accept
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ============================
+   APP EXPORT
+   ============================ */
+export const App = () => {
+  return (
+    <CartProvider>
+      <WishlistProvider>
+        <ConsentBanner />
+        <RouterProvider router={router} />
+      </WishlistProvider>
+    </CartProvider>
+  );
+};
+
+export default App;
+
