@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from "react";
-import { useParams } from "react-router-dom";
+import { useLocation } from "react-router-dom";
 
 type Product = {
   id?: string;
@@ -13,15 +13,17 @@ type CategoryData = {
   products: Product[];
 };
 
-type CategoryIndex = Record<string, string>;
-
 const R2_BASE = "https://ventari.net/indexes";
 const CATEGORY_PRODUCTS_BASE = `${R2_BASE}/category_products`;
-const CATEGORY_INDEX_URL = `${R2_BASE}/category_urls.json`;
 
 export default function CategoryPage(): JSX.Element {
-  const params = useParams();
-  const categoryPath = (params["*"] ?? "").replace(/^\/+/, "");
+  const location = useLocation();
+
+  // Build slug directly from URL path
+  const slug = location.pathname
+    .replace(/^\/+/, "")
+    .replace(/\/+$/, "")
+    .replace(/\//g, "-");
 
   const [data, setData] = useState<CategoryData | null>(null);
   const [loading, setLoading] = useState(true);
@@ -33,19 +35,13 @@ export default function CategoryPage(): JSX.Element {
       setNotFound(false);
 
       try {
-        // 1️⃣ Load category → filename index
-        const indexRes = await fetch(CATEGORY_INDEX_URL);
-        if (!indexRes.ok) throw new Error("Category index missing");
+        const res = await fetch(
+          `${CATEGORY_PRODUCTS_BASE}/${slug}.json`
+        );
 
-        const index: CategoryIndex = await indexRes.json();
-
-        // 2️⃣ Resolve exact filename
-        const filename = index[categoryPath];
-        if (!filename) throw new Error("Category not indexed");
-
-        // 3️⃣ Fetch category products JSON
-        const res = await fetch(`${CATEGORY_PRODUCTS_BASE}/${filename}`);
-        if (!res.ok) throw new Error("Category JSON missing");
+        if (!res.ok) {
+          throw new Error("Category JSON not found");
+        }
 
         const json = await res.json();
         setData(json);
@@ -57,13 +53,13 @@ export default function CategoryPage(): JSX.Element {
       }
     }
 
-    if (categoryPath) {
+    if (slug) {
       loadCategory();
     } else {
       setLoading(false);
       setNotFound(true);
     }
-  }, [categoryPath]);
+  }, [slug]);
 
   if (loading) {
     return <div className="category-loading">Loading…</div>;
@@ -90,19 +86,22 @@ export default function CategoryPage(): JSX.Element {
     <section className="category-page">
       <h1 className="category-title">
         {data.category ??
-          categoryPath
-            .split("/")
-            .pop()
-            ?.replace(/-/g, " ")
+          slug
+            .split("-")
+            .slice(-1)[0]
             .replace(/\b\w/g, (c) => c.toUpperCase())}
       </h1>
 
       <div className="category-grid">
         {data.products.map((product, index) => (
           <div key={index} className="product-card">
-            <img src={product.image} alt={product.title} loading="lazy" />
+            <img
+              src={product.image}
+              alt={product.title}
+              loading="lazy"
+            />
             <div className="product-title">{product.title}</div>
-            {product.price && (
+            {product.price !== undefined && (
               <div className="product-price">
                 ${product.price.toFixed(2)}
               </div>
