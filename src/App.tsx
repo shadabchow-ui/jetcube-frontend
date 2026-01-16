@@ -528,7 +528,7 @@ children: [
 
       // Fallbacks
       { path: "single-product", element: <Navigate to="/shop" replace /> },
-      { path: "*", element: <Shop /> },
+      { path: "*", element: <CategoryPage /> },
     ],
   },
 ]);
