@@ -1,11 +1,13 @@
 /robots.txt /robots.txt 200
 /sitemap.xml /sitemap.xml 200
-/sitemaps/* /sitemaps/:splat 200
+
+/sitemaps /index.html 200
 
 /category-directory /category-directory/index.html 200
 /category-directory/* /category-directory/:splat 200
 
 /* /index.html 200
+
 
 
 
