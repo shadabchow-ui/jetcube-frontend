@@ -12,7 +12,6 @@ import {
 import MainLayout from "./layouts/MainLayout";
 import HelpLayout from "./layouts/HelpLayout";
 import ShopAllCategories from "./screens/Shop/ShopAllCategories";
-import { Navigate } from "react-router-dom";
 
 
 /* ============================
@@ -508,6 +507,11 @@ const router = createBrowserRouter([
       // AUTH
       { path: "signup", element: <SignupPage /> },
       { path: "login", element: <LoginPage /> },
+      
+      // FALLBACKS
+      { path: "single-product", element: <Navigate to="/shop" replace /> },
+      { path: "*", element: <CategoryPage /> },
+
 
       // HELP
       {
