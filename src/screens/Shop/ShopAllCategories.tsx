@@ -5,8 +5,8 @@ import { Link } from "react-router-dom";
  * ShopAllCategories
  * - Uses indexes/_category_urls.json (5k+ category paths)
  * - Renders an Amazon-style "All Departments" grid
- * - Shows ALL immediate subcategories (depth 2) with a per-dept "See more" toggle
- * - Adds a search box that filters subcategories across departments
+ * - Shows immediate subcategories (depth 2) with a per-dept "See more" toggle
+ * - Search filters subcategories across departments
  */
 
 const R2_BASE = "https://ventari.net/indexes";
@@ -30,8 +30,22 @@ function stripSlashes(s: string) {
   return s.replace(/^\/+|\/+$/g, "");
 }
 
-function stripPrefixSlash(s: string) {
-  return s.replace(/^\/+/, "");
+function normalizeCategoryPath(input: string): string {
+  if (!input) return "";
+  let s = String(input).trim();
+
+  // If full URL contains "/c/", extract after it
+  const idx = s.indexOf("/c/");
+  if (idx !== -1) s = s.slice(idx + 3);
+
+  s = s.replace(/^c\//, "");
+  s = decodeURIComponent(s);
+
+  s = stripSlashes(s).replace(/^\/+/, "");
+  s = s.toLowerCase();
+  s = s.replace(/\s+/g, "-").replace(/-+/g, "-");
+
+  return s;
 }
 
 function prettyLabel(slug: string) {
@@ -48,7 +62,7 @@ function normalizeCategoryIndexToPaths(indexData: CategoryIndexShape): string[] 
   // Object map: keys are paths
   if (indexData && typeof indexData === "object" && !Array.isArray(indexData)) {
     for (const k of Object.keys(indexData)) {
-      const cleaned = stripPrefixSlash(stripSlashes(k));
+      const cleaned = normalizeCategoryPath(k);
       if (cleaned) out.push(cleaned);
     }
     return out;
@@ -57,7 +71,7 @@ function normalizeCategoryIndexToPaths(indexData: CategoryIndexShape): string[] 
   // Array of strings
   if (Array.isArray(indexData) && indexData.every((x) => typeof x === "string")) {
     for (const s of indexData as string[]) {
-      const cleaned = stripPrefixSlash(stripSlashes(s));
+      const cleaned = normalizeCategoryPath(s);
       if (cleaned) out.push(cleaned);
     }
     return out;
@@ -68,7 +82,7 @@ function normalizeCategoryIndexToPaths(indexData: CategoryIndexShape): string[] 
     for (const item of indexData as Array<any>) {
       const raw = item?.path || item?.url || item?.slug;
       if (typeof raw === "string") {
-        const cleaned = stripPrefixSlash(stripSlashes(raw));
+        const cleaned = normalizeCategoryPath(raw);
         if (cleaned) out.push(cleaned);
       }
     }
@@ -106,7 +120,6 @@ export default function ShopAllCategories() {
         const json = await res.json();
         const list = normalizeCategoryIndexToPaths(json);
 
-        // Dedup + sort
         const dedup = Array.from(new Set(list))
           .filter(Boolean)
           .sort((a, b) => a.localeCompare(b));
@@ -126,7 +139,6 @@ export default function ShopAllCategories() {
   }, []);
 
   const departments = useMemo<DeptCard[]>(() => {
-    // Build dept -> subcategory set (depth 2 only)
     const map = new Map<string, Set<string>>();
 
     for (const p of paths) {
@@ -156,7 +168,6 @@ export default function ShopAllCategories() {
       })
       .sort((a, b) => a.deptLabel.localeCompare(b.deptLabel));
 
-    // Search filters subcategories (does not remove departments entirely unless empty)
     const query = q.trim().toLowerCase();
     if (!query) return out;
 
@@ -172,7 +183,6 @@ export default function ShopAllCategories() {
   const pageItems = useMemo(() => paginate(departments, page, DEPTS_PER_PAGE), [departments, page]);
 
   useEffect(() => {
-    // If search reduces pages, clamp page
     if (page > totalPages) setPage(totalPages);
   }, [page, totalPages]);
 
@@ -181,8 +191,8 @@ export default function ShopAllCategories() {
   }
 
   return (
-    <div style={{ padding: 24, maxWidth: 1500, margin: "0 auto" }}>
-      <h1 style={{ fontSize: 20, marginBottom: 8 }}>All Departments</h1>
+    <div style={{ padding: 24, maxWidth: 1500, margin: "0 auto", fontFamily: "Arial, Helvetica, sans-serif" }}>
+      <h1 style={{ fontSize: 20, marginBottom: 8, color: "#0f1111" }}>All Departments</h1>
 
       <div style={{ display: "flex", gap: 12, alignItems: "center", marginBottom: 16 }}>
         <input
@@ -197,7 +207,7 @@ export default function ShopAllCategories() {
             borderRadius: 8,
           }}
         />
-        <div style={{ fontSize: 12, color: "#666" }}>
+        <div style={{ fontSize: 12, color: "#565959" }}>
           {loading ? "Loading…" : `${paths.length.toLocaleString()} category paths`}
         </div>
       </div>
@@ -218,7 +228,7 @@ export default function ShopAllCategories() {
 
           return (
             <div key={d.deptKey} style={{ border: "1px solid #eee", padding: 16, borderRadius: 10, background: "#fff" }}>
-              <Link to={`/c/${d.deptKey}`} style={{ textDecoration: "none", color: "inherit" }}>
+              <Link to={`/c/${d.deptKey}`} style={{ textDecoration: "none", color: "#0f1111" }}>
                 <strong>{d.deptLabel}</strong>
               </Link>
 
@@ -226,14 +236,14 @@ export default function ShopAllCategories() {
                 <ul style={{ marginTop: 10, lineHeight: "1.65em" }}>
                   {subs.map((s) => (
                     <li key={s.path}>
-                      <Link to={`/c/${s.path}`} style={{ color: "#0a58ca", textDecoration: "none" }}>
+                      <Link to={`/c/${s.path}`} style={{ color: "#007185", textDecoration: "none" }}>
                         {s.label}
                       </Link>
                     </li>
                   ))}
                 </ul>
               ) : (
-                <div style={{ marginTop: 10, color: "#666", fontSize: 13 }}>No matching subcategories</div>
+                <div style={{ marginTop: 10, color: "#565959", fontSize: 13 }}>No matching subcategories</div>
               )}
 
               <div style={{ display: "flex", justifyContent: "space-between", marginTop: 10 }}>
@@ -243,7 +253,7 @@ export default function ShopAllCategories() {
                     style={{
                       border: "none",
                       background: "transparent",
-                      color: "#0a58ca",
+                      color: "#007185",
                       cursor: "pointer",
                       padding: 0,
                     }}
@@ -254,7 +264,7 @@ export default function ShopAllCategories() {
                   <span />
                 )}
 
-                <Link to={`/c/${d.deptKey}`} style={{ color: "#0a58ca", textDecoration: "none" }}>
+                <Link to={`/c/${d.deptKey}`} style={{ color: "#007185", textDecoration: "none" }}>
                   Shop department →
                 </Link>
               </div>
@@ -267,7 +277,7 @@ export default function ShopAllCategories() {
         <button disabled={page === 1} onClick={() => setPage(page - 1)}>
           Prev
         </button>
-        <span style={{ margin: "0 10px" }}>
+        <span style={{ margin: "0 10px", color: "#565959" }}>
           Page {page} / {totalPages}
         </span>
         <button disabled={page === totalPages} onClick={() => setPage(page + 1)}>
