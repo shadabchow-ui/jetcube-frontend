@@ -1,6 +1,22 @@
-export const onRequestPost: PagesFunction = async ({ request, env }) => {
+export const onRequestPost = async (context: any) => {
+  const { request, env } = context;
+
   try {
-    const { messages } = await request.json();
+    const body = await request.json();
+    const messages = Array.isArray(body?.messages) ? body.messages : [];
+
+    if (!env?.OPENAI_API_KEY) {
+      return new Response(
+        JSON.stringify({ error: "Missing OPENAI_API_KEY binding" }),
+        {
+          status: 500,
+          headers: {
+            "Content-Type": "application/json; charset=utf-8",
+            "Cache-Control": "no-store",
+          },
+        }
+      );
+    }
 
     const res = await fetch("https://api.openai.com/v1/chat/completions", {
       method: "POST",
@@ -22,20 +38,28 @@ export const onRequestPost: PagesFunction = async ({ request, env }) => {
       }),
     });
 
-    const data = await res.json();
+    const data = await res.json().catch(() => null);
+    const answer = data?.choices?.[0]?.message?.content || "";
 
-    return new Response(
-      JSON.stringify({
-        answer: data?.choices?.[0]?.message?.content || "",
-      }),
-      { headers: { "Content-Type": "application/json" } }
-    );
+    return new Response(JSON.stringify({ answer }), {
+      headers: {
+        "Content-Type": "application/json; charset=utf-8",
+        "Cache-Control": "no-store",
+      },
+    });
   } catch (err: any) {
     return new Response(
       JSON.stringify({ error: err?.message || "Assistant error" }),
-      { status: 500 }
+      {
+        status: 500,
+        headers: {
+          "Content-Type": "application/json; charset=utf-8",
+          "Cache-Control": "no-store",
+        },
+      }
     );
   }
 };
+
 
 
