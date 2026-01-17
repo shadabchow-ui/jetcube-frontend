@@ -896,6 +896,71 @@ export const NavigationSection = (): JSX.Element => {
     </div>
   );
 
+  // ✅ Top-level department links in main navigation (Amazon-style)
+  // - Uses canonical department keys derived from /c/{dept}/...
+  // - Adds a persistent "Shop All" link to /shop
+  // - Does NOT hardcode categories; uses the same _category_urls.json source already loaded above
+  const HeaderDeptNav = (
+    <div
+      className="w-full border-b hidden md:block"
+      style={{ backgroundColor: "#000", color: "#fff", borderColor: "#262626" }}
+    >
+      <div className="mx-auto max-w-[1440px] px-[6px]">
+        <div
+          className="flex items-center gap-4 py-[8px] overflow-x-auto"
+          style={{ scrollbarWidth: "none" as any }}
+        >
+          {/* Shop All */}
+          <Link
+            to="/shop"
+            className="text-[13px] font-semibold whitespace-nowrap px-2 py-1 rounded hover:bg-white/10"
+            style={{ color: "#fff" }}
+          >
+            Shop All
+          </Link>
+
+          {/* Departments (top-level only) */}
+          {deptKeysSorted
+            .filter((k) => k && k !== "other")
+            .slice(0, 14)
+            .map((deptKey) => {
+              const href = `/c/${deptKey}`;
+              const isActive =
+                location.pathname === href || location.pathname.startsWith(`${href}/`);
+              return (
+                <Link
+                  key={deptKey}
+                  to={href}
+                  className="text-[13px] whitespace-nowrap px-2 py-1 rounded hover:bg-white/10"
+                  style={{
+                    color: isActive ? "#ffd814" : "#fff",
+                    fontWeight: isActive ? 700 : 500,
+                  }}
+                  title={titleCaseDept(deptKey)}
+                >
+                  {titleCaseDept(deptKey)}
+                </Link>
+              );
+            })}
+
+          {/* More → opens the existing left drawer (keeps your current architecture) */}
+          {deptKeysSorted.filter((k) => k && k !== "other").length > 14 ? (
+            <button
+              type="button"
+              onClick={() => setMenuOpen(true)}
+              className="text-[13px] whitespace-nowrap px-2 py-1 rounded hover:bg-white/10"
+              style={{ color: "#fff" }}
+              aria-label="More departments"
+            >
+              More
+            </button>
+          ) : null}
+        </div>
+      </div>
+    </div>
+  );
+
+
   return (
     <>
       <header
@@ -921,6 +986,9 @@ export const NavigationSection = (): JSX.Element => {
           </div>
         </div>
       </header>
+
+      {HeaderDeptNav}
+
 
       {/* LEFT DRAWER */}
       <div
