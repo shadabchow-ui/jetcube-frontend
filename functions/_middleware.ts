@@ -13,7 +13,7 @@ export async function onRequest({ request, env, next }: any) {
   // R2 key is path without leading slash
   const key = pathname.slice(1);
 
-  const obj = await env.JETCUBE_R2.get(key);
+  const obj = await env.JETCUBE_R2?.get(key);
 
   // CRITICAL: never fall back to SPA for these
   if (!obj) {
