@@ -455,33 +455,37 @@ function OrderComplete() {
    ROUTER
    ============================ */
 const router = createBrowserRouter([
-children: [
-  { index: true, element: <Home /> },
-
-  // 🛒 SHOP
   {
-    path: "shop",
+    path: "/",
+    element: <MainLayout />,
     children: [
-      { index: true, element: <Shop /> },
-      { path: "categories", element: <ShopAllCategories /> },
-    ],
-  },
+      { index: true, element: <Home /> },
 
-  // 🔍 SEARCH
-  { path: "search", element: <SearchResultsPage /> },
+      // 🛒 SHOP
+      {
+        path: "shop",
+        children: [
+          { index: true, element: <Shop /> },
+          { path: "categories", element: <ShopAllCategories /> },
+        ],
+      },
 
-  // 📂 CATEGORY
-  { path: "c/*", element: <CategoryPage /> },
+      // 🔍 SEARCH
+      { path: "search", element: <SearchResultsPage /> },
 
-  // 🧾 ORDERS
-  { path: "orders", element: <OrdersPage /> },
-  { path: "orders/:id", element: <OrderDetailsPage /> },
+      // 📂 CATEGORY
+      { path: "c/*", element: <CategoryPage /> },
 
-  // 👤 ACCOUNT
-  { path: "account", element: <AccountPage /> },
+      // 🧾 ORDERS
+      { path: "orders", element: <OrdersPage /> },
+      { path: "orders/:id", element: <OrderDetailsPage /> },
 
-  // ❤️ WISHLIST
-  { path: "wishlist", element: <WishlistPage /> },
+      // 👤 ACCOUNT
+      { path: "account", element: <AccountPage /> },
+
+      // ❤️ WISHLIST
+      { path: "wishlist", element: <WishlistPage /> },
+
 
 
       // Brand
