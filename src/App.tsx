@@ -476,6 +476,16 @@ const router = createBrowserRouter([
       // CATEGORY
       { path: "c/*", element: <CategoryPage /> },
 
+      // PRODUCT
+      {
+        path: "p/:id",
+        element: (
+          <ProductRoute>
+            <SingleProduct />
+          </ProductRoute>
+        ),
+      },
+
       // ORDERS
       { path: "orders", element: <OrdersPage /> },
       { path: "orders/:id", element: <OrderDetailsPage /> },
@@ -497,7 +507,7 @@ const router = createBrowserRouter([
       { path: "signup", element: <SignupPage /> },
       { path: "login", element: <LoginPage /> },
 
-      // HELP (✅ FIXED LOCATION)
+      // HELP
       {
         path: "help",
         element: <HelpLayout />,
@@ -520,6 +530,7 @@ const router = createBrowserRouter([
     ],
   },
 ]);
+
       // PDP
 {
   path: "p/:id",
