@@ -3,15 +3,19 @@ import { Link, useLocation, useSearchParams } from "react-router-dom";
 
 /**
  * CategoryPage (Amazon-style)
- * Requirements implemented:
- * ✅ All category links "work" even if category_products JSON is missing:
- *    - Primary: indexes/category_products/<hyphen-path>.json (and legacy __ fallback)
- *    - Fallback: indexes/_index.cards.json filtered by category path
- * ✅ Product cards are clickable (Link to /p/:slug)
- * ✅ Price no longer defaults to $0.00 (robust extraction; blank if unknown)
- * ✅ Pagination: 48 per page
- * ✅ Grid: 6 per row on desktop
- * ✅ Sidebar: related categories (siblings + children within department)
+ *
+ * ✅ 6-up grid on desktop, dense spacing, hover behavior
+ * ✅ 48 items/page pagination (query param ?page=)
+ * ✅ Sidebar "Departments" populated from indexes/_category_urls.json
+ * ✅ Sidebar only shows relevant subcategories for the current category:
+ *    - If viewing a department (depth=1): show department's top-level subcategories (depth=2)
+ *    - If viewing deeper category: show that category's children + siblings
+ * ✅ Category routing reliability:
+ *    - Tries indexes/category_products/<hyphen-path>.json
+ *    - Falls back to indexes/category_products/<__-path>.json (legacy)
+ *    - Final fallback: filter indexes/_index.cards.json by normalized category path
+ * ✅ No permanent "Loading categories…" state; shows "No subcategories" when empty
+ * ✅ Prices: robust extraction (no "$0" defaults; more schema candidates)
  */
 
 const INDEX_BASE = "https://ventari.net/indexes";
@@ -30,13 +34,38 @@ function stripSlashes(s: string) {
   return s.replace(/^\/+|\/+$/g, "");
 }
 
+function stripPrefixSlash(s: string) {
+  return s.replace(/^\/+/, "");
+}
+
+function normalizeCategoryPath(input: string): string {
+  if (!input) return "";
+  let s = String(input).trim();
+
+  // If it's a full URL or contains "/c/", take the category path part
+  const idx = s.indexOf("/c/");
+  if (idx !== -1) s = s.slice(idx + 3);
+
+  s = s.replace(/^c\//, "");
+  s = decodeURIComponent(s);
+
+  s = stripPrefixSlash(stripSlashes(s));
+
+  // normalize spacing/case without changing slash structure
+  s = s.toLowerCase();
+  s = s.replace(/\s+/g, "-");
+  s = s.replace(/-+/g, "-");
+
+  return s;
+}
+
 function toCategoryFilenameFromPath(pathname: string) {
   const raw = stripSlashes(pathname);
   const parts = raw.split("/").filter(Boolean).map(decodeURIComponent);
   const cleaned = parts[0] === "c" ? parts.slice(1) : parts;
 
   return {
-    cleanedParts: cleaned,
+    cleanedParts: cleaned.map((p) => normalizeCategoryPath(p)),
     filename: `${cleaned.join("-")}.json`,
     legacyFilename: `${cleaned.join("__")}.json`,
   };
@@ -47,7 +76,7 @@ function normalizeCategoryIndexToPaths(indexData: CategoryIndexShape): string[] 
 
   if (indexData && typeof indexData === "object" && !Array.isArray(indexData)) {
     for (const k of Object.keys(indexData)) {
-      const key = stripSlashes(String(k));
+      const key = normalizeCategoryPath(String(k));
       if (key) out.push(key);
     }
     return out;
@@ -56,10 +85,10 @@ function normalizeCategoryIndexToPaths(indexData: CategoryIndexShape): string[] 
   if (Array.isArray(indexData)) {
     for (const item of indexData as any[]) {
       if (typeof item === "string") {
-        const s = stripSlashes(item);
+        const s = normalizeCategoryPath(item);
         if (s) out.push(s);
       } else if (item && typeof item === "object") {
-        const s = stripSlashes(String(item.url ?? item.path ?? item.slug ?? ""));
+        const s = normalizeCategoryPath(String(item.url ?? item.path ?? item.slug ?? ""));
         if (s) out.push(s);
       }
     }
@@ -76,7 +105,9 @@ function normalizeProducts(data: any): any[] {
 }
 
 function prettyLabelPart(slug: string) {
-  return slug
+  const s = String(slug || "").trim();
+  if (!s) return "";
+  return s
     .split("-")
     .filter(Boolean)
     .map((w) => (w ? w[0].toUpperCase() + w.slice(1) : w))
@@ -99,9 +130,9 @@ function extractSlug(p: any): string | null {
     p?.handle ??
     p?.url_slug ??
     p?.urlSlug ??
-    p?.id ??
     p?.asin ??
     p?.ASIN ??
+    p?.id ??
     null;
 
   if (!cand) return null;
@@ -139,8 +170,18 @@ function extractImage(p: any): string | null {
   return s ? s : null;
 }
 
+function asNumber(v: any): number | null {
+  if (v === null || v === undefined) return null;
+  if (typeof v === "number" && Number.isFinite(v)) return v;
+  const s = String(v).trim();
+  if (!s) return null;
+  const n = parseFloat(s.replace(/[^\d.]/g, ""));
+  return Number.isFinite(n) ? n : null;
+}
+
 function extractPriceDisplay(p: any): string | null {
-  const candidates = [
+  // Prefer display strings, but reject zero-ish
+  const displayCandidates = [
     p?.price_display,
     p?.priceDisplay,
     p?.price_str,
@@ -148,26 +189,44 @@ function extractPriceDisplay(p: any): string | null {
     p?.priceText,
     p?.pricing?.display,
     p?.buybox?.price,
-    p?.offers?.[0]?.price,
     p?.offer?.price,
-    p?.price,
+    p?.offers?.[0]?.price,
   ].filter(Boolean);
 
-  for (const c of candidates) {
+  for (const c of displayCandidates) {
     const s = String(c).trim();
     if (!s) continue;
+    const n = asNumber(s);
+    if (n && n > 0) return s; // already formatted or at least meaningful
+  }
 
-    // already formatted
-    if (/[\$€£]/.test(s)) {
-      const n = parseFloat(s.replace(/[^\d.]/g, ""));
-      if (Number.isFinite(n) && n > 0) return s;
-      // sometimes "$0.00" is junk - ignore
-      continue;
-    }
+  // Numeric candidates (wide net)
+  const numericCandidates = [
+    p?.price,
+    p?.price_value,
+    p?.priceValue,
+    p?.sale_price,
+    p?.salePrice,
+    p?.min_price,
+    p?.minPrice,
+    p?.max_price,
+    p?.maxPrice,
+    p?.pricing?.value,
+    p?.pricing?.amount,
+    p?.buybox?.price_value,
+    p?.buybox?.priceValue,
+    p?.offer?.price_value,
+    p?.offer?.priceValue,
+    p?.offers?.[0]?.price_value,
+    p?.offers?.[0]?.priceValue,
+    // cents
+    typeof p?.price_cents === "number" ? p.price_cents / 100 : null,
+    typeof p?.priceCents === "number" ? p.priceCents / 100 : null,
+  ].filter((x) => x !== null && x !== undefined);
 
-    // numeric-like
-    const n = parseFloat(s.replace(/[^\d.]/g, ""));
-    if (Number.isFinite(n) && n > 0) return `$${n.toFixed(2)}`;
+  for (const c of numericCandidates) {
+    const n = asNumber(c);
+    if (n && n > 0) return `$${n.toFixed(2)}`;
   }
 
   return null;
@@ -189,18 +248,13 @@ function getCategoryPathsFromCard(p: any): string[] {
 
   const push = (v: any) => {
     if (!v) return;
-    const s = stripSlashes(String(v)).replace(/^c\//, "");
+    const s = normalizeCategoryPath(String(v));
     if (s) out.push(s);
   };
 
-  if (Array.isArray(raw)) {
-    raw.forEach(push);
-  } else if (typeof raw === "string") {
-    push(raw);
-  } else if (raw && typeof raw === "object") {
-    // sometimes { path: "..."} or { url: "..."}
-    push(raw.path ?? raw.url ?? raw.slug);
-  }
+  if (Array.isArray(raw)) raw.forEach(push);
+  else if (typeof raw === "string") push(raw);
+  else if (raw && typeof raw === "object") push(raw.path ?? raw.url ?? raw.slug);
 
   return out;
 }
@@ -230,6 +284,43 @@ async function loadIndexCardsOnce(): Promise<any[]> {
   return _cardsPromise;
 }
 
+
+// Lightweight per-slug hydration (for missing prices)
+const _detailPriceCache = new Map<string, string | null>();
+const _detailPricePromise = new Map<string, Promise<string | null>>();
+
+async function loadProductDetailPriceOnce(slug: string): Promise<string | null> {
+  const key = String(slug || "").trim();
+  if (!key) return null;
+
+  if (_detailPriceCache.has(key)) return _detailPriceCache.get(key) ?? null;
+  if (_detailPricePromise.has(key)) return _detailPricePromise.get(key)!;
+
+  const p = (async () => {
+    try {
+      // Many of your product JSONs are served under /products/<slug>.json
+      const res = await fetch(`/products/${encodeURIComponent(key)}.json`, { cache: "force-cache" });
+      if (!res.ok) return null;
+      const json = await res.json();
+      // Reuse extraction against the full PDP JSON
+      const display = extractPriceDisplay(json) || extractPriceDisplay(json?.product) || extractPriceDisplay(json?.pdp);
+      return display;
+    } catch {
+      return null;
+    }
+  })();
+
+  _detailPricePromise.set(key, p);
+
+  const v = await p;
+  _detailPricePromise.delete(key);
+  _detailPriceCache.set(key, v ?? null);
+  return v ?? null;
+}
+function depthOf(path: string) {
+  return normalizeCategoryPath(path).split("/").filter(Boolean).length;
+}
+
 export default function CategoryPage() {
   const location = useLocation();
   const [searchParams, setSearchParams] = useSearchParams();
@@ -239,6 +330,7 @@ export default function CategoryPage() {
   const [error, setError] = useState<string | null>(null);
 
   const [allCategoryPaths, setAllCategoryPaths] = useState<string[]>([]);
+  const [categoryIndexLoaded, setCategoryIndexLoaded] = useState(false);
 
   const page = Math.max(1, parseInt(searchParams.get("page") || "1", 10) || 1);
 
@@ -247,23 +339,31 @@ export default function CategoryPage() {
     [location.pathname]
   );
 
-  const categoryPathKey = useMemo(() => cleanedParts.join("/"), [cleanedParts]);
+  const categoryPathKey = useMemo(() => normalizeCategoryPath(cleanedParts.join("/")), [cleanedParts]);
   const deptKey = cleanedParts[0] || "";
+  const currentDepth = cleanedParts.length;
 
-  // Load category index once (for sidebar + existence)
+  // Load category index once (for sidebar + canonical paths)
   useEffect(() => {
     let cancelled = false;
 
     async function load() {
       try {
         const res = await fetch(CATEGORY_INDEX_URL, { cache: "force-cache" });
-        if (!res.ok) return;
+        if (!res.ok) throw new Error("category index fetch failed");
         const json = (await res.json()) as CategoryIndexShape;
         const paths = normalizeCategoryIndexToPaths(json);
-        const dedup = Array.from(new Set(paths)).filter(Boolean).sort();
+
+        const dedup = Array.from(new Set(paths))
+          .map((p) => normalizeCategoryPath(p))
+          .filter(Boolean)
+          .sort((a, b) => a.localeCompare(b));
+
         if (!cancelled) setAllCategoryPaths(dedup);
       } catch {
         // ignore
+      } finally {
+        if (!cancelled) setCategoryIndexLoaded(true);
       }
     }
 
@@ -305,19 +405,17 @@ export default function CategoryPage() {
 
         // 3) Fallback: filter _index.cards.json by category path
         const cards = await loadIndexCardsOnce();
-        const key = categoryPathKey;
+        const key = normalizeCategoryPath(categoryPathKey);
 
         const filtered = cards.filter((c) => {
           const paths = getCategoryPathsFromCard(c);
           if (!paths.length) return false;
-          // include exact match or descendants
           return paths.some((p) => p === key || p.startsWith(key + "/"));
         });
 
         if (!cancelled) setProducts(filtered);
 
         if (filtered.length === 0) {
-          // keep this as an informative state, not a hard error
           if (!cancelled) setError("No products found for this category yet.");
         }
       } catch (e: any) {
@@ -333,45 +431,53 @@ export default function CategoryPage() {
     };
   }, [categoryPathKey, filename, legacyFilename]);
 
-  const heading = useMemo(
-    () => (cleanedParts.length ? cleanedParts.join(" > ") : "All Departments"),
-    [cleanedParts]
-  );
+  const heading = useMemo(() => {
+    if (!cleanedParts.length) return "All Departments";
+    return cleanedParts.map(prettyLabelPart).join(" > ");
+  }, [cleanedParts]);
 
   const breadcrumb = useMemo(() => buildBreadcrumbParts(cleanedParts), [cleanedParts]);
 
-  // Sidebar: department subcategories (depth 2), plus children of current category (next depth)
+  // Sidebar behavior:
+  // - depth=1: show dept subcats (depth=2)
+  // - depth>=2: show children (depth+1) then siblings (same depth)
   const sidebar = useMemo(() => {
     const paths = allCategoryPaths;
-    if (!paths.length || !deptKey) {
-      return { deptSubs: [] as string[], children: [] as string[], siblings: [] as string[] };
+    if (!deptKey || !paths.length) {
+      return {
+        mode: "empty" as "empty" | "dept" | "deep",
+        deptSubs: [] as string[],
+        children: [] as string[],
+        siblings: [] as string[],
+      };
     }
-
-    const depthOf = (p: string) => stripSlashes(p).split("/").filter(Boolean).length;
 
     const deptSubs = paths
       .filter((p) => p.startsWith(deptKey + "/") && depthOf(p) === 2)
       .sort((a, b) => a.localeCompare(b));
 
-    const currentDepth = cleanedParts.length;
-    const currentKey = categoryPathKey;
+    const key = normalizeCategoryPath(categoryPathKey);
 
-    const children = currentKey
-      ? paths
-          .filter((p) => p.startsWith(currentKey + "/") && depthOf(p) === currentDepth + 1)
-          .sort((a, b) => a.localeCompare(b))
-      : [];
-
-    const parentKey = cleanedParts.length > 1 ? cleanedParts.slice(0, -1).join("/") : "";
-    const siblings =
-      parentKey && currentDepth > 1
+    const children =
+      key && currentDepth >= 1
         ? paths
-            .filter((p) => p.startsWith(parentKey + "/") && depthOf(p) === currentDepth)
+            .filter((p) => p.startsWith(key + "/") && depthOf(p) === currentDepth + 1)
             .sort((a, b) => a.localeCompare(b))
         : [];
 
-    return { deptSubs, children, siblings };
-  }, [allCategoryPaths, deptKey, cleanedParts, categoryPathKey]);
+    const parentKey = currentDepth > 1 ? cleanedParts.slice(0, -1).join("/") : "";
+    const siblings =
+      parentKey && currentDepth > 1
+        ? paths
+            .filter((p) => p.startsWith(normalizeCategoryPath(parentKey) + "/") && depthOf(p) === currentDepth)
+            .sort((a, b) => a.localeCompare(b))
+        : [];
+
+    if (currentDepth <= 1) {
+      return { mode: "dept" as const, deptSubs, children: [] as string[], siblings: [] as string[] };
+    }
+    return { mode: "deep" as const, deptSubs, children, siblings };
+  }, [allCategoryPaths, deptKey, cleanedParts, categoryPathKey, currentDepth]);
 
   // Pagination
   const totalPages = useMemo(() => Math.max(1, Math.ceil(products.length / PAGE_SIZE)), [products.length]);
@@ -408,80 +514,281 @@ export default function CategoryPage() {
     const slug = extractSlug(product);
     const title = extractTitle(product);
     const img = extractImage(product);
-    const price = extractPriceDisplay(product);
+    const basePrice = extractPriceDisplay(product);
+    const [hydratedPrice, setHydratedPrice] = useState<string | null>(null);
+
+    useEffect(() => {
+      let cancelled = false;
+      async function hydrate() {
+        if (!slug) return;
+        if (basePrice) return;
+        const v = await loadProductDetailPriceOnce(slug);
+        if (!cancelled) setHydratedPrice(v);
+      }
+      hydrate();
+      return () => { cancelled = true; };
+    }, [slug, basePrice]);
+
+    const price = basePrice || hydratedPrice;
 
     const to = slug ? `/p/${encodeURIComponent(slug)}` : undefined;
 
-    const CardInner = (
-      <div
-        style={{
-          border: "1px solid #eee",
-          borderRadius: 10,
-          background: "#fff",
-          padding: 10,
-          height: "100%",
-          display: "flex",
-          flexDirection: "column",
-          gap: 8,
-        }}
-      >
-        <div
-          style={{
-            width: "100%",
-            aspectRatio: "1 / 1",
-            background: "#fafafa",
-            borderRadius: 8,
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            overflow: "hidden",
-          }}
-        >
-          {img ? (
-            <img
-              src={img}
-              alt={title}
-              style={{ width: "100%", height: "100%", objectFit: "contain" }}
-              loading="lazy"
-            />
-          ) : (
-            <div style={{ color: "#999", fontSize: 12 }}>No image</div>
-          )}
+    const inner = (
+      <div className="amz-card" role="group" aria-label={title}>
+        <div className="amz-imgWrap">
+          {img ? <img className="amz-img" src={img} alt={title} loading="lazy" /> : <div className="amz-imgEmpty">No image</div>}
         </div>
 
-        <div style={{ fontSize: 13, lineHeight: "1.25em", height: 34, overflow: "hidden" }}>{title}</div>
-
-        <div style={{ marginTop: "auto" }}>
-          {price ? (
-            <div style={{ fontWeight: 700, fontSize: 14 }}>{price}</div>
-          ) : (
-            <div style={{ color: "#666", fontSize: 13 }}>Price unavailable</div>
-          )}
+        <div className="amz-title" title={title}>
+          {title}
         </div>
+
+        {price ? <div className="amz-price">{price}</div> : <div className="amz-price amz-price--muted">Price unavailable</div>}
       </div>
     );
 
     return to ? (
-      <Link to={to} style={{ textDecoration: "none", color: "inherit" }}>
-        {CardInner}
+      <Link to={to} className="amz-cardLink" aria-label={title}>
+        {inner}
       </Link>
     ) : (
-      CardInner
+      inner
     );
   }
 
+  const sidebarTitle = "Departments";
+
+  const showSidebarLoading = !categoryIndexLoaded && allCategoryPaths.length === 0;
+
+  const sidebarItems = useMemo(() => {
+    if (showSidebarLoading) return [] as Array<{ path: string; label: string; kind: "link" }>;
+
+    // Deep: children then siblings. Dept: deptSubs.
+    let list: string[] = [];
+    if (sidebar.mode === "dept") list = sidebar.deptSubs;
+    else if (sidebar.mode === "deep") {
+      // Prefer children; if none, show siblings; also show dept subs as fallback
+      if (sidebar.children.length) list = sidebar.children;
+      else if (sidebar.siblings.length) list = sidebar.siblings;
+      else list = sidebar.deptSubs;
+    } else {
+      list = [];
+    }
+
+    // Dedup and cap for UI sanity
+    const dedup = Array.from(new Set(list));
+
+    return dedup.slice(0, 80).map((p) => {
+      const last = p.split("/").pop() || p;
+      return { path: p, label: prettyLabelPart(last), kind: "link" as const };
+    });
+  }, [sidebar, showSidebarLoading]);
+
+  const sidebarActivePath = useMemo(() => {
+    if (currentDepth <= 1) return "";
+    if (sidebar.mode === "deep" && sidebar.children.length) return ""; // viewing a parent, children list active highlight won't match
+    return categoryPathKey;
+  }, [categoryPathKey, currentDepth, sidebar]);
+
   return (
-    <div style={{ padding: "16px 16px 40px", maxWidth: 1500, margin: "0 auto" }}>
+    <div className="amz-page">
+      <style>{`
+        .amz-page {
+          max-width: 1500px;
+          margin: 0 auto;
+          padding: 12px 12px 40px;
+          font-family: Arial, Helvetica, sans-serif;
+          color: #0f1111;
+        }
+
+        .amz-breadcrumb {
+          font-size: 12px;
+          color: #565959;
+          margin-bottom: 8px;
+        }
+        .amz-breadcrumb a { color: #007185; text-decoration: none; }
+        .amz-breadcrumb a:hover { text-decoration: underline; color: #c7511f; }
+
+        .amz-h1 {
+          font-size: 18px;
+          font-weight: 700;
+          margin: 0 0 10px;
+          line-height: 1.25;
+        }
+
+        .amz-layout {
+          display: grid;
+          grid-template-columns: 260px 1fr;
+          gap: 16px;
+          align-items: start;
+        }
+
+        .amz-sidebar {
+          border: 1px solid #ddd;
+          border-radius: 6px;
+          background: #fff;
+          padding: 12px 10px;
+        }
+        .amz-sidebarTitle {
+          font-size: 14px;
+          font-weight: 700;
+          margin: 0 0 10px;
+        }
+        .amz-sidebarList {
+          list-style: none;
+          padding: 0;
+          margin: 0;
+          line-height: 1.9;
+        }
+        .amz-sideLink {
+          font-size: 13px;
+          color: #007185;
+          text-decoration: none;
+          display: inline-block;
+          max-width: 100%;
+          overflow: hidden;
+          text-overflow: ellipsis;
+          white-space: nowrap;
+        }
+        .amz-sideLink:hover { color: #c7511f; text-decoration: underline; }
+        .amz-sideLink--active {
+          color: #0f1111;
+          font-weight: 700;
+          text-decoration: none;
+        }
+        .amz-sideEmpty {
+          font-size: 13px;
+          color: #565959;
+        }
+
+        .amz-topbar {
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          gap: 10px;
+          margin-bottom: 8px;
+          padding: 4px 0;
+        }
+        .amz-count {
+          font-size: 13px;
+          color: #565959;
+        }
+        .amz-pager {
+          display: flex;
+          align-items: center;
+          gap: 10px;
+          font-size: 13px;
+          color: #565959;
+        }
+        .amz-btn {
+          border: 1px solid #d5d9d9;
+          background: #fff;
+          border-radius: 6px;
+          padding: 6px 10px;
+          cursor: pointer;
+          font-size: 13px;
+          color: #0f1111;
+        }
+        .amz-btn:disabled {
+          opacity: 0.5;
+          cursor: not-allowed;
+        }
+        .amz-btn:hover:not(:disabled) {
+          background: #f7fafa;
+        }
+
+        .amz-grid {
+          display: grid;
+          grid-template-columns: repeat(2, minmax(0, 1fr));
+          gap: 12px;
+        }
+        @media (min-width: 640px) { .amz-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+        @media (min-width: 1024px) { .amz-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
+        @media (min-width: 1100px) { .amz-grid { grid-template-columns: repeat(6, minmax(0, 1fr)); } }
+
+        .amz-cardLink { text-decoration: none; color: inherit; display: block; }
+        .amz-card {
+          border: 1px solid #f0f2f2;
+          border-radius: 6px;
+          background: #fff;
+          padding: 10px;
+          height: 100%;
+          transition: box-shadow 120ms ease, border-color 120ms ease;
+        }
+        .amz-cardLink:hover .amz-card {
+          border-color: #d5d9d9;
+          box-shadow: 0 2px 6px rgba(15,17,17,.15);
+        }
+
+        .amz-imgWrap {
+          width: 100%;
+          aspect-ratio: 1 / 1;
+          background: #fff;
+          border-radius: 6px;
+          border: 1px solid #f0f2f2;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          overflow: hidden;
+          margin-bottom: 8px;
+        }
+        .amz-img {
+          width: 100%;
+          height: 100%;
+          object-fit: contain;
+        }
+        .amz-imgEmpty { font-size: 12px; color: #565959; }
+
+        .amz-title {
+          font-size: 13px;
+          line-height: 1.25;
+          height: 34px; /* ~2 lines */
+          overflow: hidden;
+          display: -webkit-box;
+          -webkit-line-clamp: 2;
+          -webkit-box-orient: vertical;
+          color: #0f1111;
+          margin-bottom: 6px;
+        }
+        .amz-cardLink:hover .amz-title {
+          color: #c7511f;
+          text-decoration: underline;
+        }
+
+        .amz-price {
+          font-size: 18px;
+          font-weight: 700;
+          color: #0f1111;
+          line-height: 1;
+        }
+        .amz-price--muted {
+          font-size: 13px;
+          font-weight: 400;
+          color: #565959;
+        }
+
+        .amz-error {
+          border: 1px solid #ddd;
+          border-radius: 6px;
+          background: #fff;
+          padding: 12px;
+          font-size: 13px;
+          color: #0f1111;
+        }
+
+        @media (max-width: 900px) {
+          .amz-layout { grid-template-columns: 1fr; }
+        }
+      `}</style>
+
       {/* Breadcrumb */}
-      <div style={{ fontSize: 12, color: "#555", marginBottom: 8 }}>
+      <div className="amz-breadcrumb">
         {breadcrumb.length ? (
           <>
             {breadcrumb.map((c, idx) => (
               <span key={c.path}>
-                <Link to={`/c/${c.path}`} style={{ color: "#0a58ca", textDecoration: "none" }}>
-                  {c.label}
-                </Link>
-                {idx < breadcrumb.length - 1 ? " > " : ""}
+                <Link to={`/c/${c.path}`}>{c.label}</Link>
+                {idx < breadcrumb.length - 1 ? " › " : ""}
               </span>
             ))}
           </>
@@ -490,157 +797,85 @@ export default function CategoryPage() {
         )}
       </div>
 
-      <h2 style={{ marginBottom: 12 }}>{heading}</h2>
+      <h1 className="amz-h1">{heading}</h1>
 
-      <div style={{ display: "grid", gridTemplateColumns: "260px 1fr", gap: 18 }}>
+      <div className="amz-layout">
         {/* Sidebar */}
-        <aside style={{ border: "1px solid #eee", borderRadius: 10, padding: 12, background: "#fff", height: "fit-content" }}>
-          <div style={{ fontWeight: 700, marginBottom: 10 }}>Department</div>
+        <aside className="amz-sidebar">
+          <div className="amz-sidebarTitle">{sidebarTitle}</div>
 
-          {sidebar.deptSubs.length > 0 ? (
-            <ul style={{ listStyle: "none", padding: 0, margin: 0, lineHeight: "1.8em" }}>
-              {sidebar.deptSubs.slice(0, 60).map((p) => {
-                const parts = p.split("/");
-                const label = prettyLabelPart(parts[1] || p);
-                const isActive = p === `${deptKey}/${(cleanedParts[1] || "")}` || p === categoryPathKey;
+          {showSidebarLoading ? (
+            <div className="amz-sideEmpty">Loading…</div>
+          ) : sidebarItems.length > 0 ? (
+            <ul className="amz-sidebarList">
+              {sidebarItems.map((it) => {
+                const isActive = sidebarActivePath && normalizeCategoryPath(it.path) === normalizeCategoryPath(sidebarActivePath);
                 return (
-                  <li key={p}>
+                  <li key={it.path}>
                     <Link
-                      to={`/c/${p}`}
-                      style={{
-                        color: isActive ? "#111" : "#0a58ca",
-                        textDecoration: "none",
-                        fontWeight: isActive ? 700 : 400,
-                      }}
+                      to={`/c/${it.path}`}
+                      className={isActive ? "amz-sideLink amz-sideLink--active" : "amz-sideLink"}
                     >
-                      {label}
+                      {it.label}
                     </Link>
                   </li>
                 );
               })}
             </ul>
           ) : (
-            <div style={{ color: "#666", fontSize: 13 }}>Loading categories…</div>
-          )}
-
-          {sidebar.children.length > 0 && (
-            <div style={{ marginTop: 14 }}>
-              <div style={{ fontWeight: 700, marginBottom: 6 }}>Subcategories</div>
-              <ul style={{ listStyle: "none", padding: 0, margin: 0, lineHeight: "1.8em" }}>
-                {sidebar.children.slice(0, 80).map((p) => {
-                  const last = p.split("/").pop() || p;
-                  return (
-                    <li key={p}>
-                      <Link to={`/c/${p}`} style={{ color: "#0a58ca", textDecoration: "none" }}>
-                        {prettyLabelPart(last)}
-                      </Link>
-                    </li>
-                  );
-                })}
-              </ul>
-            </div>
-          )}
-
-          {sidebar.siblings.length > 0 && cleanedParts.length > 2 && (
-            <div style={{ marginTop: 14 }}>
-              <div style={{ fontWeight: 700, marginBottom: 6 }}>Related</div>
-              <ul style={{ listStyle: "none", padding: 0, margin: 0, lineHeight: "1.8em" }}>
-                {sidebar.siblings.slice(0, 30).map((p) => {
-                  const last = p.split("/").pop() || p;
-                  const isActive = p === categoryPathKey;
-                  return (
-                    <li key={p}>
-                      <Link
-                        to={`/c/${p}`}
-                        style={{
-                          color: isActive ? "#111" : "#0a58ca",
-                          textDecoration: "none",
-                          fontWeight: isActive ? 700 : 400,
-                        }}
-                      >
-                        {prettyLabelPart(last)}
-                      </Link>
-                    </li>
-                  );
-                })}
-              </ul>
-            </div>
+            <div className="amz-sideEmpty">No subcategories.</div>
           )}
         </aside>
 
         {/* Main */}
         <main>
-          {/* Top bar */}
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
-            <div style={{ color: "#666", fontSize: 13 }}>
-              {products.length > 0 ? `${products.length.toLocaleString()} results` : ""}
-            </div>
+          <div className="amz-topbar">
+            <div className="amz-count">{products.length > 0 ? `${products.length.toLocaleString()} results` : ""}</div>
 
-            {/* Pagination */}
-            <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
-              <button disabled={page <= 1} onClick={() => goPage(page - 1)}>
+            <div className="amz-pager">
+              <button className="amz-btn" disabled={page <= 1} onClick={() => goPage(page - 1)}>
                 Prev
               </button>
-              <span style={{ fontSize: 13 }}>
+              <span>
                 Page {Math.min(page, totalPages)} / {totalPages}
               </span>
-              <button disabled={page >= totalPages} onClick={() => goPage(page + 1)}>
+              <button className="amz-btn" disabled={page >= totalPages} onClick={() => goPage(page + 1)}>
                 Next
               </button>
             </div>
           </div>
 
-          {loading && <div>Loading...</div>}
+          {loading && <div className="amz-sideEmpty">Loading products…</div>}
 
           {!loading && error && products.length === 0 && (
-            <div>
-              <strong>Category not found</strong>
+            <div className="amz-error">
+              <div style={{ fontWeight: 700, marginBottom: 4 }}>Category not found</div>
               <div>{error}</div>
             </div>
           )}
 
           {!loading && products.length > 0 && (
-            <div
-              style={{
-                display: "grid",
-                gap: 12,
-                gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
-              }}
-            >
-              {/* Responsive 6-per-row on desktop */}
-              <style>{`
-                @media (min-width: 640px) {
-                  .cat-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
-                }
-                @media (min-width: 1024px) {
-                  .cat-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); }
-                }
-                @media (min-width: 1280px) {
-                  .cat-grid { grid-template-columns: repeat(6, minmax(0, 1fr)); }
-                }
-              `}</style>
-
-              <div className="cat-grid" style={{ display: "grid", gap: 12, gridTemplateColumns: "repeat(2, minmax(0, 1fr))" }}>
-                {pageProducts.map((p, idx) => {
-                  const key = extractSlug(p) || p?.id || p?.asin || `${categoryPathKey}-${(page - 1) * PAGE_SIZE + idx}`;
-                  return <CategoryProductCard key={key} product={p} />;
-                })}
-              </div>
+            <div className="amz-grid">
+              {pageProducts.map((p, idx) => {
+                const key = extractSlug(p) || p?.id || p?.asin || `${categoryPathKey}-${(page - 1) * PAGE_SIZE + idx}`;
+                return <CategoryProductCard key={key} product={p} />;
+              })}
             </div>
           )}
 
-          {/* Bottom pagination */}
           {!loading && products.length > 0 && (
-            <div style={{ marginTop: 18, display: "flex", justifyContent: "center", gap: 10, alignItems: "center" }}>
-              <button disabled={page <= 1} onClick={() => goPage(page - 1)}>
-                Prev
-              </button>
-              <span style={{ fontSize: 13 }}>
-                Page {Math.min(page, totalPages)} / {totalPages}
-              </span>
-              <button disabled={page >= totalPages} onClick={() => goPage(page + 1)}>
-                Next
-              </button>
+            <div className="amz-topbar" style={{ justifyContent: "center", marginTop: 16 }}>
+              <div className="amz-pager">
+                <button className="amz-btn" disabled={page <= 1} onClick={() => goPage(page - 1)}>
+                  Prev
+                </button>
+                <span>
+                  Page {Math.min(page, totalPages)} / {totalPages}
+                </span>
+                <button className="amz-btn" disabled={page >= totalPages} onClick={() => goPage(page + 1)}>
+                  Next
+                </button>
+              </div>
             </div>
           )}
         </main>
@@ -648,4 +883,3 @@ export default function CategoryPage() {
     </div>
   );
 }
-
