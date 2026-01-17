@@ -472,8 +472,9 @@ const router = createBrowserRouter([
       {
         path: "shop",
         children: [
-          { index: true, element: <Shop /> },
-          { path: "all", element: <ShopAllCategories /> },
+          { index: true, element: <ShopAllCategories /> },
+          { path: "browse", element: <Shop /> },
+          { path: "all", element: <Navigate to="/shop" replace /> },
         ],
       },
 
