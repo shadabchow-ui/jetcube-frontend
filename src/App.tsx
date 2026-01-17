@@ -456,44 +456,41 @@ function OrderComplete() {
    ============================ */
 const router = createBrowserRouter([
   {
-    path: "/",
-    element: <MainLayout />,
+children: [
+  // HOME
+  { index: true, element: <Home /> },
+
+  // SHOP
+  {
+    path: "shop",
     children: [
-      // HOME
-      { index: true, element: <Home /> },
-
-      // SHOP
-      {
-        path: "shop",
-        children: [
-          { index: true, element: <Shop /> },
-          { path: "all", element: <ShopAllCategories /> },
-        ],
-      },
-
-      // SEARCH
-      { path: "search", element: <SearchResultsPage /> },
-
-      // CATEGORY (ONLY /c/*)
-      { path: "c/*", element: <CategoryPage /> },
-
-      // ORDERS
-      { path: "orders", element: <OrdersPage /> },
-      { path: "orders/:id", element: <OrderDetailsPage /> },
-
-      // ACCOUNT
-      { path: "account", element: <AccountPage /> },
-
-      // WISHLIST
-      { path: "wishlist", element: <WishlistPage /> },
-
-      // BRAND / FOOTER PAGES
-      { path: "about", element: <AboutUs /> },
-      { path: "careers", element: <Careers /> },
-      { path: "press", element: <Press /> },
+      { index: true, element: <Shop /> },
+      { path: "all", element: <ShopAllCategories /> },
     ],
   },
-]);
+
+  // SEARCH
+  { path: "search", element: <SearchResultsPage /> },
+
+  // CATEGORY
+  { path: "c/*", element: <CategoryPage /> },
+
+  // ORDERS
+  { path: "orders", element: <OrdersPage /> },
+  { path: "orders/:id", element: <OrderDetailsPage /> },
+
+  // ACCOUNT
+  { path: "account", element: <AccountPage /> },
+
+  // WISHLIST
+  { path: "wishlist", element: <WishlistPage /> },
+
+  // BRAND
+  { path: "about", element: <AboutUs /> },
+  { path: "careers", element: <Careers /> },
+  { path: "press", element: <Press /> },
+],
+
 
       // Brand
       { path: "about", element: <AboutUs /> },
