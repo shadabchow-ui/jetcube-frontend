@@ -590,6 +590,14 @@ export default function CategoryPage() {
     return categoryPathKey;
   }, [categoryPathKey, currentDepth, sidebar]);
 
+  // Category existence is based on the category index, not on whether products exist.
+  // (Amazon-style: categories can exist before products are populated.)
+  const categoryExists = useMemo(() => {
+    if (!categoryIndexLoaded) return true;
+    if (!categoryPathKey) return true;
+    return allCategoryPaths.includes(categoryPathKey);
+  }, [categoryIndexLoaded, allCategoryPaths, categoryPathKey]);
+
   return (
     <div className="amz-page">
       <style>{`
@@ -847,10 +855,20 @@ export default function CategoryPage() {
 
           {loading && <div className="amz-sideEmpty">Loading products…</div>}
 
-          {!loading && error && products.length === 0 && (
+          {/* Category truly does not exist */}
+          {!loading && !categoryExists && (
             <div className="amz-error">
               <div style={{ fontWeight: 700, marginBottom: 4 }}>Category not found</div>
-              <div>{error}</div>
+              <div>This category does not exist.</div>
+            </div>
+          )}
+
+          {/* Category exists but has no products yet */}
+          {!loading && categoryExists && products.length === 0 && (
+            <div className="amz-error">
+              <div style={{ fontWeight: 700, marginBottom: 4 }}>No products yet</div>
+              <div>We’re adding products to this category. Check back soon.</div>
+              {error ? <div style={{ marginTop: 6, color: "#565959" }}>{error}</div> : null}
             </div>
           )}
 
