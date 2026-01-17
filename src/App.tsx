@@ -521,14 +521,15 @@ const router = createBrowserRouter([
   },
 ]);
       // PDP
-      {
-        path: "p/:id",
-        element: (
-          <ProductRoute>
-            <SingleProduct />
-          </ProductRoute>
-        ),
-      },
+{
+  path: "p/:id",
+  element: (
+    <ProductRoute>
+      <SingleProduct />
+    </ProductRoute>
+  ),
+},
+
 
       // Cart / Checkout
       { path: "cart", element: <Cart /> },
