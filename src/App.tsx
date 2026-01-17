@@ -457,6 +457,7 @@ function OrderComplete() {
 const router = createBrowserRouter([
   {
     path: "/",
+    element: <RootLayout />, // ← THIS is what you lost
     children: [
       // HOME
       { index: true, element: <Home /> },
@@ -473,7 +474,10 @@ const router = createBrowserRouter([
       // SEARCH
       { path: "search", element: <SearchResultsPage /> },
 
-      // PDP
+      // CATEGORY
+      { path: "c/*", element: <CategoryPage /> },
+
+      // PRODUCT
       {
         path: "p/:id",
         element: (
@@ -482,9 +486,6 @@ const router = createBrowserRouter([
           </ProductRoute>
         ),
       },
-
-      // CATEGORY
-      { path: "c/*", element: <CategoryPage /> },
 
       // ORDERS
       { path: "orders", element: <OrdersPage /> },
@@ -496,18 +497,7 @@ const router = createBrowserRouter([
       // WISHLIST
       { path: "wishlist", element: <WishlistPage /> },
 
-      // CART / CHECKOUT
-      { path: "cart", element: <Cart /> },
-      { path: "checkout", element: <Checkout /> },
-      { path: "cart-sidebar", element: <CartSidebar /> },
-
-      // ORDER COMPLETE
-      { path: "order-complete", element: <OrderComplete /> },
-
-      // PRODUCT COMPARISON
-      { path: "product-comparison", element: <ProductComparison /> },
-
-      // BRAND / COMPANY
+      // BRAND
       { path: "about", element: <AboutUs /> },
       { path: "careers", element: <Careers /> },
       { path: "press", element: <Press /> },
@@ -538,6 +528,10 @@ const router = createBrowserRouter([
           { path: "cookiepolicy", element: <CookiePolicy /> },
         ],
       },
+    ],
+  },
+]);
+
 
       // FALLBACKS
       { path: "single-product", element: <Navigate to="/shop" replace /> },
