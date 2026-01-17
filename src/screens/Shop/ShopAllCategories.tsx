@@ -2,28 +2,33 @@ import React, { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 
 /**
- * ShopAllCategories
- * - Uses indexes/_category_urls.json (5k+ category paths)
- * - Renders an Amazon-style "All Departments" grid
- * - Shows immediate subcategories (depth 2) with a per-dept "See more" toggle
- * - Search filters subcategories across departments
+ * ShopAllCategories (now the main /shop page)
+ * Amazon-style department directory:
+ * - Shows top-level departments + first-level subcategories (depth=2)
+ * - Uses canonical category paths from indexes/_category_urls.json (no hardcoding)
+ * - Search filters departments and subcategories
+ * - Dense typography + spacing similar to Amazon's "Shop by Department" directory
+ *
+ * Notes:
+ * - Keep this component name to avoid breaking existing imports.
+ * - In App.tsx, route /shop -> <ShopAllCategories /> (index route)
+ *   Optional: /shop/browse -> legacy <Shop /> if you still want it.
  */
 
-const R2_BASE = "https://ventari.net/indexes";
-const CATEGORY_INDEX_URL = `${R2_BASE}/_category_urls.json`;
+const INDEX_BASE = "https://ventari.net/indexes";
+const CATEGORY_INDEX_URL = `${INDEX_BASE}/_category_urls.json`;
 
-const DEPTS_PER_PAGE = 24;
-const SUBS_PREVIEW = 18;
+const SUBS_PREVIEW = 12; // Amazon-like short list per dept; expandable
 
 type CategoryIndexShape =
   | Record<string, any>
   | string[]
   | Array<{ url?: string; path?: string; slug?: string }>;
 
-type DeptCard = {
-  deptKey: string;
-  deptLabel: string;
-  subs: Array<{ label: string; path: string }>;
+type Dept = {
+  key: string; // slug
+  label: string; // pretty name
+  subs: Array<{ key: string; label: string; path: string }>; // depth=2
 };
 
 function stripSlashes(s: string) {
@@ -43,7 +48,8 @@ function normalizeCategoryPath(input: string): string {
 
   s = stripSlashes(s).replace(/^\/+/, "");
   s = s.toLowerCase();
-  s = s.replace(/\s+/g, "-").replace(/-+/g, "-");
+  s = s.replace(/\s+/g, "-");
+  s = s.replace(/-+/g, "-");
 
   return s;
 }
@@ -91,20 +97,13 @@ function normalizeCategoryIndexToPaths(indexData: CategoryIndexShape): string[] 
   return out;
 }
 
-function paginate<T>(items: T[], page: number, pageSize: number): T[] {
-  const start = (page - 1) * pageSize;
-  return items.slice(start, start + pageSize);
-}
-
 export default function ShopAllCategories() {
   const [paths, setPaths] = useState<string[]>([]);
-  const [page, setPage] = useState(1);
-
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  const [expanded, setExpanded] = useState<Record<string, boolean>>({});
   const [q, setQ] = useState("");
+  const [expanded, setExpanded] = useState<Record<string, boolean>>({});
 
   useEffect(() => {
     let cancelled = false;
@@ -117,10 +116,11 @@ export default function ShopAllCategories() {
         const res = await fetch(CATEGORY_INDEX_URL, { cache: "force-cache" });
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
 
-        const json = await res.json();
+        const json = (await res.json()) as CategoryIndexShape;
         const list = normalizeCategoryIndexToPaths(json);
 
         const dedup = Array.from(new Set(list))
+          .map((p) => normalizeCategoryPath(p))
           .filter(Boolean)
           .sort((a, b) => a.localeCompare(b));
 
@@ -138,8 +138,8 @@ export default function ShopAllCategories() {
     };
   }, []);
 
-  const departments = useMemo<DeptCard[]>(() => {
-    const map = new Map<string, Set<string>>();
+  const departments = useMemo<Dept[]>(() => {
+    const deptMap = new Map<string, Map<string, string>>(); // dept -> (subKey -> fullPath)
 
     for (const p of paths) {
       const parts = p.split("/").filter(Boolean);
@@ -147,143 +147,249 @@ export default function ShopAllCategories() {
       const sub = parts[1];
       if (!dept) continue;
 
-      if (!map.has(dept)) map.set(dept, new Set<string>());
-      if (sub) map.get(dept)!.add(sub);
+      if (!deptMap.has(dept)) deptMap.set(dept, new Map());
+      if (sub) deptMap.get(dept)!.set(sub, `${dept}/${sub}`);
     }
 
-    const out = Array.from(map.entries())
-      .map(([deptKey, subs]) => {
-        const subList = Array.from(subs)
-          .sort((a, b) => a.localeCompare(b))
-          .map((s) => ({
-            label: prettyLabel(s),
-            path: `${deptKey}/${s}`,
+    const out: Dept[] = Array.from(deptMap.entries())
+      .map(([deptKey, subsMap]) => {
+        const subs = Array.from(subsMap.entries())
+          .sort((a, b) => a[0].localeCompare(b[0]))
+          .map(([subKey, fullPath]) => ({
+            key: subKey,
+            label: prettyLabel(subKey),
+            path: fullPath,
           }));
 
         return {
-          deptKey,
-          deptLabel: prettyLabel(deptKey),
-          subs: subList,
+          key: deptKey,
+          label: prettyLabel(deptKey),
+          subs,
         };
       })
-      .sort((a, b) => a.deptLabel.localeCompare(b.deptLabel));
+      .sort((a, b) => a.label.localeCompare(b.label));
 
     const query = q.trim().toLowerCase();
     if (!query) return out;
 
     return out
-      .map((d) => ({
-        ...d,
-        subs: d.subs.filter((s) => s.label.toLowerCase().includes(query) || s.path.toLowerCase().includes(query)),
-      }))
-      .filter((d) => d.subs.length > 0 || d.deptLabel.toLowerCase().includes(query));
+      .map((d) => {
+        const deptMatch = d.label.toLowerCase().includes(query) || d.key.includes(query);
+        const subs = d.subs.filter(
+          (s) => s.label.toLowerCase().includes(query) || s.key.includes(query) || s.path.includes(query)
+        );
+        return deptMatch ? d : { ...d, subs };
+      })
+      .filter((d) => d.label.toLowerCase().includes(query) || d.key.includes(query) || d.subs.length > 0);
   }, [paths, q]);
-
-  const totalPages = Math.max(1, Math.ceil(departments.length / DEPTS_PER_PAGE));
-  const pageItems = useMemo(() => paginate(departments, page, DEPTS_PER_PAGE), [departments, page]);
-
-  useEffect(() => {
-    if (page > totalPages) setPage(totalPages);
-  }, [page, totalPages]);
 
   function toggleDept(deptKey: string) {
     setExpanded((prev) => ({ ...prev, [deptKey]: !prev[deptKey] }));
   }
 
   return (
-    <div style={{ padding: 24, maxWidth: 1500, margin: "0 auto", fontFamily: "Arial, Helvetica, sans-serif" }}>
-      <h1 style={{ fontSize: 20, marginBottom: 8, color: "#0f1111" }}>All Departments</h1>
+    <div className="amz-shopPage">
+      <style>{`
+        .amz-shopPage{
+          max-width: 1500px;
+          margin: 0 auto;
+          padding: 16px 12px 40px;
+          font-family: Arial, Helvetica, sans-serif;
+          color: #0f1111;
+        }
 
-      <div style={{ display: "flex", gap: 12, alignItems: "center", marginBottom: 16 }}>
-        <input
-          value={q}
-          onChange={(e) => setQ(e.target.value)}
-          placeholder="Search categories…"
-          style={{
-            width: 420,
-            maxWidth: "100%",
-            padding: "10px 12px",
-            border: "1px solid #ddd",
-            borderRadius: 8,
-          }}
-        />
-        <div style={{ fontSize: 12, color: "#565959" }}>
+        .amz-shopHeader{
+          display:flex;
+          align-items:flex-end;
+          justify-content:space-between;
+          gap: 12px;
+          margin-bottom: 10px;
+        }
+        .amz-h1{
+          font-size: 22px;
+          font-weight: 700;
+          margin: 0;
+          line-height: 1.2;
+        }
+        .amz-meta{
+          font-size: 12px;
+          color: #565959;
+        }
+
+        .amz-searchRow{
+          display:flex;
+          align-items:center;
+          gap: 10px;
+          margin: 10px 0 16px;
+        }
+        .amz-search{
+          width: 520px;
+          max-width: 100%;
+          padding: 10px 12px;
+          border: 1px solid #d5d9d9;
+          border-radius: 8px;
+          font-size: 13px;
+        }
+        .amz-search:focus{
+          outline: none;
+          border-color: #007185;
+          box-shadow: 0 0 0 3px rgba(0,113,133,.15);
+        }
+
+        .amz-grid{
+          display:grid;
+          grid-template-columns: repeat(2, minmax(0, 1fr));
+          gap: 16px;
+        }
+        @media (min-width: 760px){ .amz-grid{ grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+        @media (min-width: 1100px){ .amz-grid{ grid-template-columns: repeat(4, minmax(0, 1fr)); } }
+
+        .amz-dept{
+          background:#fff;
+          border: 1px solid #ddd;
+          border-radius: 8px;
+          padding: 12px 12px 10px;
+        }
+        .amz-deptTitle{
+          font-size: 14px;
+          font-weight: 700;
+          margin: 0 0 8px;
+          line-height: 1.2;
+        }
+        .amz-deptTitle a{
+          color:#0f1111;
+          text-decoration:none;
+        }
+        .amz-deptTitle a:hover{
+          color:#c7511f;
+          text-decoration:underline;
+        }
+
+        .amz-subList{
+          list-style:none;
+          padding: 0;
+          margin: 0;
+          line-height: 1.85;
+        }
+        .amz-subList a{
+          font-size: 13px;
+          color:#007185;
+          text-decoration:none;
+          display:inline-block;
+          max-width: 100%;
+          overflow:hidden;
+          white-space:nowrap;
+          text-overflow:ellipsis;
+        }
+        .amz-subList a:hover{
+          color:#c7511f;
+          text-decoration:underline;
+        }
+
+        .amz-deptActions{
+          display:flex;
+          justify-content:space-between;
+          align-items:center;
+          margin-top: 8px;
+          gap: 10px;
+        }
+        .amz-linkBtn{
+          border:none;
+          background:transparent;
+          padding:0;
+          cursor:pointer;
+          font-size: 13px;
+          color:#007185;
+        }
+        .amz-linkBtn:hover{
+          color:#c7511f;
+          text-decoration:underline;
+        }
+
+        .amz-status{
+          font-size: 13px;
+          color:#565959;
+          padding: 8px 0;
+        }
+        .amz-error{
+          border: 1px solid #ddd;
+          border-radius: 8px;
+          padding: 12px;
+          background:#fff;
+          color:#0f1111;
+          font-size: 13px;
+        }
+      `}</style>
+
+      <div className="amz-shopHeader">
+        <h1 className="amz-h1">Shop by Department</h1>
+        <div className="amz-meta">
           {loading ? "Loading…" : `${paths.length.toLocaleString()} category paths`}
         </div>
       </div>
 
-      {error && <p style={{ color: "red" }}>{error}</p>}
+      <div className="amz-searchRow">
+        <input
+          className="amz-search"
+          value={q}
+          onChange={(e) => setQ(e.target.value)}
+          placeholder="Search departments or categories…"
+        />
+      </div>
 
-      <div
-        style={{
-          display: "grid",
-          gridTemplateColumns: "repeat(3, 1fr)",
-          gap: 16,
-        }}
-      >
-        {pageItems.map((d) => {
-          const isExpanded = !!expanded[d.deptKey];
-          const subs = isExpanded ? d.subs : d.subs.slice(0, SUBS_PREVIEW);
-          const showToggle = d.subs.length > SUBS_PREVIEW;
+      {error && <div className="amz-error">{error}</div>}
 
-          return (
-            <div key={d.deptKey} style={{ border: "1px solid #eee", padding: 16, borderRadius: 10, background: "#fff" }}>
-              <Link to={`/c/${d.deptKey}`} style={{ textDecoration: "none", color: "#0f1111" }}>
-                <strong>{d.deptLabel}</strong>
-              </Link>
+      {!error && loading && <div className="amz-status">Loading categories…</div>}
 
-              {subs.length > 0 ? (
-                <ul style={{ marginTop: 10, lineHeight: "1.65em" }}>
-                  {subs.map((s) => (
-                    <li key={s.path}>
-                      <Link to={`/c/${s.path}`} style={{ color: "#007185", textDecoration: "none" }}>
-                        {s.label}
-                      </Link>
+      {!error && !loading && departments.length === 0 && (
+        <div className="amz-status">No categories found.</div>
+      )}
+
+      {!error && !loading && departments.length > 0 && (
+        <div className="amz-grid">
+          {departments.map((d) => {
+            const isExpanded = !!expanded[d.key];
+            const subs = isExpanded ? d.subs : d.subs.slice(0, SUBS_PREVIEW);
+            const hasMore = d.subs.length > SUBS_PREVIEW;
+
+            return (
+              <div key={d.key} className="amz-dept">
+                <div className="amz-deptTitle">
+                  <Link to={`/c/${d.key}`}>{d.label}</Link>
+                </div>
+
+                <ul className="amz-subList">
+                  {subs.length ? (
+                    subs.map((s) => (
+                      <li key={s.path}>
+                        <Link to={`/c/${s.path}`}>{s.label}</Link>
+                      </li>
+                    ))
+                  ) : (
+                    <li>
+                      <span style={{ color: "#565959", fontSize: 13 }}>No subcategories.</span>
                     </li>
-                  ))}
+                  )}
                 </ul>
-              ) : (
-                <div style={{ marginTop: 10, color: "#565959", fontSize: 13 }}>No matching subcategories</div>
-              )}
 
-              <div style={{ display: "flex", justifyContent: "space-between", marginTop: 10 }}>
-                {showToggle ? (
-                  <button
-                    onClick={() => toggleDept(d.deptKey)}
-                    style={{
-                      border: "none",
-                      background: "transparent",
-                      color: "#007185",
-                      cursor: "pointer",
-                      padding: 0,
-                    }}
-                  >
-                    {isExpanded ? "See less" : "See more"}
-                  </button>
-                ) : (
-                  <span />
-                )}
+                <div className="amz-deptActions">
+                  {hasMore ? (
+                    <button className="amz-linkBtn" onClick={() => toggleDept(d.key)}>
+                      {isExpanded ? "See less" : "See more"}
+                    </button>
+                  ) : (
+                    <span />
+                  )}
 
-                <Link to={`/c/${d.deptKey}`} style={{ color: "#007185", textDecoration: "none" }}>
-                  Shop department →
-                </Link>
+                  <Link to={`/c/${d.key}`} className="amz-linkBtn">
+                    Shop department →
+                  </Link>
+                </div>
               </div>
-            </div>
-          );
-        })}
-      </div>
-
-      <div style={{ marginTop: 20, display: "flex", justifyContent: "center", gap: 10, alignItems: "center" }}>
-        <button disabled={page === 1} onClick={() => setPage(page - 1)}>
-          Prev
-        </button>
-        <span style={{ margin: "0 10px", color: "#565959" }}>
-          Page {page} / {totalPages}
-        </span>
-        <button disabled={page === totalPages} onClick={() => setPage(page + 1)}>
-          Next
-        </button>
-      </div>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 }
