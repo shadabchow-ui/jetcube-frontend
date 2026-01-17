@@ -456,50 +456,50 @@ function OrderComplete() {
    ============================ */
 const router = createBrowserRouter([
   {
-children: [
-  // HOME
-  { index: true, element: <Home /> },
-
-  // SHOP
-  {
-    path: "shop",
+    path: "/",
     children: [
-      { index: true, element: <Shop /> },
-      { path: "all", element: <ShopAllCategories /> },
-    ],
-  },
+      // HOME
+      { index: true, element: <Home /> },
 
-  // SEARCH
-  { path: "search", element: <SearchResultsPage /> },
+      // SHOP
+      {
+        path: "shop",
+        children: [
+          { index: true, element: <Shop /> },
+          { path: "all", element: <ShopAllCategories /> },
+        ],
+      },
 
-  // CATEGORY
-  { path: "c/*", element: <CategoryPage /> },
+      // SEARCH
+      { path: "search", element: <SearchResultsPage /> },
 
-  // ORDERS
-  { path: "orders", element: <OrdersPage /> },
-  { path: "orders/:id", element: <OrderDetailsPage /> },
+      // CATEGORY
+      { path: "c/*", element: <CategoryPage /> },
 
-  // ACCOUNT
-  { path: "account", element: <AccountPage /> },
+      // ORDERS
+      { path: "orders", element: <OrdersPage /> },
+      { path: "orders/:id", element: <OrderDetailsPage /> },
 
-  // WISHLIST
-  { path: "wishlist", element: <WishlistPage /> },
+      // ACCOUNT
+      { path: "account", element: <AccountPage /> },
 
-  // BRAND
-  { path: "about", element: <AboutUs /> },
-  { path: "careers", element: <Careers /> },
-  { path: "press", element: <Press /> },
-],
+      // WISHLIST
+      { path: "wishlist", element: <WishlistPage /> },
 
-
-      // Brand
+      // BRAND / COMPANY
       { path: "about", element: <AboutUs /> },
       { path: "careers", element: <Careers /> },
       { path: "press", element: <Press /> },
       { path: "sustainability", element: <Sustainability /> },
       { path: "newsletter", element: <Newsletter /> },
+
+      // AUTH
       { path: "signup", element: <SignupPage /> },
       { path: "login", element: <LoginPage /> },
+    ],
+  },
+]);
+
 
 // Help
 // Help
