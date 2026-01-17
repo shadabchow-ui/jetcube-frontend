@@ -461,30 +461,34 @@ const router = createBrowserRouter([
     children: [
       { index: true, element: <Home /> },
 
-      // 🛒 SHOP
+      // ✅ SHOP ROUTES (MUST COME FIRST)
       {
         path: "shop",
         children: [
           { index: true, element: <Shop /> },
-          { path: "categories", element: <ShopAllCategories /> },
+          { path: "all", element: <ShopAllCategories /> },
         ],
       },
 
-      // 🔍 SEARCH
+      // ✅ SEARCH
       { path: "search", element: <SearchResultsPage /> },
 
-      // 📂 CATEGORY
+      // ✅ CATEGORY (ONLY REAL CATEGORIES)
       { path: "c/*", element: <CategoryPage /> },
 
-      // 🧾 ORDERS
+      // ✅ ORDERS
       { path: "orders", element: <OrdersPage /> },
       { path: "orders/:id", element: <OrderDetailsPage /> },
 
-      // 👤 ACCOUNT
+      // ✅ ACCOUNT
       { path: "account", element: <AccountPage /> },
 
-      // ❤️ WISHLIST
+      // ✅ WISHLIST
       { path: "wishlist", element: <WishlistPage /> },
+    ],
+  },
+]);
+
 
 
 
