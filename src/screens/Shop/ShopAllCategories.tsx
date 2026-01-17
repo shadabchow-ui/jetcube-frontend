@@ -1,69 +1,62 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 
-/**
- * Uses category routing data from:
- *   https://ventari.net/indexes/_category_urls.json
- *
- * - Shows "All Departments" as cards
- * - Each card shows a handful of subcategories
- * - Pagination is by departments (not individual leaf categories)
- */
-
 const R2_BASE = "https://ventari.net/indexes";
 const CATEGORY_INDEX_URL = `${R2_BASE}/_category_urls.json`;
 
-const PAGE_SIZE = 24; // departments per page
-const SUBS_PER_DEPT = 8; // subcategories shown per department card
+const PAGE_SIZE = 24;
+const SUBS_PER_DEPT = 8;
 
 type CategoryIndexShape =
   | Record<string, any>
   | string[]
   | Array<{ url?: string; path?: string; slug?: string }>;
 
+type DeptCard = {
+  dept: string;
+  deptPath: string; // e.g. "beauty-and-personal-care"
+  subs: Array<{ label: string; path: string }>; // e.g. { label: "Skin Care", path: "beauty-and-personal-care/skin-care" }
+};
+
+function safeStr(v: any): string {
+  return typeof v === "string" ? v : "";
+}
+
+function stripPrefixSlash(s: string) {
+  return s.replace(/^\/+/, "");
+}
+
 function normalizeCategoryIndexToPaths(indexData: CategoryIndexShape): string[] {
   const out: string[] = [];
 
-  if (!indexData) return out;
-
-  // Case 1: object map
-  if (typeof indexData === "object" && !Array.isArray(indexData)) {
+  // Record<string, any> (keys are urls/paths)
+  if (indexData && typeof indexData === "object" && !Array.isArray(indexData)) {
     for (const k of Object.keys(indexData)) {
-      const cleaned = k.replace(/^\/*|\/*$/g, "");
+      const cleaned = stripPrefixSlash(k);
       if (cleaned) out.push(cleaned);
     }
     return out;
   }
 
-  // Case 2: array
+  // string[]
+  if (Array.isArray(indexData) && indexData.every((x) => typeof x === "string")) {
+    for (const s of indexData as string[]) {
+      const cleaned = stripPrefixSlash(s);
+      if (cleaned) out.push(cleaned);
+    }
+    return out;
+  }
+
+  // Array<object>
   if (Array.isArray(indexData)) {
-    for (const item of indexData) {
-      if (typeof item === "string") {
-        const cleaned = item.replace(/^\/*|\/*$/g, "");
-        if (cleaned) out.push(cleaned);
-      } else if (item && typeof item === "object") {
-        const raw = (item.url ?? item.path ?? item.slug ?? "") as string;
-        const cleaned = raw.replace(/^\/*|\/*$/g, "");
-        if (cleaned) out.push(cleaned);
-      }
+    for (const item of indexData as Array<{ url?: string; path?: string; slug?: string }>) {
+      const raw = safeStr(item?.path) || safeStr(item?.url) || safeStr(item?.slug);
+      const cleaned = stripPrefixSlash(raw);
+      if (cleaned) out.push(cleaned);
     }
   }
 
   return out;
-}
-
-function splitPath(pathname: string): string[] {
-  return pathname
-    .replace(/^\/*|\/*$/g, "")
-    .split("/")
-    .filter(Boolean)
-    .map(decodeURIComponent);
-}
-
-function titleize(s: string): string {
-  return s
-    .replace(/[-_]+/g, " ")
-    .replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
 function paginate<T>(items: T[], page: number, pageSize: number): T[] {
@@ -71,168 +64,206 @@ function paginate<T>(items: T[], page: number, pageSize: number): T[] {
   return items.slice(start, start + pageSize);
 }
 
-type DeptCard = {
-  deptKey: string;
-  deptLabel: string;
-  href: string;
-  subs: Array<{ key: string; label: string; href: string }>;
-};
+function prettyLabelFromSlug(slug: string) {
+  // "hair-care" -> "Hair Care"
+  return slug
+    .split("-")
+    .filter(Boolean)
+    .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+    .join(" ");
+}
 
 export default function ShopAllCategories() {
+  const [allPaths, setAllPaths] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [allPaths, setAllPaths] = useState<string[]>([]);
+
   const [page, setPage] = useState(1);
 
   useEffect(() => {
-    let alive = true;
+    let cancelled = false;
 
-    async function load() {
+    async function run() {
       setLoading(true);
       setError(null);
 
       try {
         const res = await fetch(CATEGORY_INDEX_URL, { cache: "no-store" });
-        if (!res.ok) throw new Error(`Failed to fetch categories (${res.status})`);
+        if (!res.ok) throw new Error(`Failed to load categories (${res.status})`);
 
         const json = (await res.json()) as CategoryIndexShape;
         const paths = normalizeCategoryIndexToPaths(json);
 
-        // Sort for stable display (by department then by depth)
-        paths.sort((a, b) => a.localeCompare(b));
+        // Dedup + stable sort
+        const dedup = Array.from(new Set(paths)).sort((a, b) => a.localeCompare(b));
 
-        if (!alive) return;
-        setAllPaths(paths);
+        if (!cancelled) setAllPaths(dedup);
       } catch (e: any) {
-        if (!alive) return;
-        setError(e?.message ?? "Failed to load categories");
+        if (!cancelled) setError(e?.message ?? "Failed to load categories");
       } finally {
-        if (!alive) return;
-        setLoading(false);
+        if (!cancelled) setLoading(false);
       }
     }
 
-    load();
+    run();
     return () => {
-      alive = false;
+      cancelled = true;
     };
   }, []);
 
-  // Build department -> set(subcategory) map from paths
-  const deptMap = useMemo(() => {
-    const map = new Map<string, Set<string>>();
+  // Build department cards from paths
+  const deptCards: DeptCard[] = useMemo(() => {
+    // dept -> Set(sub1)
+    const deptToSubs = new Map<string, Set<string>>();
 
     for (const p of allPaths) {
-      const parts = splitPath(p);
-      if (parts.length === 0) continue;
+      const parts = p.split("/").filter(Boolean);
+      if (!parts.length) continue;
 
       const dept = parts[0];
-      if (!map.has(dept)) map.set(dept, new Set());
+      const sub = parts[1]; // only first sub level for the card
 
-      // Add subcategory if present (dept/sub)
-      if (parts.length >= 2) {
-        map.get(dept)!.add(parts[1]);
-      }
+      if (!deptToSubs.has(dept)) deptToSubs.set(dept, new Set<string>());
+      if (sub) deptToSubs.get(dept)!.add(sub);
     }
 
-    return map;
+    const cards: DeptCard[] = [];
+    for (const [dept, subsSet] of deptToSubs.entries()) {
+      const subs = Array.from(subsSet)
+        .sort((a, b) => a.localeCompare(b))
+        .slice(0, SUBS_PER_DEPT)
+        .map((sub) => ({
+          label: prettyLabelFromSlug(sub),
+          path: `${dept}/${sub}`,
+        }));
+
+      cards.push({
+        dept: prettyLabelFromSlug(dept),
+        deptPath: dept,
+        subs,
+      });
+    }
+
+    // sort by label
+    cards.sort((a, b) => a.dept.localeCompare(b.dept));
+    return cards;
   }, [allPaths]);
 
-  const deptKeys = useMemo(() => Array.from(deptMap.keys()).sort((a, b) => a.localeCompare(b)), [deptMap]);
+  const totalPages = useMemo(() => {
+    return Math.max(1, Math.ceil(deptCards.length / PAGE_SIZE));
+  }, [deptCards.length]);
 
-  const totalPages = useMemo(() => Math.max(1, Math.ceil(deptKeys.length / PAGE_SIZE)), [deptKeys.length]);
+  const pageItems = useMemo(
+    () => paginate(deptCards, page, PAGE_SIZE),
+    [deptCards, page]
+  );
 
-  // keep page in range
   useEffect(() => {
+    // If data shrinks or page out of range, clamp
     if (page > totalPages) setPage(totalPages);
     if (page < 1) setPage(1);
   }, [page, totalPages]);
 
-  const pageDeptKeys = useMemo(() => paginate(deptKeys, page, PAGE_SIZE), [deptKeys, page]);
-
-  const cards: DeptCard[] = useMemo(() => {
-    return pageDeptKeys.map((deptKey) => {
-      const subs = Array.from(deptMap.get(deptKey) ?? []).sort((a, b) => a.localeCompare(b));
-
-      return {
-        deptKey,
-        deptLabel: titleize(deptKey),
-        href: `/c/${encodeURIComponent(deptKey)}`,
-        subs: subs.slice(0, SUBS_PER_DEPT).map((sub) => ({
-          key: `${deptKey}/${sub}`,
-          label: titleize(sub),
-          href: `/c/${encodeURIComponent(deptKey)}/${encodeURIComponent(sub)}`,
-        })),
-      };
-    });
-  }, [deptMap, pageDeptKeys]);
-
-  if (loading) {
-    return <div className="p-6">Loading categories…</div>;
-  }
-
-  if (error) {
-    return (
-      <div className="p-6">
-        <div className="font-semibold text-red-600">Failed to load categories</div>
-        <div className="mt-2 text-sm text-gray-700">{error}</div>
-        <div className="mt-3 text-xs text-gray-500">Source: {CATEGORY_INDEX_URL}</div>
-      </div>
-    );
-  }
-
   return (
-    <div className="p-6">
-      <div className="text-2xl font-semibold mb-6">All Departments</div>
+    <div style={{ padding: 24 }}>
+      <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 12 }}>
+        <h1 style={{ fontSize: 24, fontWeight: 700, margin: 0 }}>All Departments</h1>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-        {cards.map((card) => (
-          <div key={card.deptKey} className="border border-gray-200 rounded-lg p-4 bg-white">
-            <div className="font-semibold text-base">{card.deptLabel}</div>
-
-            <div className="mt-2 flex flex-col gap-1">
-              {card.subs.map((s) => (
-                <Link key={s.key} to={s.href} className="text-sm text-blue-600 hover:underline">
-                  {s.label}
-                </Link>
-              ))}
-            </div>
-
-            <div className="mt-3">
-              <Link to={card.href} className="text-sm font-semibold hover:underline">
-                Shop all {card.deptLabel}
-              </Link>
-            </div>
-          </div>
-        ))}
-      </div>
-
-      {/* Pagination */}
-      <div className="mt-8 flex items-center justify-between">
-        <div className="text-sm text-gray-600">
-          Page {page} of {totalPages}
-        </div>
-
-        <div className="flex gap-2">
+        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
           <button
-            type="button"
             onClick={() => setPage((p) => Math.max(1, p - 1))}
             disabled={page <= 1}
-            className="px-3 py-2 text-sm border rounded-md disabled:opacity-50"
+            style={{
+              padding: "8px 12px",
+              borderRadius: 8,
+              border: "1px solid #e5e5e5",
+              background: page <= 1 ? "#f5f5f5" : "#ffffff",
+              cursor: page <= 1 ? "not-allowed" : "pointer",
+            }}
           >
-            Previous
+            Prev
           </button>
 
+          <div style={{ fontSize: 13, color: "#444" }}>
+            Page <b>{page}</b> / <b>{totalPages}</b>
+            <span style={{ marginLeft: 10, color: "#666" }}>
+              ({deptCards.length} departments)
+            </span>
+          </div>
+
           <button
-            type="button"
             onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
             disabled={page >= totalPages}
-            className="px-3 py-2 text-sm border rounded-md disabled:opacity-50"
+            style={{
+              padding: "8px 12px",
+              borderRadius: 8,
+              border: "1px solid #e5e5e5",
+              background: page >= totalPages ? "#f5f5f5" : "#ffffff",
+              cursor: page >= totalPages ? "not-allowed" : "pointer",
+            }}
           >
             Next
           </button>
         </div>
       </div>
+
+      {loading && <div style={{ marginTop: 14, color: "#666" }}>Loading categories…</div>}
+
+      {error && (
+        <div style={{ marginTop: 14, color: "#b00020" }}>
+          {error}
+        </div>
+      )}
+
+      {!loading && !error && (
+        <div
+          style={{
+            marginTop: 18,
+            display: "grid",
+            gridTemplateColumns: "repeat(3, minmax(0, 1fr))",
+            gap: 18,
+          }}
+        >
+          {pageItems.map((card) => (
+            <div
+              key={card.deptPath}
+              style={{
+                border: "1px solid #eaeaea",
+                borderRadius: 10,
+                padding: 16,
+                background: "#fff",
+              }}
+            >
+              <div style={{ fontSize: 16, fontWeight: 700, marginBottom: 10 }}>
+                <Link to={`/c/${encodeURI(card.deptPath)}`} style={{ color: "#111", textDecoration: "none" }}>
+                  {card.dept}
+                </Link>
+              </div>
+
+              <div style={{ display: "grid", gap: 6 }}>
+                {card.subs.map((s) => (
+                  <Link
+                    key={s.path}
+                    to={`/c/${encodeURI(s.path)}`}
+                    style={{ color: "#2563eb", textDecoration: "none", fontSize: 13 }}
+                  >
+                    {s.label}
+                  </Link>
+                ))}
+              </div>
+
+              <div style={{ marginTop: 10, fontSize: 12 }}>
+                <Link
+                  to={`/c/${encodeURI(card.deptPath)}`}
+                  style={{ color: "#111", textDecoration: "none", fontWeight: 600 }}
+                >
+                  Shop all {card.dept}
+                </Link>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
