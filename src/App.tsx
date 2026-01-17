@@ -12,6 +12,7 @@ import {
 import MainLayout from "./layouts/MainLayout";
 import HelpLayout from "./layouts/HelpLayout";
 import ShopAllCategories from "./screens/Shop/ShopAllCategories";
+import { Navigate } from "react-router-dom";
 
 
 /* ============================
@@ -534,11 +535,14 @@ const router = createBrowserRouter([
 
 
       // FALLBACKS
-      { path: "single-product", element: <Navigate to="/shop" replace /> },
-      { path: "*", element: <CategoryPage /> },
-    ],
-  },
-]);
+{
+  path: "single-product",
+  element: <Navigate to="/shop" replace={true} />,
+},
+{
+  path: "*",
+  element: <CategoryPage />,
+},
 
 /* ============================
    ✅ CONSENT BANNER (ONLY ADDITION)
