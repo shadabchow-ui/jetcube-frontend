@@ -13,6 +13,12 @@ import MainLayout from "./layouts/MainLayout";
 import HelpLayout from "./layouts/HelpLayout";
 import ShopAllCategories from "./screens/Shop/ShopAllCategories";
 
+/* ============================
+   Root Layout Alias
+   ============================ */
+const RootLayout = MainLayout;
+
+
 
 /* ============================
    PDP Context
@@ -536,18 +542,6 @@ const router = createBrowserRouter([
     ],
   },
 ]);
-
-
-      // FALLBACKS
-{
-  path: "single-product",
-  element: <Navigate to="/shop" replace={true} />,
-},
-{
-  path: "*",
-  element: <CategoryPage />,
-},
-
 /* ============================
    ✅ CONSENT BANNER (ONLY ADDITION)
    ============================ */
