@@ -1,32 +1,61 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { Link, useSearchParams } from "react-router-dom";
+import { Link } from "react-router-dom";
 
 /**
- * Browse ALL categories (paginated)
- * Data source:
+ * Shop > All Categories
+ *
+ * Loads category paths from:
  *  - https://ventari.net/indexes/_category_urls.json
  *
- * Route:
- *  - /shop/all?page=1
+ * Then groups into Department cards with subcategory links + pagination.
  */
 
-const CATEGORY_INDEX_URL =
-  "https://ventari.net/indexes/_category_urls.json";
+const R2_BASE = "https://ventari.net/indexes";
+const CATEGORY_INDEX_URL = `${R2_BASE}/_category_urls.json`;
 
-const PAGE_SIZE = 60; // safe for 5k+ categories
+const PAGE_SIZE = 24; // cards per page
+const SUBS_PER_DEPT = 8; // subcategory links shown per department card
 
-/* ---------------- helpers ---------------- */
+type CategoryIndexShape =
+  | Record<string, any>
+  | string[]
+  | Array<{ url?: string; path?: string; slug?: string }>;
 
-function normalizeCategoryUrls(data: any): string[] {
-  if (Array.isArray(data)) {
-    return data.map(String);
+function normalizeCategoryIndexToPaths(indexData: CategoryIndexShape): string[] {
+  const out: string[] = [];
+
+  // Object: keys are category paths
+  if (indexData && typeof indexData === "object" && !Array.isArray(indexData)) {
+    for (const k of Object.keys(indexData)) {
+      const cleaned = k.toString().replace(/^\/+|\/+$/g, "");
+      if (cleaned) out.push(cleaned);
+    }
+    return out;
   }
 
-  if (data && typeof data === "object") {
-    return Object.keys(data);
+  // Array: strings or objects
+  if (Array.isArray(indexData)) {
+    for (const item of indexData) {
+      if (typeof item === "string") {
+        const cleaned = item.replace(/^\/+|\/+$/g, "");
+        if (cleaned) out.push(cleaned);
+      } else if (item && typeof item === "object") {
+        const raw = (item.url ?? item.path ?? item.slug ?? "").toString();
+        const cleaned = raw.replace(/^\/+|\/+$/g, "");
+        if (cleaned) out.push(cleaned);
+      }
+    }
   }
 
-  return [];
+  return out;
+}
+
+function titleize(s: string) {
+  return decodeURIComponent(s)
+    .replace(/[-_]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
 function paginate<T>(items: T[], page: number, pageSize: number) {
@@ -34,145 +63,210 @@ function paginate<T>(items: T[], page: number, pageSize: number) {
   return items.slice(start, start + pageSize);
 }
 
-function humanizePath(path: string) {
-  return path
-    .split("/")
-    .map((p) =>
-      p
-        .replace(/-/g, " ")
-        .replace(/\b\w/g, (c) => c.toUpperCase())
-    )
-    .join(" › ");
-}
-
-/* ---------------- component ---------------- */
+type DeptCard = {
+  dept: string;
+  deptLabel: string;
+  subs: Array<{ key: string; label: string; href: string }>;
+  href: string;
+};
 
 export default function ShopAllCategories() {
-  const [searchParams, setSearchParams] = useSearchParams();
-  const page = Math.max(1, Number(searchParams.get("page") || 1));
-
-  const [allCategories, setAllCategories] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+
+  const [allPaths, setAllPaths] = useState<string[]>([]);
+  const [query, setQuery] = useState("");
+  const [page, setPage] = useState(1);
 
   useEffect(() => {
     let cancelled = false;
 
-    async function load() {
+    async function run() {
+      setLoading(true);
+      setError(null);
+
       try {
-        const res = await fetch(CATEGORY_INDEX_URL, {
-          cache: "force-cache",
-        });
+        const res = await fetch(CATEGORY_INDEX_URL, { cache: "no-store" });
+        if (!res.ok) throw new Error(`Failed to load categories (${res.status})`);
 
-        if (!res.ok) {
-          throw new Error(`Failed to load categories (${res.status})`);
-        }
+        const json = (await res.json()) as CategoryIndexShape;
+        const paths = normalizeCategoryIndexToPaths(json);
 
-        const data = await res.json();
-        const normalized = normalizeCategoryUrls(data);
+        // Dedup + stable sort
+        const dedup = Array.from(new Set(paths)).sort((a, b) => a.localeCompare(b));
 
-        if (!cancelled) {
-          setAllCategories(normalized);
-          setLoading(false);
-        }
+        if (!cancelled) setAllPaths(dedup);
       } catch (e: any) {
-        if (!cancelled) {
-          setError(e?.message ?? "Unknown error");
-          setLoading(false);
-        }
+        if (!cancelled) setError(e?.message ?? "Failed to load categories");
+      } finally {
+        if (!cancelled) setLoading(false);
       }
     }
 
-    load();
+    run();
     return () => {
       cancelled = true;
     };
   }, []);
 
-  const totalPages = Math.max(
-    1,
-    Math.ceil(allCategories.length / PAGE_SIZE)
-  );
+  // Build department cards from paths
+  const deptCards: DeptCard[] = useMemo(() => {
+    // dept -> Set(sub1)
+    const deptToSubs = new Map<string, Set<string>>();
+
+    for (const p of allPaths) {
+      const parts = p.split("/").filter(Boolean);
+      if (!parts.length) continue;
+
+      const dept = parts[0];
+      const sub1 = parts[1];
+
+      if (!deptToSubs.has(dept)) deptToSubs.set(dept, new Set<string>());
+      if (sub1) deptToSubs.get(dept)!.add(sub1);
+    }
+
+    const cards: DeptCard[] = [];
+    for (const [dept, subsSet] of deptToSubs.entries()) {
+      const subs = Array.from(subsSet)
+        .sort((a, b) => a.localeCompare(b))
+        .slice(0, SUBS_PER_DEPT)
+        .map((sub) => ({
+          key: `${dept}/${sub}`,
+          label: titleize(sub),
+          href: `/c/${encodeURIComponent(dept)}/${encodeURIComponent(sub)}`,
+        }));
+
+      cards.push({
+        dept,
+        deptLabel: titleize(dept),
+        subs,
+        href: `/c/${encodeURIComponent(dept)}`,
+      });
+    }
+
+    // sort by dept label
+    cards.sort((a, b) => a.deptLabel.localeCompare(b.deptLabel));
+    return cards;
+  }, [allPaths]);
+
+  // Filter by search query (department or subcategory)
+  const filteredCards: DeptCard[] = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    if (!q) return deptCards;
+
+    return deptCards.filter((c) => {
+      if (c.deptLabel.toLowerCase().includes(q)) return true;
+      return c.subs.some((s) => s.label.toLowerCase().includes(q));
+    });
+  }, [deptCards, query]);
+
+  // Reset page when filter changes
+  useEffect(() => {
+    setPage(1);
+  }, [query]);
+
+  const totalPages = Math.max(1, Math.ceil(filteredCards.length / PAGE_SIZE));
 
   const pageItems = useMemo(
-    () => paginate(allCategories Outstanding, page, PAGE_SIZE),
-    [allCategories, page]
+    () => paginate(filteredCards, page, PAGE_SIZE),
+    [filteredCards, page]
   );
 
+  useEffect(() => {
+    if (page > totalPages) setPage(totalPages);
+  }, [page, totalPages]);
+
   if (loading) {
-    return <div style={{ padding: 24 }}>Loading categories…</div>;
+    return (
+      <div className="w-full max-w-6xl mx-auto px-4 py-8">
+        <div className="text-lg font-medium">Loading categories…</div>
+      </div>
+    );
   }
 
   if (error) {
     return (
-      <div style={{ padding: 24 }}>
-        <strong>Error</strong>
-        <div>{error}</div>
+      <div className="w-full max-w-6xl mx-auto px-4 py-8">
+        <div className="text-lg font-medium">Couldn’t load categories</div>
+        <div className="mt-2 text-sm text-red-600">{error}</div>
       </div>
     );
   }
 
   return (
-    <div style={{ padding: "24px 24px 48px" }}>
-      <h1 style={{ marginBottom: 12 }}>Browse All Categories</h1>
+    <div className="w-full max-w-6xl mx-auto px-4 py-8">
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <div className="text-2xl font-semibold">All Departments</div>
+          <div className="text-sm text-gray-600 mt-1">
+            Showing {filteredCards.length.toLocaleString()} departments
+          </div>
+        </div>
 
-      <div style={{ marginBottom: 16, color: "#666" }}>
-        Showing {pageItems.length} of {allCategories.length} categories
+        <div className="w-full sm:w-[360px]">
+          <input
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="Search departments or subcategories…"
+            className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm"
+          />
+        </div>
       </div>
 
-      <div
-        style={{
-          display: "grid",
-          gridTemplateColumns: "repeat(auto-fill, minmax(260px, 1fr))",
-          gap: 10,
-          marginBottom: 32,
-        }}
-      >
-        {pageItems.map((path) => (
-          <Link
-            key={path}
-            to={`/c/${path}`}
-            style={{
-              padding: "8px 6px",
-              textDecoration: "none",
-              color: "#007185",
-              fontSize: 14,
-            }}
+      <div className="mt-6 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
+        {pageItems.map((card) => (
+          <div
+            key={card.dept}
+            className="border border-gray-200 rounded-lg p-4 bg-white"
           >
-            {humanizePath(path)}
-          </Link>
+            <div className="font-semibold text-base">{card.deptLabel}</div>
+
+            <div className="mt-2 flex flex-col gap-1">
+              {card.subs.map((s) => (
+                <Link
+                  key={s.key}
+                  to={s.href}
+                  className="text-sm text-blue-600 hover:underline"
+                >
+                  {s.label}
+                </Link>
+              ))}
+            </div>
+
+            <div className="mt-3">
+              <Link to={card.href} className="text-sm font-semibold hover:underline">
+                Shop all {card.deptLabel}
+              </Link>
+            </div>
+          </div>
         ))}
       </div>
 
-      {/* pagination */}
-      <div
-        style={{
-          display: "flex",
-          gap: 16,
-          alignItems: "center",
-        }}
-      >
-        <button
-          disabled={page <= 1}
-          onClick={() =>
-            setSearchParams({ page: String(page - 1) })
-          }
-        >
-          Previous
-        </button>
-
-        <span>
+      {/* Pagination */}
+      <div className="mt-8 flex items-center justify-between">
+        <div className="text-sm text-gray-600">
           Page {page} of {totalPages}
-        </span>
+        </div>
 
-        <button
-          disabled={page >= totalPages}
-          onClick={() =>
-            setSearchParams({ page: String(page + 1) })
-          }
-        >
-          Next
-        </button>
+        <div className="flex gap-2">
+          <button
+            type="button"
+            onClick={() => setPage((p) => Math.max(1, p - 1))}
+            disabled={page <= 1}
+            className="px-3 py-2 text-sm border rounded-md disabled:opacity-50"
+          >
+            Previous
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+            disabled={page >= totalPages}
+            className="px-3 py-2 text-sm border rounded-md disabled:opacity-50"
+          >
+            Next
+          </button>
+        </div>
       </div>
     </div>
   );
