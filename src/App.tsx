@@ -459,9 +459,10 @@ const router = createBrowserRouter([
     path: "/",
     element: <MainLayout />,
     children: [
+      // HOME
       { index: true, element: <Home /> },
 
-      // ✅ SHOP ROUTES (MUST COME FIRST)
+      // SHOP
       {
         path: "shop",
         children: [
@@ -470,27 +471,29 @@ const router = createBrowserRouter([
         ],
       },
 
-      // ✅ SEARCH
+      // SEARCH
       { path: "search", element: <SearchResultsPage /> },
 
-      // ✅ CATEGORY (ONLY REAL CATEGORIES)
+      // CATEGORY (ONLY /c/*)
       { path: "c/*", element: <CategoryPage /> },
 
-      // ✅ ORDERS
+      // ORDERS
       { path: "orders", element: <OrdersPage /> },
       { path: "orders/:id", element: <OrderDetailsPage /> },
 
-      // ✅ ACCOUNT
+      // ACCOUNT
       { path: "account", element: <AccountPage /> },
 
-      // ✅ WISHLIST
+      // WISHLIST
       { path: "wishlist", element: <WishlistPage /> },
+
+      // BRAND / FOOTER PAGES
+      { path: "about", element: <AboutUs /> },
+      { path: "careers", element: <Careers /> },
+      { path: "press", element: <Press /> },
     ],
   },
 ]);
-
-
-
 
       // Brand
       { path: "about", element: <AboutUs /> },
