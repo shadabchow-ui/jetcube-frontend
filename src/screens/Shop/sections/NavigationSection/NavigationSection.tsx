@@ -116,6 +116,7 @@ export const NavigationSection = (): JSX.Element => {
   // ✅ REAL categories (drawer menu)
   const [categoryUrls, setCategoryUrls] = useState<CategoryUrlItem[]>([]);
   const [openDept, setOpenDept] = useState<string | null>(null);
+  const [categoriesLoading, setCategoriesLoading] = useState(true);
 
   // ✅ CART (real)
   const { totalCount, openCart } = useCart();
@@ -359,19 +360,84 @@ export const NavigationSection = (): JSX.Element => {
   useEffect(() => {
     let cancelled = false;
 
+    const stripSlashes = (s: string) => String(s || "").replace(/^\/+/g, "").replace(/\/+$/g, "");
+    const stripPrefixSlash = (s: string) => String(s || "").replace(/^\//g, "");
+    const toCatItem = (raw: string, count?: any): CategoryUrlItem | null => {
+      if (typeof raw !== "string") return null;
+      const cleaned = stripPrefixSlash(stripSlashes(raw));
+      if (!cleaned) return null;
+      // normalize: remove leading "c/" or "/c/"
+      const p = cleaned.replace(/^c\//i, "");
+      const url = `/c/${p}`;
+      return {
+        url,
+        category_key: p,
+        ...(typeof count === "number" ? { count } : {}),
+      } as CategoryUrlItem;
+    };
+
     const normalizeCats = (data: any): CategoryUrlItem[] => {
       if (!data) return [];
-      if (Array.isArray(data)) return data as CategoryUrlItem[];
-      if (Array.isArray(data.items)) return data.items as CategoryUrlItem[];
+
+      // Object map: keys are paths, values may be counts or metadata
+      if (typeof data === "object" && !Array.isArray(data)) {
+        const out: CategoryUrlItem[] = [];
+        for (const k of Object.keys(data)) {
+          const v = (data as any)[k];
+          const count =
+            typeof v === "number"
+              ? v
+              : typeof v?.count === "number"
+              ? v.count
+              : undefined;
+          const item = toCatItem(k, count);
+          if (item) out.push(item);
+        }
+        return out;
+      }
+
+      // Array of strings
+      if (Array.isArray(data) && data.every((x) => typeof x === "string")) {
+        const out: CategoryUrlItem[] = [];
+        for (const s of data as string[]) {
+          const item = toCatItem(s);
+          if (item) out.push(item);
+        }
+        return out;
+      }
+
+      // Array of objects
+      if (Array.isArray(data)) {
+        const out: CategoryUrlItem[] = [];
+        for (const it of data as any[]) {
+          const raw = it?.path || it?.url || it?.slug || it?.category_key;
+          const count = typeof it?.count === "number" ? it.count : undefined;
+          const item = toCatItem(raw, count);
+          if (item) out.push(item);
+        }
+        return out;
+      }
+
+      // Wrapped list
+      if (Array.isArray((data as any).items)) return normalizeCats((data as any).items);
+      if (Array.isArray((data as any).paths)) return normalizeCats((data as any).paths);
+      if (Array.isArray((data as any).category_paths)) return normalizeCats((data as any).category_paths);
+
       return [];
     };
 
     const load = async () => {
-      // Prefer R2, then /indexes, but allow fallbacks so dev/prod don't break.
+      setCategoriesLoading(true);
+
+      // Prefer same-origin index base (matches ShopAllCategories), then R2, then relative fallbacks.
+      const origin = typeof window !== "undefined" ? window.location.origin : "https://ventari.net";
+      const originUrl = withVersion(joinUrl(origin, "indexes/_category_urls.json"), CATEGORY_URLS_VERSION);
+
       const r2Base = joinUrl(R2_PUBLIC_BASE, "indexes/_category_urls.json");
       const r2Url = withVersion(r2Base, CATEGORY_URLS_VERSION);
 
       const urls = [
+        originUrl,
         r2Url,
         "/indexes/_category_urls.json",
         "/products/_category_urls.json",
@@ -406,7 +472,10 @@ export const NavigationSection = (): JSX.Element => {
                 (x as any).category_key.length > 0
             );
 
-          if (!cancelled) setCategoryUrls(items);
+          if (!cancelled) {
+            setCategoryUrls(items);
+            setCategoriesLoading(false);
+          }
           return;
         } catch {
           // try next
