@@ -1,5 +1,10 @@
 {
   "version": 1,
-  "include": ["/indexes/*"],
-  "exclude": []
+  "include": ["/*"],
+  "exclude": [
+    "/sitemap.xml",
+    "/sitemap-*.xml",
+    "/robots.txt",
+    "/category-directory*"
+  ]
 }
