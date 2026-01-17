@@ -49,12 +49,41 @@ function getDeptFromUrl(url: string): string {
 }
 
 function getLeafLabel(categoryKey: string): string {
-  // "A > B > C" -> "C"
-  const parts = (categoryKey || "")
+  const raw = (categoryKey || "").toString().trim();
+  if (!raw) return "";
+
+  // Supports both legacy "A > B > C" and canonical "a/b/c" styles.
+  const gtParts = raw
     .split(" > ")
-    .map((x) => x.trim())
+    .map((s) => s.trim())
     .filter(Boolean);
-  return parts.length ? parts[parts.length - 1] : categoryKey || "Category";
+  const slashParts = raw
+    .split("/")
+    .map((s) => s.trim())
+    .filter(Boolean);
+
+  const leaf =
+    gtParts.length > 1
+      ? gtParts[gtParts.length - 1]
+      : slashParts.length > 1
+      ? slashParts[slashParts.length - 1]
+      : raw;
+
+  try {
+    return titleCaseDept(decodeURIComponent(leaf.replace(/\+/g, " ")));
+  } catch {
+    return titleCaseDept(leaf);
+  }
+}
+
+function normalizeKey(s: string): string {
+  const raw = (s || "").toString().trim();
+  if (!raw) return "";
+  try {
+    return decodeURIComponent(raw).toLowerCase().replace(/^\/+|\/+$/g, "");
+  } catch {
+    return raw.toLowerCase().replace(/^\/+|\/+$/g, "");
+  }
 }
 
 function buildCategoryHref(item: CategoryUrlItem): string {
@@ -965,10 +994,10 @@ export const NavigationSection = (): JSX.Element => {
     </div>
   );
 
-  // ✅ Top-level department links in main navigation (Amazon-style)
-  // - Uses canonical department keys derived from /c/{dept}/...
-  // - Adds a persistent "Shop All" link to /shop
-  // - Does NOT hardcode categories; uses the same _category_urls.json source already loaded above
+  // ✅ Amazon-like quick links bar (NOT categories)
+  // - Keep the left drawer for departments
+  // - Keep Shop All link
+  // - Use existing routes only (avoid 404s)
   const HeaderDeptNav = (
     <div
       className="w-full border-b hidden md:block"
@@ -977,53 +1006,50 @@ export const NavigationSection = (): JSX.Element => {
       <div className="mx-auto max-w-[1440px] px-[6px]">
         <div
           className="flex items-center gap-4 py-[8px] overflow-x-auto"
-          style={{ scrollbarWidth: "none" as any }}
+          style={{ scrollbarWidth: "none" as any, WebkitTapHighlightColor: "transparent" as any }}
         >
           {/* Shop All */}
           <Link
             to="/shop"
-            className="text-[13px] font-semibold whitespace-nowrap px-2 py-1 rounded hover:bg-white/10"
-            style={{ color: "#fff" }}
+            onMouseDown={(e) => e.preventDefault()}
+            className="text-[13px] font-semibold whitespace-nowrap px-2 py-1 rounded hover:bg-white/10 focus:outline-none focus-visible:outline-none"
+            style={{ color: "#fff", WebkitTapHighlightColor: "transparent" as any }}
           >
             Shop All
           </Link>
 
-          {/* Departments (top-level only) */}
-          {deptKeysSorted
-            .filter((k) => k && k !== "other")
-            .slice(0, 14)
-            .map((deptKey) => {
-              const href = `/c/${deptKey}`;
-              const isActive =
-                location.pathname === href || location.pathname.startsWith(`${href}/`);
-              return (
-                <Link
-                  key={deptKey}
-                  to={href}
-                  className="text-[13px] whitespace-nowrap px-2 py-1 rounded hover:bg-white/10"
-                  style={{
-                    color: isActive ? "#ffd814" : "#fff",
-                    fontWeight: isActive ? 700 : 500,
-                  }}
-                  title={titleCaseDept(deptKey)}
-                >
-                  {titleCaseDept(deptKey)}
-                </Link>
-              );
-            })}
-
-          {/* More → opens the existing left drawer (keeps your current architecture) */}
-          {deptKeysSorted.filter((k) => k && k !== "other").length > 14 ? (
-            <button
-              type="button"
-              onClick={() => setMenuOpen(true)}
-              className="text-[13px] whitespace-nowrap px-2 py-1 rounded hover:bg-white/10"
-              style={{ color: "#fff" }}
-              aria-label="More departments"
+          {[
+            { label: "Today’s deals", to: "/search?q=deals" },
+            { label: "New arrivals", to: "/search?q=new%20arrivals" },
+            { label: "Best sellers", to: "/search?q=best%20sellers" },
+            { label: "Gift ideas", to: "/search?q=gifts" },
+            { label: "Ventari essentials", to: "/search?q=essentials" },
+            { label: "Customer service", to: "/help" },
+            { label: "Orders", to: "/orders" },
+            { label: "Wishlist", to: "/wishlist" },
+          ].map((it) => (
+            <Link
+              key={it.label}
+              to={it.to}
+              onMouseDown={(e) => e.preventDefault()}
+              className="text-[13px] whitespace-nowrap px-2 py-1 rounded hover:bg-white/10 focus:outline-none focus-visible:outline-none"
+              style={{ color: "#fff", WebkitTapHighlightColor: "transparent" as any }}
             >
-              More
-            </button>
-          ) : null}
+              {it.label}
+            </Link>
+          ))}
+
+          {/* More → opens the existing left drawer */}
+          <button
+            type="button"
+            onMouseDown={(e) => e.preventDefault()}
+            onClick={() => setMenuOpen(true)}
+            className="text-[13px] whitespace-nowrap px-2 py-1 rounded hover:bg-white/10 focus:outline-none focus-visible:outline-none"
+            style={{ color: "#fff", WebkitTapHighlightColor: "transparent" as any }}
+            aria-label="Open departments"
+          >
+            Departments
+          </button>
         </div>
       </div>
     </div>
@@ -1131,16 +1157,19 @@ export const NavigationSection = (): JSX.Element => {
                 ) : (
                   deptKeysSorted.map((deptKey) => {
                     const isOpen = openDept === deptKey;
-                    const items = deptGroups[deptKey] || [];
+                      const items = (deptGroups[deptKey] || []).filter((it) =>
+                        normalizeKey(it.category_key || "") !== normalizeKey(deptKey)
+                      );
                     const label = titleCaseDept(deptKey);
 
                     return (
                       <div key={deptKey}>
                         <button
                           type="button"
+                          onMouseDown={(e) => e.preventDefault()}
                           onClick={() => setOpenDept((cur) => (cur === deptKey ? null : deptKey))}
-                          className="w-full flex items-center justify-between px-4 py-3 text-[14px] hover:bg-[#eaeded]"
-                          style={{ color: "#0F1111" }}
+                          className="w-full flex select-none items-center justify-between px-4 py-3 text-[14px] hover:bg-[#eaeded] focus:outline-none focus-visible:outline-none"
+                          style={{ color: "#0F1111", WebkitTapHighlightColor: "transparent" as any }}
                         >
                           <span>{label}</span>
                           <span className="text-[12px] text-[#565959]">{isOpen ? "−" : "+"}</span>
@@ -1154,12 +1183,13 @@ export const NavigationSection = (): JSX.Element => {
                                 <Link
                                   key={it.url}
                                   to={buildCategoryHref(it)}
+                                  onMouseDown={(e) => e.preventDefault()}
                                   onClick={() => {
                                     setMenuOpen(false);
                                     setOpenDept(null);
                                   }}
-                                  className="block pl-8 pr-4 py-2 text-[13px] hover:bg-[#eaeded]"
-                                  style={{ color: "#0F1111" }}
+                                  className="block select-none pl-8 pr-4 py-2 text-[13px] leading-[18px] hover:bg-[#eaeded] focus:outline-none focus-visible:outline-none"
+                                  style={{ color: "#0F1111", WebkitTapHighlightColor: "transparent" as any }}
                                   title={it.category_key}
                                 >
                                   {leaf}
