@@ -153,10 +153,7 @@ export default function ShopAllCategories() {
     return Math.max(1, Math.ceil(deptCards.length / PAGE_SIZE));
   }, [deptCards.length]);
 
-  const pageItems = useMemo(
-    () => paginate(deptCards, page, PAGE_SIZE),
-    [deptCards, page]
-  );
+  const pageItems = useMemo(() => paginate(deptCards, page, PAGE_SIZE), [deptCards, page]);
 
   useEffect(() => {
     // If data shrinks or page out of range, clamp
@@ -186,9 +183,7 @@ export default function ShopAllCategories() {
 
           <div style={{ fontSize: 13, color: "#444" }}>
             Page <b>{page}</b> / <b>{totalPages}</b>
-            <span style={{ marginLeft: 10, color: "#666" }}>
-              ({deptCards.length} departments)
-            </span>
+            <span style={{ marginLeft: 10, color: "#666" }}>({deptCards.length} departments)</span>
           </div>
 
           <button
@@ -209,11 +204,7 @@ export default function ShopAllCategories() {
 
       {loading && <div style={{ marginTop: 14, color: "#666" }}>Loading categories…</div>}
 
-      {error && (
-        <div style={{ marginTop: 14, color: "#b00020" }}>
-          {error}
-        </div>
-      )}
+      {error && <div style={{ marginTop: 14, color: "#b00020" }}>{error}</div>}
 
       {!loading && !error && (
         <div
