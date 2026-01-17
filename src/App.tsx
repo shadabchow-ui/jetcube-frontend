@@ -11,6 +11,8 @@ import {
    ============================ */
 import MainLayout from "./layouts/MainLayout";
 import HelpLayout from "./layouts/HelpLayout";
+import ShopAllCategories from "./screens/Shop/ShopAllCategories";
+
 
 /* ============================
    PDP Context
@@ -456,21 +458,37 @@ const router = createBrowserRouter([
   {
     path: "/",
     element: <MainLayout />,
-children: [
-  { index: true, element: <Home /> },
-  { path: "shop", element: <Shop /> },
-  { path: "search", element: <SearchResultsPage /> },
-  { path: "c/*", element: <CategoryPage /> },
+    children: [
+      { index: true, element: <Home /> },
 
-  // ✅ ORDERS
-  { path: "orders", element: <OrdersPage /> },
-  { path: "orders/:id", element: <OrderDetailsPage /> },
+      // 🛒 SHOP
+      {
+        path: "shop",
+        children: [
+          { index: true, element: <Shop /> },
+          { path: "categories", element: <ShopAllCategories /> },
+        ],
+      },
 
-  // ✅ ACCOUNT
-  { path: "account", element: <AccountPage /> },
+      // 🔍 SEARCH
+      { path: "search", element: <SearchResultsPage /> },
 
-  // ✅ WISHLIST
-  { path: "wishlist", element: <WishlistPage /> },
+      // 📂 CATEGORY PAGES
+      { path: "c/*", element: <CategoryPage /> },
+
+      // ✅ ORDERS
+      { path: "orders", element: <OrdersPage /> },
+      { path: "orders/:id", element: <OrderDetailsPage /> },
+
+      // ✅ ACCOUNT
+      { path: "account", element: <AccountPage /> },
+
+      // ✅ WISHLIST
+      { path: "wishlist", element: <WishlistPage /> },
+    ],
+  },
+]);
+
 
       // Brand
       { path: "about", element: <AboutUs /> },
