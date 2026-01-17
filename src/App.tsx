@@ -473,10 +473,7 @@ const router = createBrowserRouter([
       // SEARCH
       { path: "search", element: <SearchResultsPage /> },
 
-      // CATEGORY
-      { path: "c/*", element: <CategoryPage /> },
-
-      // PRODUCT
+      // PDP
       {
         path: "p/:id",
         element: (
@@ -485,6 +482,9 @@ const router = createBrowserRouter([
           </ProductRoute>
         ),
       },
+
+      // CATEGORY
+      { path: "c/*", element: <CategoryPage /> },
 
       // ORDERS
       { path: "orders", element: <OrdersPage /> },
@@ -495,6 +495,17 @@ const router = createBrowserRouter([
 
       // WISHLIST
       { path: "wishlist", element: <WishlistPage /> },
+
+      // CART / CHECKOUT
+      { path: "cart", element: <Cart /> },
+      { path: "checkout", element: <Checkout /> },
+      { path: "cart-sidebar", element: <CartSidebar /> },
+
+      // ORDER COMPLETE
+      { path: "order-complete", element: <OrderComplete /> },
+
+      // PRODUCT COMPARISON
+      { path: "product-comparison", element: <ProductComparison /> },
 
       // BRAND / COMPANY
       { path: "about", element: <AboutUs /> },
@@ -527,33 +538,8 @@ const router = createBrowserRouter([
           { path: "cookiepolicy", element: <CookiePolicy /> },
         ],
       },
-    ],
-  },
-]);
 
-      // PDP
-{
-  path: "p/:id",
-  element: (
-    <ProductRoute>
-      <SingleProduct />
-    </ProductRoute>
-  ),
-},
-
-
-      // Cart / Checkout
-      { path: "cart", element: <Cart /> },
-      { path: "checkout", element: <Checkout /> },
-      { path: "cart-sidebar", element: <CartSidebar /> },
-
-      // ✅ ORDER COMPLETE (NEW)
-      { path: "order-complete", element: <OrderComplete /> },
-
-      // Comparison
-      { path: "product-comparison", element: <ProductComparison /> },
-
-      // Fallbacks
+      // FALLBACKS
       { path: "single-product", element: <Navigate to="/shop" replace /> },
       { path: "*", element: <CategoryPage /> },
     ],
