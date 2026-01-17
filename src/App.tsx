@@ -496,35 +496,30 @@ const router = createBrowserRouter([
       // AUTH
       { path: "signup", element: <SignupPage /> },
       { path: "login", element: <LoginPage /> },
+
+      // HELP (✅ FIXED LOCATION)
+      {
+        path: "help",
+        element: <HelpLayout />,
+        children: [
+          { index: true, element: <HelpIndex /> },
+          { path: "shipping", element: <Shipping /> },
+          { path: "returns", element: <Returns /> },
+          { path: "payments", element: <Payments /> },
+          { path: "conditions-of-use", element: <ConditionsOfUse /> },
+          { path: "privacy-notice", element: <PrivacyNotice /> },
+          { path: "accessibility", element: <Accessibility /> },
+          { path: "ads-privacy", element: <AdsPrivacy /> },
+          { path: "consumer-data", element: <ConsumerData /> },
+          { path: "product-safety", element: <ProductSafety /> },
+          { path: "devices", element: <Devices /> },
+          { path: "contact", element: <Contact /> },
+          { path: "cookiepolicy", element: <CookiePolicy /> },
+        ],
+      },
     ],
   },
 ]);
-
-
-// Help
-// Help
-{
-  path: "help",
-  element: <HelpLayout />,
-  children: [
-    { index: true, element: <HelpIndex /> },
-    { path: "shipping", element: <Shipping /> },
-    { path: "returns", element: <Returns /> },
-    { path: "payments", element: <Payments /> },
-    { path: "conditions-of-use", element: <ConditionsOfUse /> },
-    { path: "privacy-notice", element: <PrivacyNotice /> },
-    { path: "accessibility", element: <Accessibility /> },
-    { path: "ads-privacy", element: <AdsPrivacy /> },
-    { path: "consumer-data", element: <ConsumerData /> },
-    { path: "product-safety", element: <ProductSafety /> },
-    { path: "devices", element: <Devices /> },
-    { path: "contact", element: <Contact /> },
-    { path: "cookiepolicy", element: <CookiePolicy /> },
-  ],
-},
-
-
-
       // PDP
       {
         path: "p/:id",
