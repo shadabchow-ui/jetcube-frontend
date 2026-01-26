@@ -21,7 +21,7 @@ import { Link, useLocation, useSearchParams } from "react-router-dom";
 const INDEX_BASE = "https://ventari.net/indexes";
 const CATEGORY_INDEX_URL = `${INDEX_BASE}/_category_urls.json`;
 const CATEGORY_PRODUCTS_BASE = `${INDEX_BASE}/category_products`;
-const INDEX_CARDS_URL = `${INDEX_BASE}/_index.cards.json`;
+const INDEX_CARDS_URL = `${INDEX_BASE}/_index.cards.json.gz`;
 
 const PAGE_SIZE = 48;
 
