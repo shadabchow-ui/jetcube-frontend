@@ -43,7 +43,7 @@ const R2_PUBLIC_BASE =
 
 // ✅ where the cards index lives
 const INDEX_CARDS_PATH =
-  import.meta.env.VITE_INDEX_CARDS_PATH || "/indexes/_index.cards.json";
+  import.meta.env.VITE_INDEX_CARDS_PATH || "/indexes/_index.cards.json.gz";
 
 // optional cache-bust (set to anything when you redeploy indexes)
 const INDEX_VERSION = import.meta.env.VITE_INDEX_VERSION || "";
