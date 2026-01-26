@@ -152,10 +152,8 @@ let PDP_SHARD_PROMISE: Record<string, Promise<PdpShard | null> | null> = {};
 
 function shardKeyFromHandle(h: string): string {
   const s = (h || "").trim().toLowerCase();
-  const a = s[0] || "_";
-  const b = s[1] || "_";
-  const clean = (c: string) => (/[a-z0-9]/.test(c) ? c : "_");
-  return `${clean(a)}${clean(b)}`;
+  const key = s.slice(0, 2);
+  return /^[a-z]{2}$/.test(key) ? key : "xx";
 }
 
 async function loadPdpShardOnce(key: string): Promise<PdpShard | null> {
@@ -284,6 +282,7 @@ function ProductRoute({ children }: { children: React.ReactNode }) {
 
       // ✅ IMPORTANT: if it already looks like a path (contains "/"), treat as a path under R2
       // Examples: "products/batch 2/part_01/x.json" or "indexes/pdp_paths/ti.json"
+      if (s.includes("batch-") || s.includes("part_")) return null;
       if (s.includes("/")) return joinUrl(R2_PUBLIC_BASE, s);
 
       // Filename with .json (assume under /products/)
@@ -313,8 +312,8 @@ function ProductRoute({ children }: { children: React.ReactNode }) {
             if (!cancelled) setProduct(p);
             return;
           }
-        } catch {
-          // fall through to _index.json and legacy fallbacks
+        } catch (e: any) {
+          throw new Error(`Shard lookup failed for ${handle}`);
         }
 
         // ✅ NEW PRIMARY FLOW:
