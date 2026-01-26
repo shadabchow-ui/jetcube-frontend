@@ -106,7 +106,7 @@ async function loadIndexOnce(): Promise<any[]> {
   if (INDEX_CACHE) return INDEX_CACHE;
   if (INDEX_PROMISE) return INDEX_PROMISE;
 
-  const url = joinUrl(R2_PUBLIC_BASE, "indexes/_index.json");
+  const url = joinUrl(R2_PUBLIC_BASE, "indexes/_index.slim.json.gz");
 
   INDEX_PROMISE = fetch(encodeURI(url), { cache: "force-cache" })
     .then(async (res) => {
