@@ -286,10 +286,10 @@ function ProductRoute({ children }: { children: React.ReactNode }) {
       if (s.includes("/")) return joinUrl(R2_PUBLIC_BASE, s);
 
       // Filename with .json (assume under /products/)
-      if (s.endsWith(".json")) return joinUrl(R2_PUBLIC_BASE, `products/${s}`);
+if (s.endsWith(".json.gz")) return joinUrl(R2_PUBLIC_BASE, s);
+if (s.endsWith(".json")) return joinUrl(R2_PUBLIC_BASE, `${s}.gz`);
+return joinUrl(R2_PUBLIC_BASE, `products/${s}.json.gz`);
 
-      // Otherwise assume it's a handle/filename base under /products/
-      return joinUrl(R2_PUBLIC_BASE, `products/${s}.json`);
     }
 
     async function load() {
