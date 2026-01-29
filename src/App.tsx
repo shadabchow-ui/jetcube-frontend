@@ -342,9 +342,9 @@ return joinUrl(R2_PUBLIC_BASE, `products/${s}.json.gz`);
 
         // 1) Try handle-based filename first (works if file is /products/<handle>.json)
         try {
-          const byHandle = await fetchJson(
-            joinUrl(R2_PUBLIC_BASE, `products/${handle}.json`)
-          );
+const byHandle = await fetchJson(
+  joinUrl(R2_PUBLIC_BASE, `products/${handle}.json.gz`)
+);
           if (!cancelled) setProduct(byHandle);
           return;
         } catch {
