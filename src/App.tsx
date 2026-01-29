@@ -388,9 +388,9 @@ const byHandle = await fetchJson(
           }
 
           // Legacy fallback: maybe you still have /products/<ASIN>.json
-          const byAsin = await fetchJson(
-            joinUrl(R2_PUBLIC_BASE, `products/${asinKey}.json`)
-          );
+const byAsin = await fetchJson(
+  joinUrl(R2_PUBLIC_BASE, `products/${asinKey}.json.gz`)
+);
           if (!cancelled) setProduct(byAsin);
           return;
         }
