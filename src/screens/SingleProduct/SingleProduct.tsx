@@ -14,34 +14,37 @@ import { AssistantContextProvider } from "../../components/RufusAssistant/Assist
 import AssistantDrawer from "../../components/RufusAssistant/AssistantDrawer";
 
 /* ============================
-   Helper: pick named export if it exists, else default
+   Types
    ============================ */
-function pick<T = any>(mod: any, named: string): T {
-  return (mod?.[named] ?? mod?.default) as T;
-}
+type SingleProductProps = {
+  product: any; // keep as-is; upstream data may be flexible
+};
 
-/* ============================
-   Sections resolved safely
-   ============================ */
-const ProductHeroSection = pick<any>(ProductHeroModule, "ProductHeroSection");
-const ProductBreadcrumb = pick<any>(BreadcrumbModule, "ProductBreadcrumb");
-const ProductDetailsSection = ProductDetailsSectionImpl;
+export function SingleProduct({ product }: SingleProductProps) {
+  const ProductHeroSection =
+    (ProductHeroModule as any).default ?? (ProductHeroModule as any).ProductHeroSection;
+  const ProductBreadcrumb =
+    (BreadcrumbModule as any).default ?? (BreadcrumbModule as any).ProductBreadcrumb;
 
-/* ============================
-   PDP Screen
-   NOTE:
-   - No fetching here.
-   - Product is loaded by App.tsx ProductRoute and provided via ProductPdpProvider context.
-   ============================ */
-export function SingleProduct() {
   return (
     <AssistantContextProvider>
-      <div className="w-full">
-        {ProductBreadcrumb ? <ProductBreadcrumb /> : null}
-        {ProductHeroSection ? <ProductHeroSection /> : null}
-        {ProductDetailsSection ? <ProductDetailsSection /> : null}
+      <div className="min-h-screen">
+        {/* Breadcrumb */}
+        <div className="px-4 sm:px-6 lg:px-8 pt-4">
+          {ProductBreadcrumb ? <ProductBreadcrumb product={product} /> : null}
+        </div>
 
-        {/* Rufus assistant (drawer only) */}
+        {/* Hero */}
+        <div className="px-4 sm:px-6 lg:px-8 pt-2">
+          {ProductHeroSection ? <ProductHeroSection product={product} /> : null}
+        </div>
+
+        {/* Details */}
+        <div className="px-4 sm:px-6 lg:px-8 pt-6 pb-10">
+          <ProductDetailsSectionImpl product={product} />
+        </div>
+
+        {/* Assistant Drawer */}
         <AssistantDrawer />
       </div>
     </AssistantContextProvider>
@@ -49,6 +52,7 @@ export function SingleProduct() {
 }
 
 export default SingleProduct;
+
 
 
 
