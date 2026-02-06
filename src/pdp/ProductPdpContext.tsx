@@ -1,124 +1,103 @@
-import React, { createContext, useContext } from "react";
+import React, {
+  createContext,
+  useContext,
+  useEffect,
+  useMemo,
+  useState,
+  type ReactNode,
+} from "react";
 
-/**
- * Review item shape
- */
 export type ProductReview = {
   title?: string;
   body?: string;
   author?: string;
-  rating?: number;
+  rating?: number | string;
   date?: string;
-
-  // ✅ Support review images ONLY inside reviews
-  images?: string[];
-
-  // Optional metadata if present
   verified?: boolean;
+  images?: string[];
 };
 
-/**
- * Long description blocks allow inline A+ images between paragraphs
- * (used by ProductDetailsSection.tsx).
- */
-export type LongDescriptionBlock =
-  | { type: "p"; text: string }
-  | { type: "img"; src: string; alt?: string };
-
-/**
- * Video shape (MP4 vs HLS)
- */
-export type ProductVideo = {
-  src: string;
-  type?: string; // e.g. "video/mp4" or "application/x-mpegURL"
-  poster?: string;
-};
-
-/**
- * Main PDP product shape
- */
 export type ProductPdp = {
-  id: string;
-  title: string;
-
+  // Core identity
+  handle?: string;
+  asin?: string;
+  sku?: string;
   brand?: string;
 
-  price?: number | string;
+  // Category + taxonomy
+  category?: string;
+  breadcrumbs?: string[];
+
+  // Primary content
+  title?: string;
+  about_this_item?: string;
+  description?: string;
+
+  // Merch + pricing
+  price?: string | number;
+  currency?: string;
+  availability?: string;
+
+  // Media
   images?: string[];
 
-  // “About this item”
-  short_description?: string;
+  // Ratings + reviews
+  rating?: number | string;
+  ratings_count?: number | string;
+  reviews?: ProductReview[];
 
-  // Rewritten long description text fallback
-  long_description?: string;
-
-  // ✅ Prefer blocks when present (paragraph + inline A+ images)
-  long_description_blocks?: LongDescriptionBlock[];
-
-  // ✅ Videos playable (MP4 vs HLS)
-  videos?: ProductVideo[];
-
-  sku?: string;
-  category?: string;
-  tags?: string[];
-
-  // Optional extras used elsewhere
-  bought_in_past_month?: string;
-  size_chart?: any;
-
-  reviews?: {
-    // Keep compatible with current usage, but allow missing values safely
-    count?: number;
-    average_rating?: number;
-
-    // ✅ “Customers say” (ONLY if extracted into JSON)
-    customers_say?: string;
-
-    items: ProductReview[];
-  };
-
-  /**
-   * Allow additional scraped fields
-   */
+  // Any other fields your JSON may contain
   [key: string]: any;
 };
 
-/**
- * PDP Context
- */
-const ProductPdpContext = createContext<ProductPdp | null>(null);
+type ProductPdpContextValue = {
+  product: ProductPdp | null;
+  setProduct: React.Dispatch<React.SetStateAction<ProductPdp | null>>;
+};
 
-/**
- * Provider
- */
+const ProductPdpContext = createContext<ProductPdpContextValue | undefined>(
+  undefined
+);
+
+export function useProductPdp(): ProductPdpContextValue {
+  const ctx = useContext(ProductPdpContext);
+  if (!ctx) {
+    throw new Error("useProductPdp must be used within a ProductPdpProvider");
+  }
+  return ctx;
+}
+
 export function ProductPdpProvider({
-  product,
   children,
+  product,
 }: {
-  product: ProductPdp;
-  children: React.ReactNode;
+  children: ReactNode;
+  product: ProductPdp | null;
 }) {
+  const [current, setCurrent] = useState<ProductPdp | null>(product ?? null);
+
+  // Keep context in sync if the parent swaps product props
+  useEffect(() => {
+    setCurrent(product ?? null);
+  }, [product]);
+
+  const value = useMemo(
+    () => ({
+      product: current,
+      setProduct: setCurrent,
+    }),
+    [current]
+  );
+
   return (
-    <ProductPdpContext.Provider value={product}>
+    <ProductPdpContext.Provider value={value}>
       {children}
     </ProductPdpContext.Provider>
   );
 }
 
-/**
- * Hook
- */
-export function useProductPdp(): ProductPdp {
-  const ctx = useContext(ProductPdpContext);
-
-  if (!ctx) {
-    throw new Error("useProductPdp must be used within <ProductPdpProvider>");
-  }
-
-  return ctx;
-}
-
 export default ProductPdpContext;
+
 
 
 
