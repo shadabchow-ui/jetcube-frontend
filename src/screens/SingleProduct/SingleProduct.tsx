@@ -46,7 +46,7 @@ function pickImages(p: any): string[] {
   return [];
 }
 
-export default function SingleProduct() {
+export function SingleProduct() {
   const { slug = "" } = useParams();
   const { getUrlForSlug, preloadShardForSlug, lastError, clearError } =
     useProductPdp();
