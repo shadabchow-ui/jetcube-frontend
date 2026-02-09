@@ -1,7 +1,8 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { useParams } from "react-router-dom";
-// NOTE: Cloudflare Pages builds on Linux (case-sensitive). The PDP context lives in src/pdp/
-// so we must import it from there (not a local ./ProductPdpContext file).
+
+// NOTE: Cloudflare Pages builds on Linux (case-sensitive).
+// The PDP context lives in src/pdp/, so import it from there (not a local ./ProductPdpContext file).
 import { useProductPdp } from "../../pdp/ProductPdpContext";
 
 type ProductJson = any;
@@ -25,6 +26,7 @@ function safePrice(p: any): string | null {
     p?.sale_price ??
     p?.pricing?.price ??
     null;
+
   if (v == null) return null;
   if (typeof v === "number") return `$${v.toFixed(2)}`;
   return String(v);
@@ -32,17 +34,14 @@ function safePrice(p: any): string | null {
 
 function pickImages(p: any): string[] {
   const imgs =
-    p?.images ||
-    p?.image_urls ||
-    p?.imageUrls ||
-    p?.media ||
-    p?.gallery ||
-    [];
+    p?.images || p?.image_urls || p?.imageUrls || p?.media || p?.gallery || [];
+
   if (Array.isArray(imgs)) {
     return imgs
       .map((x) => (typeof x === "string" ? x : x?.url || x?.src))
       .filter(Boolean);
   }
+
   return [];
 }
 
@@ -66,7 +65,7 @@ export function SingleProduct() {
     let cancelled = false;
 
     (async () => {
-      // preload shard for faster resolution (optional)
+      // Preload shard for faster resolution (optional)
       await preloadShardForSlug(slug);
 
       const url = await getUrlForSlug(slug);
@@ -89,7 +88,7 @@ export function SingleProduct() {
 
         setProduct(json);
         setLoading(false);
-      } catch (e) {
+      } catch {
         if (cancelled) return;
         setLoading(false);
       }
@@ -122,6 +121,7 @@ export function SingleProduct() {
         <p style={{ opacity: 0.75, marginTop: 8 }}>
           No PDP URL found for <code>{slug}</code>.
         </p>
+
         {lastError ? (
           <pre
             style={{
@@ -217,6 +217,11 @@ export function SingleProduct() {
     </div>
   );
 }
+
+// ✅ Provide a default export so src/screens/SingleProduct/index.ts can do:
+// export { default as SingleProduct } from "./SingleProduct";
+export default SingleProduct;
+
 
 
 
