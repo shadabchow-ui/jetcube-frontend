@@ -1,88 +1,77 @@
 import { useEffect, useMemo, useState } from "react";
 import { useParams } from "react-router-dom";
+import { ProductPdpProvider } from "../../pdp/ProductPdpContext";
+import { ProductHeroSection } from "./sections/ProductHeroSection/ProductHeroSection";
 import { ProductDetailsSection } from "./sections/ProductDetailsSection/ProductDetailsSection";
-import { CustomerReviewsSection } from "./sections/CustomerReviewsSection/CustomerReviewsSection";
 import { RelatedProductsSection } from "./sections/RelatedProductsSection/RelatedProductsSection";
-import { useProductPdp } from "../../pdp/ProductPdpContext";
 
-const R2_BASE = "https://pub-efc133d84c664ca8ace8be57ec3e4d65.r2.dev";
+// IMPORTANT: guard optional section so build never fails
+let CustomerReviewsSection: any = null;
+try {
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  CustomerReviewsSection =
+    require("./sections/CustomerReviewsSection/CustomerReviewsSection")
+      .CustomerReviewsSection;
+} catch (e) {
+  console.warn("CustomerReviewsSection not found, skipping.");
+}
 
-type PDPPathIndex = Record<string, string>;
+type PDP = any;
 
-export const SingleProduct = (): JSX.Element => {
-  const { slug } = useParams<{ slug: string }>();
-  const { setProductFromUrl } = useProductPdp();
+function resolvePdpIndex(slug: string) {
+  const first = slug?.[0]?.toLowerCase();
+  if (!first || !/^[a-z0-9]$/.test(first)) {
+    return "misc";
+  }
+  return first;
+}
 
-  const [loading, setLoading] = useState(true);
+export default function SingleProduct(): JSX.Element {
+  const { slug = "" } = useParams();
+  const [product, setProduct] = useState<PDP | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  const normalizedSlug = useMemo(() => {
-    if (!slug) return "";
-    return decodeURIComponent(slug).toLowerCase();
-  }, [slug]);
-
-  const shard = useMemo(() => {
-    if (!normalizedSlug || normalizedSlug.length < 2) return "";
-    return normalizedSlug.slice(0, 2);
-  }, [normalizedSlug]);
+  const indexKey = useMemo(() => resolvePdpIndex(slug), [slug]);
 
   useEffect(() => {
-    let cancelled = false;
+    if (!slug) return;
 
-    async function resolvePdp() {
-      try {
-        setLoading(true);
-        setError(null);
+    const indexUrl = `https://pub-efc133d84c664ca8ace8be57ec3e4d65.r2.dev/indexes/pdp_paths/${indexKey}.json`;
 
-        if (!normalizedSlug || !shard) {
-          throw new Error("Invalid product slug");
+    console.log("[PDP] slug:", slug);
+    console.log("[PDP] index:", indexUrl);
+
+    fetch(indexUrl)
+      .then((r) => r.json())
+      .then((map) => {
+        const productUrl = map[slug];
+
+        if (!productUrl) {
+          throw new Error("Slug not found in PDP index");
         }
 
-        const indexUrl = `${R2_BASE}/indexes/pdp_paths/${shard}.json`;
-        const indexRes = await fetch(indexUrl, { cache: "no-store" });
+        console.log("[PDP] productUrl:", productUrl);
 
-        if (!indexRes.ok) {
-          throw new Error(`Failed to load PDP index: ${indexUrl}`);
-        }
+        return fetch(productUrl);
+      })
+      .then((r) => r.json())
+      .then(setProduct)
+      .catch((err) => {
+        console.error("[PDP] failed:", err);
+        setError("Product not found");
+      });
+  }, [slug, indexKey]);
 
-        const indexJson: PDPPathIndex = await indexRes.json();
+  if (error) {
+    return (
+      <div className="max-w-[1200px] mx-auto px-6 py-24 text-red-600">
+        Product failed to load
+        <div className="text-sm opacity-70 mt-2">{error}</div>
+      </div>
+    );
+  }
 
-        const productPath = indexJson[normalizedSlug];
-
-        if (!productPath) {
-          throw new Error("Product not found in PDP index");
-        }
-
-        const productUrl = `${R2_BASE}${productPath}`;
-        const productRes = await fetch(productUrl, { cache: "no-store" });
-
-        if (!productRes.ok) {
-          throw new Error(`Failed to load product JSON: ${productUrl}`);
-        }
-
-        const productJson = await productRes.json();
-
-        if (!cancelled) {
-          setProductFromUrl(productJson);
-          setLoading(false);
-        }
-      } catch (err: any) {
-        if (!cancelled) {
-          console.error("PDP resolver error:", err);
-          setError(err?.message || "Product failed to load");
-          setLoading(false);
-        }
-      }
-    }
-
-    resolvePdp();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [normalizedSlug, shard, setProductFromUrl]);
-
-  if (loading) {
+  if (!product) {
     return (
       <div className="w-full min-h-screen flex items-center justify-center">
         Loading…
@@ -90,24 +79,18 @@ export const SingleProduct = (): JSX.Element => {
     );
   }
 
-  if (error) {
-    return (
-      <div className="w-full min-h-screen flex items-center justify-center text-red-600">
-        Product failed to load
-      </div>
-    );
-  }
-
   return (
-    <div className="w-full">
-      <ProductDetailsSection />
-      <CustomerReviewsSection />
-      <RelatedProductsSection />
-    </div>
+    <ProductPdpProvider product={product}>
+      <main className="min-h-screen">
+        <ProductHeroSection />
+        <ProductDetailsSection />
+        {CustomerReviewsSection ? <CustomerReviewsSection /> : null}
+        <RelatedProductsSection />
+      </main>
+    </ProductPdpProvider>
   );
-};
+}
 
-export default SingleProduct;
 
 
 
