@@ -1,95 +1,227 @@
-import { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { useParams } from "react-router-dom";
-import { ProductPdpProvider } from "../../pdp/ProductPdpContext";
-import { ProductHeroSection } from "./sections/ProductHeroSection/ProductHeroSection";
-import { ProductDetailsSection } from "./sections/ProductDetailsSection/ProductDetailsSection";
-import { RelatedProductsSection } from "./sections/RelatedProductsSection/RelatedProductsSection";
 
-// IMPORTANT: guard optional section so build never fails
-let CustomerReviewsSection: any = null;
-try {
-  // eslint-disable-next-line @typescript-eslint/no-var-requires
-  CustomerReviewsSection =
-    require("./sections/CustomerReviewsSection/CustomerReviewsSection")
-      .CustomerReviewsSection;
-} catch (e) {
-  console.warn("CustomerReviewsSection not found, skipping.");
+// NOTE: Cloudflare Pages builds on Linux (case-sensitive).
+// The PDP context lives in src/pdp/, so import it from there (not a local ./ProductPdpContext file).
+import { useProductPdp } from "../../pdp/ProductPdpContext";
+
+type ProductJson = any;
+
+function safeTitle(p: any): string {
+  return (
+    p?.title ||
+    p?.name ||
+    p?.product_title ||
+    p?.productName ||
+    p?.handle ||
+    "Product"
+  );
 }
 
-type PDP = any;
+function safePrice(p: any): string | null {
+  const v =
+    p?.price ??
+    p?.price_current ??
+    p?.current_price ??
+    p?.sale_price ??
+    p?.pricing?.price ??
+    null;
 
-function resolvePdpIndex(slug: string) {
-  const first = slug?.[0]?.toLowerCase();
-  if (!first || !/^[a-z0-9]$/.test(first)) {
-    return "misc";
+  if (v == null) return null;
+  if (typeof v === "number") return `$${v.toFixed(2)}`;
+  return String(v);
+}
+
+function pickImages(p: any): string[] {
+  const imgs =
+    p?.images || p?.image_urls || p?.imageUrls || p?.media || p?.gallery || [];
+
+  if (Array.isArray(imgs)) {
+    return imgs
+      .map((x) => (typeof x === "string" ? x : x?.url || x?.src))
+      .filter(Boolean);
   }
-  return first;
+
+  return [];
 }
 
-export default function SingleProduct(): JSX.Element {
+export function SingleProduct() {
   const { slug = "" } = useParams();
-  const [product, setProduct] = useState<PDP | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const { getUrlForSlug, preloadShardForSlug, lastError, clearError } =
+    useProductPdp();
 
-  const indexKey = useMemo(() => resolvePdpIndex(slug), [slug]);
+  const [loading, setLoading] = useState(true);
+  const [productUrl, setProductUrl] = useState<string | null>(null);
+  const [product, setProduct] = useState<ProductJson | null>(null);
+  const [notFound, setNotFound] = useState(false);
 
   useEffect(() => {
-    if (!slug) return;
+    clearError();
+    setLoading(true);
+    setProduct(null);
+    setProductUrl(null);
+    setNotFound(false);
 
-    const indexUrl = `https://pub-efc133d84c664ca8ace8be57ec3e4d65.r2.dev/indexes/pdp_paths/${indexKey}.json`;
+    let cancelled = false;
 
-    console.log("[PDP] slug:", slug);
-    console.log("[PDP] index:", indexUrl);
+    (async () => {
+      // Preload shard for faster resolution (optional)
+      await preloadShardForSlug(slug);
 
-    fetch(indexUrl)
-      .then((r) => r.json())
-      .then((map) => {
-        const productUrl = map[slug];
+      const url = await getUrlForSlug(slug);
+      if (cancelled) return;
 
-        if (!productUrl) {
-          throw new Error("Slug not found in PDP index");
-        }
+      if (!url) {
+        setNotFound(true);
+        setLoading(false);
+        return;
+      }
 
-        console.log("[PDP] productUrl:", productUrl);
+      setProductUrl(url);
 
-        return fetch(productUrl);
-      })
-      .then((r) => r.json())
-      .then(setProduct)
-      .catch((err) => {
-        console.error("[PDP] failed:", err);
-        setError("Product not found");
-      });
-  }, [slug, indexKey]);
+      try {
+        const res = await fetch(url, { cache: "force-cache" });
+        if (!res.ok) throw new Error(`Failed to load product: ${res.status}`);
 
-  if (error) {
+        const json = await res.json();
+        if (cancelled) return;
+
+        setProduct(json);
+        setLoading(false);
+      } catch {
+        if (cancelled) return;
+        setLoading(false);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [slug, getUrlForSlug, preloadShardForSlug, clearError]);
+
+  const title = useMemo(() => (product ? safeTitle(product) : ""), [product]);
+  const price = useMemo(() => (product ? safePrice(product) : null), [product]);
+  const images = useMemo(() => (product ? pickImages(product) : []), [product]);
+
+  if (loading) {
     return (
-      <div className="max-w-[1200px] mx-auto px-6 py-24 text-red-600">
-        Product failed to load
-        <div className="text-sm opacity-70 mt-2">{error}</div>
+      <div style={{ padding: 24 }}>
+        <h2 style={{ margin: 0 }}>Loading…</h2>
+        <p style={{ opacity: 0.7, marginTop: 8 }}>
+          Resolving PDP path for <code>{slug}</code>
+        </p>
       </div>
     );
   }
 
-  if (!product) {
+  if (notFound) {
     return (
-      <div className="w-full min-h-screen flex items-center justify-center">
-        Loading…
+      <div style={{ padding: 24 }}>
+        <h2 style={{ margin: 0 }}>Not found</h2>
+        <p style={{ opacity: 0.75, marginTop: 8 }}>
+          No PDP URL found for <code>{slug}</code>.
+        </p>
+
+        {lastError ? (
+          <pre
+            style={{
+              marginTop: 12,
+              padding: 12,
+              background: "rgba(0,0,0,0.06)",
+              borderRadius: 8,
+              overflow: "auto",
+            }}
+          >
+            {lastError}
+          </pre>
+        ) : null}
       </div>
     );
   }
 
   return (
-    <ProductPdpProvider product={product}>
-      <main className="min-h-screen">
-        <ProductHeroSection />
-        <ProductDetailsSection />
-        {CustomerReviewsSection ? <CustomerReviewsSection /> : null}
-        <RelatedProductsSection />
-      </main>
-    </ProductPdpProvider>
+    <div style={{ padding: 24 }}>
+      <div style={{ display: "flex", alignItems: "baseline", gap: 12 }}>
+        <h1 style={{ margin: 0 }}>{title}</h1>
+        {price ? <span style={{ opacity: 0.8 }}>{price}</span> : null}
+      </div>
+
+      {productUrl ? (
+        <p style={{ marginTop: 10, opacity: 0.7 }}>
+          Source:{" "}
+          <a href={productUrl} target="_blank" rel="noreferrer">
+            {productUrl}
+          </a>
+        </p>
+      ) : null}
+
+      {images.length ? (
+        <div
+          style={{
+            display: "grid",
+            gridTemplateColumns: "repeat(auto-fill, minmax(160px, 1fr))",
+            gap: 12,
+            marginTop: 16,
+          }}
+        >
+          {images.slice(0, 12).map((src, i) => (
+            <div
+              key={`${src}-${i}`}
+              style={{
+                borderRadius: 10,
+                overflow: "hidden",
+                background: "rgba(0,0,0,0.06)",
+                border: "1px solid rgba(0,0,0,0.08)",
+              }}
+            >
+              <img
+                src={src}
+                alt=""
+                loading="lazy"
+                style={{ width: "100%", height: 160, objectFit: "cover" }}
+              />
+            </div>
+          ))}
+        </div>
+      ) : null}
+
+      <details style={{ marginTop: 18 }}>
+        <summary style={{ cursor: "pointer" }}>Raw JSON</summary>
+        <pre
+          style={{
+            marginTop: 10,
+            padding: 12,
+            background: "rgba(0,0,0,0.06)",
+            borderRadius: 8,
+            overflow: "auto",
+            maxHeight: 520,
+          }}
+        >
+          {JSON.stringify(product, null, 2)}
+        </pre>
+      </details>
+
+      {lastError ? (
+        <pre
+          style={{
+            marginTop: 16,
+            padding: 12,
+            background: "rgba(255,0,0,0.06)",
+            borderRadius: 8,
+            overflow: "auto",
+          }}
+        >
+          {lastError}
+        </pre>
+      ) : null}
+    </div>
   );
 }
+
+// ✅ Provide a default export so src/screens/SingleProduct/index.ts can do:
+// export { default as SingleProduct } from "./SingleProduct";
+export default SingleProduct;
+
 
 
 
