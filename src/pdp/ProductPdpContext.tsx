@@ -44,13 +44,16 @@ const SHARD_CACHE: Map<string, ShardMap> = new Map();
  */
 function getShardKey(slug: string): string {
   const s = (slug || "").trim().toLowerCase();
+  if (s.length < 2) return "xx";
 
-  if (s.length >= 2) {
-    const key = s.slice(0, 2);
-    if (/^[a-z0-9_-]{2}$/.test(key)) {
-      return key;
-    }
-  }
+  const key = s.slice(0, 2);
+
+  // Accept shard names that exist in R2 (digits, dash, underscore allowed)
+  if (/^[a-z0-9_-]{2}$/.test(key)) return key;
+
+  return "xx";
+}
+
 
   // fallback: scan slug for any valid 2-char shard
   const m = s.match(/[a-z0-9_-]{2}/);
