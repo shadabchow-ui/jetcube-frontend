@@ -16,12 +16,10 @@ type PdpContextType = {
 const ProductPdpContext = createContext<PdpContextType | null>(null);
 
 // ---- CONFIG ----
-// Base URL where shards live (your bucket path already includes `indexes/`)
 const INDEX_BASE_URL =
   (import.meta as any).env?.VITE_INDEX_BASE_URL ||
   "https://pub-efc133d84c664ca8ace8be57ec3e4d65.r2.dev/indexes";
 
-// Base URL where product JSON lives (used only if shard values are relative paths)
 const PRODUCTS_BASE_URL =
   (import.meta as any).env?.VITE_PRODUCTS_BASE_URL ||
   "https://pub-efc133d84c664ca8ace8be57ec3e4d65.r2.dev";
@@ -29,33 +27,16 @@ const PRODUCTS_BASE_URL =
 
 type ShardMap = Record<string, string>;
 
-// In-memory shard cache so we don’t refetch the same shard over and over
 const SHARD_CACHE: Map<string, ShardMap> = new Map();
 
-/**
- * Your generator uses TWO-CHARACTER shard keys exactly as written in R2.
- * Examples seen in your bucket:
- *   o-, fr, g4, g_, zz, etc.
- *
- * So we must:
- * 1) Take first 2 chars
- * 2) Allow [a-z0-9_-]
- * 3) Fallback safely if slug is short or malformed
- */
 function getShardKey(slug: string): string {
   const s = (slug || "").trim().toLowerCase();
   if (s.length < 2) return "xx";
 
   const key = s.slice(0, 2);
 
-  // Accept shard names that exist in R2 (digits, dash, underscore allowed)
   if (/^[a-z0-9_-]{2}$/.test(key)) return key;
 
-  return "xx";
-}
-
-
-  // fallback: scan slug for any valid 2-char shard
   const m = s.match(/[a-z0-9_-]{2}/);
   return m?.[0] ?? "xx";
 }
@@ -67,9 +48,7 @@ async function fetchShard(shardKey: string): Promise<ShardMap> {
 
   const res = await fetch(url, { cache: "force-cache" });
   if (!res.ok) {
-    throw new Error(
-      `Failed to fetch shard ${shardKey}: ${res.status} ${res.statusText}`
-    );
+    throw new Error(`Failed to fetch shard ${shardKey}: ${res.status} ${res.statusText}`);
   }
 
   const json = (await res.json()) as ShardMap;
@@ -77,21 +56,14 @@ async function fetchShard(shardKey: string): Promise<ShardMap> {
   return json;
 }
 
-/**
- * Normalize whatever is stored in the shard value:
- * - If it's absolute (http/https), return a safely-encoded URL (handles spaces)
- * - If it's relative, resolve against PRODUCTS_BASE_URL
- */
 function normalizeProductUrl(rawPathOrUrl: string): string {
   const raw = (rawPathOrUrl || "").trim();
   if (!raw) return raw;
 
-  // Absolute URL
   if (/^https?:\/\//i.test(raw)) {
     return encodeURI(raw);
   }
 
-  // Relative path
   const cleaned = raw.replace(/^\//, "");
   return new URL(
     cleaned,
@@ -99,11 +71,7 @@ function normalizeProductUrl(rawPathOrUrl: string): string {
   ).toString();
 }
 
-export function ProductPdpProvider({
-  children,
-}: {
-  children: React.ReactNode;
-}) {
+export function ProductPdpProvider({ children }: { children: React.ReactNode }) {
   const [lastError, setLastError] = useState<string | null>(null);
 
   const clearError = useCallback(() => setLastError(null), []);
@@ -117,23 +85,20 @@ export function ProductPdpProvider({
     }
   }, []);
 
-  const getUrlForSlug = useCallback(
-    async (slug: string): Promise<string | null> => {
-      try {
-        const shardKey = getShardKey(slug);
-        const shard = await fetchShard(shardKey);
+  const getUrlForSlug = useCallback(async (slug: string): Promise<string | null> => {
+    try {
+      const shardKey = getShardKey(slug);
+      const shard = await fetchShard(shardKey);
 
-        const raw = shard[slug];
-        if (!raw) return null;
+      const raw = shard[slug];
+      if (!raw) return null;
 
-        return normalizeProductUrl(raw);
-      } catch (e: any) {
-        setLastError(e?.message || String(e));
-        return null;
-      }
-    },
-    []
-  );
+      return normalizeProductUrl(raw);
+    } catch (e: any) {
+      setLastError(e?.message || String(e));
+      return null;
+    }
+  }, []);
 
   const value = useMemo<PdpContextType>(
     () => ({
@@ -154,10 +119,10 @@ export function ProductPdpProvider({
 
 export function useProductPdp() {
   const ctx = useContext(ProductPdpContext);
-  if (!ctx)
-    throw new Error("useProductPdp must be used within ProductPdpProvider");
+  if (!ctx) throw new Error("useProductPdp must be used within ProductPdpProvider");
   return ctx;
 }
+
 
 
 
