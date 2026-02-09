@@ -31,15 +31,19 @@ const SHARD_CACHE: Map<string, ShardMap> = new Map();
 
 function getShardKey(slug: string): string {
   const s = (slug || "").trim().toLowerCase();
+
   if (s.length < 2) return "xx";
 
-  const key = s.slice(0, 2);
+  const a = s[0];
+  const b = s[1];
 
-  if (/^[a-z0-9_-]{2}$/.test(key)) return key;
+  // Normalize non-alphanumeric into "_"
+  const na = /[a-z0-9]/.test(a) ? a : "_";
+  const nb = /[a-z0-9]/.test(b) ? b : "_";
 
-  const m = s.match(/[a-z0-9_-]{2}/);
-  return m?.[0] ?? "xx";
+  return `${na}${nb}`;
 }
+
 
 async function fetchShard(shardKey: string): Promise<ShardMap> {
   if (SHARD_CACHE.has(shardKey)) return SHARD_CACHE.get(shardKey)!;
