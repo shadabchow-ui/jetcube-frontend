@@ -106,35 +106,55 @@ async function loadIndexOnce(): Promise<any[]> {
   if (INDEX_CACHE) return INDEX_CACHE;
   if (INDEX_PROMISE) return INDEX_PROMISE;
 
-  const url = joinUrl(R2_PUBLIC_BASE, "indexes/_index.slim.json.gz");
+  const candidates = [
+    joinUrl(R2_PUBLIC_BASE, "indexes/_index.slim.json.gz"),
+    joinUrl(R2_PUBLIC_BASE, "indexes/_index.json.gz"),
+    joinUrl(R2_PUBLIC_BASE, "indexes/_index.json"),
+  ];
 
-  INDEX_PROMISE = fetch(encodeURI(url), { cache: "force-cache" })
-    .then(async (res) => {
-      const text = await res.text();
+  INDEX_PROMISE = (async () => {
+    let lastErr: any = null;
 
-      // Detect Vite/HTML misroutes (or 404 HTML pages)
-      if (text.trim().startsWith("<")) {
-        throw new Error(`Expected JSON at ${url} but got HTML (file missing or misrouted)`);
-      }
-
-      if (!res.ok) {
-        throw new Error(`HTTP ${res.status} at ${url}: ${text.slice(0, 140)}`);
-      }
-
-      let parsed: any;
+    for (const url of candidates) {
       try {
-        parsed = JSON.parse(text);
-      } catch {
-        throw new Error(`Expected JSON at ${url} but got non-JSON: ${text.slice(0, 140)}`);
-      }
+        const res = await fetch(encodeURI(url), { cache: "force-cache" });
+        const text = await res.text();
 
-      const arr = Array.isArray(parsed) ? parsed : [];
-      INDEX_CACHE = arr;
-      return arr;
-    })
-    .finally(() => {
-      INDEX_PROMISE = null;
-    });
+        // Detect Vite/HTML misroutes (or 404 HTML pages)
+        if (text.trim().startsWith("<")) {
+          lastErr = new Error(
+            `Expected JSON at ${url} but got HTML (file missing or misrouted)`
+          );
+          continue;
+        }
+
+        if (!res.ok) {
+          lastErr = new Error(`HTTP ${res.status} at ${url}: ${text.slice(0, 140)}`);
+          continue;
+        }
+
+        let parsed: any;
+        try {
+          parsed = JSON.parse(text);
+        } catch {
+          lastErr = new Error(
+            `Expected JSON at ${url} but got non-JSON: ${text.slice(0, 140)}`
+          );
+          continue;
+        }
+
+        const arr = Array.isArray(parsed) ? parsed : [];
+        INDEX_CACHE = arr;
+        return arr;
+      } catch (e) {
+        lastErr = e;
+      }
+    }
+
+    throw lastErr ?? new Error("Failed to load any index candidate");
+  })().finally(() => {
+    INDEX_PROMISE = null;
+  });
 
   return INDEX_PROMISE;
 }
@@ -152,8 +172,16 @@ let PDP_SHARD_PROMISE: Record<string, Promise<PdpShard | null> | null> = {};
 
 function shardKeyFromHandle(h: string): string {
   const s = (h || "").trim().toLowerCase();
+  if (s.length < 2) return "xx";
+
   const key = s.slice(0, 2);
-  return /^[a-z]{2}$/.test(key) ? key : "xx";
+
+  // Allow shard keys that match your actual R2 objects (e.g. "g_", "g4", "o-", etc.)
+  if (/^[a-z0-9_-]{2}$/.test(key)) return key;
+
+  // Fallback: first valid 2-char shard anywhere in the string
+  const m = s.match(/[a-z0-9_-]{2}/);
+  return m?.[0] ?? "xx";
 }
 
 async function loadPdpShardOnce(key: string): Promise<PdpShard | null> {
@@ -270,27 +298,27 @@ function ProductRoute({ children }: { children: React.ReactNode }) {
     }
 
     function resolveMappedToUrl(v: any): string | null {
-      if (v == null) return null;
-      const s = String(v).trim();
-      if (!s) return null;
+  if (v == null) return null;
+  const s = String(v).trim();
+  if (!s) return null;
 
-      // Full URL already
-      if (s.startsWith("http://") || s.startsWith("https://")) return s;
+  // Full URL already
+  if (s.startsWith("http://") || s.startsWith("https://")) return s;
 
-      // Root-relative path
-      if (s.startsWith("/")) return joinUrl(R2_PUBLIC_BASE, s);
+  // Root-relative path
+  if (s.startsWith("/")) return joinUrl(R2_PUBLIC_BASE, s);
 
-      // ✅ IMPORTANT: if it already looks like a path (contains "/"), treat as a path under R2
-      // Examples: "products/batch 2/part_01/x.json" or "indexes/pdp_paths/ti.json"
-      if (s.includes("batch-") || s.includes("part_")) return null;
-      if (s.includes("/")) return joinUrl(R2_PUBLIC_BASE, s);
+  // ✅ IMPORTANT: if it already looks like a path (contains "/"), treat as a path under R2
+  // Examples: "products/batch-11a/part_01/x.json.gz" or "indexes/pdp_paths/ti.json"
+  if (s.includes("/")) return joinUrl(R2_PUBLIC_BASE, s);
 
-      // Filename with .json (assume under /products/)
-if (s.endsWith(".json.gz")) return joinUrl(R2_PUBLIC_BASE, s);
-if (s.endsWith(".json")) return joinUrl(R2_PUBLIC_BASE, `${s}.gz`);
-return joinUrl(R2_PUBLIC_BASE, `products/${s}.json.gz`);
+  // Filename / key normalization
+  if (s.endsWith(".json.gz")) return joinUrl(R2_PUBLIC_BASE, s);
+  if (s.endsWith(".json")) return joinUrl(R2_PUBLIC_BASE, `${s}.gz`);
 
-    }
+  // Bare key: assume under /products/
+  return joinUrl(R2_PUBLIC_BASE, `products/${s}.json.gz`);
+}
 
     async function load() {
       try {
@@ -636,3 +664,4 @@ export const App = () => {
 };
 
 export default App;
+
