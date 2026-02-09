@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useState } from "react";
 import { useParams } from "react-router-dom";
 // NOTE: Cloudflare Pages builds on Linux (case-sensitive). The PDP context lives in src/pdp/
 // so we must import it from there (not a local ./ProductPdpContext file).
-import { useProductPdp } from "../../../pdp/ProductPdpContext";
+import { useProductPdp } from "../../pdp/ProductPdpContext";
 
 type ProductJson = any;
 
