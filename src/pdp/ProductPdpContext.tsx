@@ -45,8 +45,14 @@ const SHARD_CACHE: Map<string, ShardMap> = new Map();
 function getShardKey(slug: string): string {
   const s = (slug || "").trim().toLowerCase();
   if (s.length < 2) return "xx";
+
   const key = s.slice(0, 2);
-  return /^[a-z]{2}$/.test(key) ? key : "xx";
+
+  // Allow shard keys that match your actual R2 objects (e.g. "g_", "g4", "o-", etc.)
+  if (/^[a-z0-9_-]{2}$/.test(key)) return key;
+
+  const m = s.match(/[a-z0-9_-]{2}/);
+  return m?.[0] ?? "xx";
 }
 
 async function fetchShard(shardKey: string): Promise<ShardMap> {
