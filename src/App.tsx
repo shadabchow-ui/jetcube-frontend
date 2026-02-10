@@ -67,7 +67,7 @@ import * as AccessibilityModule from "./pages/help/Accessibility";
 import * as CookiePolicyModule from "./pages/help/cookiepolicy";
 
 /* ============================
-   Root Layout Alias (Moved after imports)
+   Root Layout Alias
    ============================ */
 const RootLayout = MainLayout;
 
@@ -85,7 +85,9 @@ function joinUrl(base: string, path: string) {
 }
 
 /* ============================
-   ✅ BAND-AID: Cache the huge _index.json in memory
+   ✅ GLOBAL INDEX CACHE
+   - Loads indexes/_index.json.gz once
+   - Used to lookup product paths by slug
    ============================ */
 let INDEX_CACHE: any[] | null = null;
 let INDEX_PROMISE: Promise<any[]> | null = null;
@@ -94,102 +96,47 @@ async function loadIndexOnce(): Promise<any[]> {
   if (INDEX_CACHE) return INDEX_CACHE;
   if (INDEX_PROMISE) return INDEX_PROMISE;
 
-  const candidates = [joinUrl(R2_PUBLIC_BASE, "indexes/_index.json.gz")];
+  const url = joinUrl(R2_PUBLIC_BASE, "indexes/_index.json.gz");
 
   INDEX_PROMISE = (async () => {
-    let lastErr: any = null;
+    try {
+      const res = await fetch(encodeURI(url), { cache: "force-cache" });
+      const text = await res.text();
 
-    for (const url of candidates) {
-      try {
-        const res = await fetch(encodeURI(url), { cache: "force-cache" });
-        const text = await res.text();
-
-        if (text.trim().startsWith("<")) {
-          lastErr = new Error(
-            `Expected JSON at ${url} but got HTML (file missing or misrouted)`
-          );
-          continue;
-        }
-
-        if (!res.ok) {
-          lastErr = new Error(
-            `HTTP ${res.status} at ${url}: ${text.slice(0, 140)}`
-          );
-          continue;
-        }
-
-        let parsed: any;
-        try {
-          parsed = JSON.parse(text);
-        } catch {
-          lastErr = new Error(
-            `Expected JSON at ${url} but got non-JSON: ${text.slice(0, 140)}`
-          );
-          continue;
-        }
-
-        const arr = Array.isArray(parsed) ? parsed : [];
-        INDEX_CACHE = arr;
-        return arr;
-      } catch (e) {
-        lastErr = e;
+      // Detect HTML error pages
+      if (text.trim().startsWith("<")) {
+        throw new Error(
+          `Expected JSON at ${url} but got HTML (file missing or misrouted)`
+        );
       }
-    }
 
-    throw lastErr ?? new Error("Failed to load any index candidate");
+      if (!res.ok) {
+        throw new Error(
+          `HTTP ${res.status} at ${url}: ${text.slice(0, 140)}`
+        );
+      }
+
+      let parsed: any;
+      try {
+        parsed = JSON.parse(text);
+      } catch {
+        throw new Error(
+          `Expected JSON at ${url} but got non-JSON: ${text.slice(0, 140)}`
+        );
+      }
+
+      const arr = Array.isArray(parsed) ? parsed : [];
+      INDEX_CACHE = arr;
+      return arr;
+    } catch (e) {
+      console.error("Failed to load global index:", e);
+      throw e;
+    }
   })().finally(() => {
     INDEX_PROMISE = null;
   });
 
   return INDEX_PROMISE;
-}
-
-/* ============================
-   ✅ FAST PDP LOOKUP: sharded handle → URL
-   ============================ */
-type PdpShard = Record<string, string>;
-
-let PDP_SHARD_CACHE: Record<string, PdpShard> = {};
-let PDP_SHARD_PROMISE: Record<string, Promise<PdpShard | null> | null> = {};
-
-function shardKeyFromHandle(h: string): string {
-  const s = (h || "").trim().toLowerCase();
-  if (s.length < 2) return "xx";
-
-  const key = s.slice(0, 2);
-  if (/^[a-z0-9_-]{2}$/.test(key)) return key;
-
-  const m = s.match(/[a-z0-9_-]{2}/);
-  return m?.[0] ?? "xx";
-}
-
-async function loadPdpShardOnce(key: string): Promise<PdpShard | null> {
-  if (PDP_SHARD_CACHE[key]) return PDP_SHARD_CACHE[key];
-  if (PDP_SHARD_PROMISE[key])
-    return PDP_SHARD_PROMISE[key] as Promise<PdpShard | null>;
-
-  const url = joinUrl(R2_PUBLIC_BASE, `indexes/pdp_paths/${key}.json`);
-
-  PDP_SHARD_PROMISE[key] = fetch(encodeURI(url), { cache: "force-cache" })
-    .then(async (res) => {
-      const text = await res.text();
-      if (!res.ok) return null;
-      if (text.trim().startsWith("<")) return null;
-
-      try {
-        const parsed = JSON.parse(text);
-        const obj = parsed && typeof parsed === "object" ? parsed : null;
-        if (obj) PDP_SHARD_CACHE[key] = obj as PdpShard;
-        return obj as PdpShard;
-      } catch {
-        return null;
-      }
-    })
-    .finally(() => {
-      PDP_SHARD_PROMISE[key] = null;
-    });
-
-  return PDP_SHARD_PROMISE[key] as Promise<PdpShard | null>;
 }
 
 /* ============================
@@ -284,21 +231,6 @@ function ProductRoute({ children }: { children: React.ReactNode }) {
       }
     }
 
-    function resolveMappedToUrl(v: any): string | null {
-      if (v == null) return null;
-      const s = String(v).trim();
-      if (!s) return null;
-
-      if (s.startsWith("http://") || s.startsWith("https://")) return s;
-      if (s.startsWith("/")) return joinUrl(R2_PUBLIC_BASE, s);
-      if (s.includes("/")) return joinUrl(R2_PUBLIC_BASE, s);
-
-      if (s.endsWith(".json.gz")) return joinUrl(R2_PUBLIC_BASE, s);
-      if (s.endsWith(".json")) return joinUrl(R2_PUBLIC_BASE, `${s}.gz`);
-
-      return joinUrl(R2_PUBLIC_BASE, `products/${s}.json.gz`);
-    }
-
     async function load() {
       try {
         setError(null);
@@ -306,101 +238,31 @@ function ProductRoute({ children }: { children: React.ReactNode }) {
 
         if (!handle) throw new Error("Missing product handle");
 
-        // ✅ FASTEST FLOW: Shard lookup
-        try {
-          const key = shardKeyFromHandle(handle);
-          const shard = await loadPdpShardOnce(key);
-          const mapped = shard?.[handle];
-          const directUrl = resolveMappedToUrl(mapped);
-          if (directUrl) {
-            const p = await fetchJson(directUrl);
-            if (!cancelled) setProduct(p);
-            return;
-          }
-        } catch (e: any) {
-          throw new Error(`Shard lookup failed for ${handle}`);
+        // 1. Load the global index
+        const index = await loadIndexOnce();
+
+        // 2. Find the product entry by slug
+        const entry = index.find((p: any) => p?.slug === handle);
+
+        if (!entry || !entry.path) {
+          throw new Error("Product not found in index");
         }
 
-        // ✅ SECONDARY FLOW: _index.json
-        try {
-          const index = await loadIndexOnce();
-          if (Array.isArray(index)) {
-            const entry = index.find((p: any) => p?.slug === handle);
-            if (entry?.path) {
-              const entryUrl = resolveMappedToUrl(entry.path) || entry.path;
-              const p = await fetchJson(entryUrl);
-              if (!cancelled) setProduct(p);
-              return;
-            }
-          }
-        } catch {
-          // ignore
+        // 3. Construct the strict R2 URL from the index path
+        // Ensure we don't double-slash if entry.path starts with /
+        const productUrl = joinUrl(R2_PUBLIC_BASE, entry.path);
+
+        // 4. Fetch the specific product JSON
+        const p = await fetchJson(productUrl);
+
+        if (!cancelled) {
+          setProduct(p);
         }
-
-        const looksLikeAsin = /^[A-Za-z0-9]{10}$/.test(handle);
-        const asinKey = handle.toUpperCase();
-
-        // 1) Direct handle filename
-        try {
-          const byHandle = await fetchJson(
-            joinUrl(R2_PUBLIC_BASE, `products/${handle}.json.gz`)
-          );
-          if (!cancelled) setProduct(byHandle);
-          return;
-        } catch {
-          // ignore
-        }
-
-        // 2) Load ASIN map fallback
-        let asinToPath: any = null;
-        try {
-          asinToPath = await fetchJson(
-            joinUrl(R2_PUBLIC_BASE, "products/asin_map.json")
-          );
-        } catch {
-          asinToPath = await fetchJson(
-            joinUrl(R2_PUBLIC_BASE, "products/_asin_map.json")
-          );
-        }
-
-        // 3) Try direct key match in map
-        const direct =
-          asinToPath?.[handle] ||
-          asinToPath?.[handle.toLowerCase()] ||
-          asinToPath?.[handle.toUpperCase()];
-
-        const directUrl = resolveMappedToUrl(direct);
-        if (directUrl) {
-          const p = await fetchJson(directUrl);
-          if (!cancelled) setProduct(p);
-          return;
-        }
-
-        // 4) If looks like ASIN, try ASIN lookup
-        if (looksLikeAsin) {
-          const mapped =
-            asinToPath?.[asinKey] ||
-            asinToPath?.[handle] ||
-            asinToPath?.[handle.toLowerCase()];
-
-          const mappedUrl = resolveMappedToUrl(mapped);
-          if (mappedUrl) {
-            const p = await fetchJson(mappedUrl);
-            if (!cancelled) setProduct(p);
-            return;
-          }
-
-          // Legacy fallback
-          const byAsin = await fetchJson(
-            joinUrl(R2_PUBLIC_BASE, `products/${asinKey}.json.gz`)
-          );
-          if (!cancelled) setProduct(byAsin);
-          return;
-        }
-
-        throw new Error("Product not found");
       } catch (e: any) {
-        if (!cancelled) setError(e?.message || "Failed to load product");
+        if (!cancelled) {
+          console.error("PDP Load Error:", e);
+          setError(e?.message || "Failed to load product");
+        }
       }
     }
 
