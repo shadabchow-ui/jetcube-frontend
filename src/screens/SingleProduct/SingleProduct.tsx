@@ -1,40 +1,42 @@
-// src/screens/SingleProduct/SingleProduct.tsx
-import React, { useEffect, useState } from "react";
-import { useParams } from "react-router-dom";
-import { PRODUCTS_BASE_URL, useProductPdp } from "../../pdp/ProductPdpContext";
+import { useParams } from 'react-router-dom';
+import { useProductPdpIndex, R2_BASE } from '../pdp/ProductPdpContext';
+import { useEffect, useState } from 'react';
 
 export default function SingleProduct() {
-  const { slug } = useParams();
-  const { index, loading: indexLoading } = useProductPdp();
+  const { slug } = useParams<{ slug: string }>();
+  const { pdpIndex, loading, error } = useProductPdpIndex();
   const [product, setProduct] = useState<any>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [pdpError, setPdpError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!indexLoading && index && slug) {
-      const match = index.find((p) => p.slug === slug);
+    if (!slug || !pdpIndex) return;
 
-      if (!match) {
-        setError("Product not found in index");
-        return;
-      }
-
-      const url = `${PRODUCTS_BASE_URL}${match.path}`;
-
-      fetch(url, {
-        headers: { "Accept-Encoding": "gzip" },
-      })
-        .then((res) => {
-          if (!res.ok) throw new Error(`PDP fetch failed: ${res.status}`);
-          return res.json();
-        })
-        .then(setProduct)
-        .catch((e) => setError(e.message));
+    const productPath = pdpIndex[slug]; // ex: products/batch-5/1-6-ratio-....json.gz
+    if (!productPath) {
+      setPdpError(`Slug not found in index: ${slug}`);
+      return;
     }
-  }, [indexLoading, index, slug]);
 
-  if (indexLoading) return <div>Loading…</div>;
-  if (error) return <div style={{ color: "red" }}>{error}</div>;
-  if (!product) return null;
+    const url = `${R2_BASE}/${productPath}`;
+
+    fetch(url)
+      .then((res) => {
+        if (!res.ok) {
+          throw new Error(`PDP fetch failed: ${res.status}`);
+        }
+        return res.json();
+      })
+      .then(setProduct)
+      .catch((err) => {
+        console.error('PDP load error:', err);
+        setPdpError(err.message);
+      });
+  }, [slug, pdpIndex]);
+
+  if (loading) return <div>Loading index…</div>;
+  if (error) return <div>Index error: {error}</div>;
+  if (pdpError) return <div>Product failed to load: {pdpError}</div>;
+  if (!product) return <div>Loading product…</div>;
 
   return (
     <div>
