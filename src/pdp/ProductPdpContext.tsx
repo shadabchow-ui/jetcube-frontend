@@ -1,137 +1,139 @@
-import React, { createContext, useContext, useMemo, useState } from "react";
+import React, {
+  createContext,
+  useContext,
+  useMemo,
+  useState,
+  useCallback,
+} from "react";
 
-type AnyObj = Record<string, any>;
-type ShardMap = Record<string, string>;
-
-type ProductPdpContextShape = {
-  product: AnyObj | null;
-  loading: boolean;
-  error: string | null;
-
-  /** Fetch product JSON for this slug using sharded slug → URL map */
-  loadBySlug: (slug: string) => Promise<AnyObj | null>;
-
-  /** Clear current product/error */
-  clear: () => void;
+type PdpContextType = {
+  getUrlForSlug: (slug: string) => Promise<string | null>;
+  preloadShardForSlug: (slug: string) => Promise<void>;
+  lastError: string | null;
+  clearError: () => void;
 };
 
-const ProductPdpContext = createContext<ProductPdpContextShape | null>(null);
+const ProductPdpContext = createContext<PdpContextType | null>(null);
 
-const R2_BASE_URL =
-  (import.meta as any)?.env?.VITE_R2_BASE_URL ||
-  (import.meta as any)?.env?.VITE_R2_PUBLIC_BASE_URL ||
-  "";
-
+// ---- CONFIG ----
 const INDEX_BASE_URL =
-  (import.meta as any)?.env?.VITE_INDEX_BASE_URL ||
-  (import.meta as any)?.env?.VITE_R2_INDEX_BASE_URL ||
-  (R2_BASE_URL ? `${R2_BASE_URL}/indexes` : "");
+  (import.meta as any).env?.VITE_INDEX_BASE_URL ||
+  (typeof window !== "undefined" ? new URL("/indexes/", window.location.origin).toString() : "/indexes/");
 
-const SHARD_CACHE = new Map<string, ShardMap>();
+const PRODUCTS_BASE_URL =
+  (import.meta as any).env?.VITE_PRODUCTS_BASE_URL ||
+  "https://pub-efc133d84c664ca8ace8be57ec3e4d65.r2.dev/products/";
 
-function shardKeyFromSlug(slug: string): string {
-  const s = String(slug || "").trim().toLowerCase();
-  const ch = s[0] || "_";
-  if (ch >= "a" && ch <= "z") return ch;
-  if (ch >= "0" && ch <= "9") return "0";
-  return "_";
+function normalizeSlug(slug: string): string {
+  try { return decodeURIComponent(String(slug || "")).trim().toLowerCase(); }
+  catch { return String(slug || "").trim().toLowerCase(); }
 }
 
-/** Read JSON from a .json.gz response (Cloudflare serves gzip content; browser auto-decompresses body bytes). */
-async function readGzipJson(res: Response): Promise<any> {
-  // Many deployments rely on CF auto-decompression; res.json() works if server sets correct headers.
-  // Keep it robust: try json(), fall back to text() parsing.
-  try {
-    return await res.json();
-  } catch {
-    const t = await res.text();
-    return JSON.parse(t);
-  }
+function shardCandidatesForSlug(slug: string): string[] {
+  const s = normalizeSlug(slug);
+  if (!s) return ["xx"];
+  const c1 = s.slice(0, 1);
+  const c2 = s.slice(0, 2);
+  const out: string[] = [];
+  if (c2.length === 2) out.push(c2);
+  if (c1) out.push(`_${c1}`);
+  if (c1) out.push(c1);
+  out.push("xx");
+  return Array.from(new Set(out));
 }
 
-async function fetchShardByKey(shardKey: string): Promise<ShardMap> {
-  if (SHARD_CACHE.has(shardKey)) return SHARD_CACHE.get(shardKey)!;
-  const url = `${INDEX_BASE_URL}/pdp2/${shardKey}.json.gz`;
+async function fetchGzJson(url: string): Promise<any> {
   const res = await fetch(url, { cache: "force-cache" });
-  if (!res.ok) throw new Error(`Failed to fetch shard ${shardKey}: ${res.status} ${res.statusText}`);
-  const json = (await readGzipJson(res)) as ShardMap;
-  SHARD_CACHE.set(shardKey, json);
-  return json;
+  if (!res.ok) throw new Error(`Failed to fetch shard: ${url} (${res.status})`);
+  const buf = await res.arrayBuffer();
+
+  // Browser-native gunzip
+  const ds = new DecompressionStream("gzip");
+  const decompressed = new Response(new Blob([buf]).stream().pipeThrough(ds));
+  const text = await decompressed.text();
+  return JSON.parse(text);
 }
 
-async function resolveProductUrlFromSlug(slug: string): Promise<string | null> {
-  const key = shardKeyFromSlug(slug);
-  const shard = await fetchShardByKey(key);
-  const url = shard[String(slug)];
-  return url || null;
+// Cache in-memory per session
+const shardCache = new Map<string, any>();
+
+async function fetchShardForSlug(slug: string): Promise<{ shardKey: string; shard: Record<string, string> }> {
+  const candidates = shardCandidatesForSlug(slug);
+
+  for (const shardKey of candidates) {
+    const cacheKey = `pdp2:${shardKey}`;
+    if (shardCache.has(cacheKey)) {
+      return { shardKey, shard: shardCache.get(cacheKey) };
+    }
+
+    const url = `${INDEX_BASE_URL.replace(/\/$/, "")}/pdp2/${shardKey}.json.gz`;
+    try {
+      const shard = await fetchGzJson(url);
+      shardCache.set(cacheKey, shard);
+      return { shardKey, shard };
+    } catch {
+      // try next candidate
+    }
+  }
+
+  throw new Error(`No PDP shard found for slug: ${slug}`);
 }
 
-async function fetchProductJson(url: string): Promise<AnyObj> {
-  const res = await fetch(url, { cache: "no-store" });
-  if (!res.ok) throw new Error(`Failed to fetch product JSON: ${res.status} ${res.statusText}`);
-  return (await res.json()) as AnyObj;
+function normalizeProductUrl(rawPathOrUrl: string): string {
+  const raw = (rawPathOrUrl || "").trim();
+  if (!raw) return raw;
+  if (/^https?:\/\//i.test(raw)) return encodeURI(raw);
+  const cleaned = raw.replace(/^\//, "");
+  return new URL(cleaned, PRODUCTS_BASE_URL.endsWith("/") ? PRODUCTS_BASE_URL : `${PRODUCTS_BASE_URL}/`).toString();
 }
 
 export function ProductPdpProvider({ children }: { children: React.ReactNode }) {
-  const [product, setProduct] = useState<AnyObj | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  const clear = () => {
-    setProduct(null);
-    setError(null);
-    setLoading(false);
-  };
-
-  const loadBySlug = async (slug: string) => {
-    const s = String(slug || "").trim();
-    if (!s) return null;
-
-    setLoading(true);
-    setError(null);
-
+  const [lastError, setLastError] = useState<string | null>(null);
+  const clearError = useCallback(() => setLastError(null), []);
+  const preloadShardForSlug = useCallback(async (slug: string) => {
+    try { await fetchShardForSlug(slug); } catch (e: any) { setLastError(e?.message || String(e)); }
+  }, []);
+  const getUrlForSlug = useCallback(async (slug: string): Promise<string | null> => {
     try {
-      const productUrl = await resolveProductUrlFromSlug(s);
-      if (!productUrl) {
-        throw new Error(`Slug not found in PDP index: ${s}`);
-      }
-
-      const json = await fetchProductJson(productUrl);
-      setProduct(json);
-      return json;
+      const norm = normalizeSlug(slug);
+      const { shard } = await fetchShardForSlug(norm);
+      const raw = shard[norm];
+      if (!raw) return null;
+      return normalizeProductUrl(raw);
     } catch (e: any) {
-      setProduct(null);
-      setError(e?.message || "Failed to load product");
+      setLastError(e?.message || String(e));
       return null;
-    } finally {
-      setLoading(false);
     }
-  };
-
-  const value = useMemo<ProductPdpContextShape>(
-    () => ({
-      product,
-      loading,
-      error,
-      loadBySlug,
-      clear,
-    }),
-    [product, loading, error]
+  }, []);
+  const value = useMemo<PdpContextType>(() => ({ getUrlForSlug, preloadShardForSlug, lastError, clearError }), [getUrlForSlug, preloadShardForSlug, lastError, clearError]);
+  return (
+    <ProductPdpContext.Provider value={value}>
+      {children}
+    </ProductPdpContext.Provider>
   );
-
-  return <ProductPdpContext.Provider value={value}>{children}</ProductPdpContext.Provider>;
 }
 
-export function useProductPdpContext() {
+export function useProductPdp() {
   const ctx = useContext(ProductPdpContext);
-  if (!ctx) throw new Error("useProductPdpContext must be used inside <ProductPdpProvider>");
+  if (!ctx) throw new Error("useProductPdp must be used within ProductPdpProvider");
   return ctx;
 }
 
-export default function useProductPdp() {
-  const ctx = useProductPdpContext();
-  return ctx.product;
-}
+
+
+
+
+
+
+
+ 
+
+
+
+
+
+
+
 
 
 
