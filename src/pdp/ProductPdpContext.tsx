@@ -1,120 +1,90 @@
-import React, {
-  createContext,
-  useContext,
-  useMemo,
-  useState,
-  useCallback,
-} from "react";
+import React, { createContext, useContext, useEffect, useMemo, useRef, useState } from "react";
 
-type PdpContextType = {
-  getUrlForSlug: (slug: string) => Promise<string | null>;
-  preloadShardForSlug: (slug: string) => Promise<void>;
-  lastError: string | null;
-  clearError: () => void;
+type PDPIndex = Record<string, string>;
+
+type ProductPdpContextValue = {
+  productUrl: string | null;
+  loading: boolean;
+  error: string | null;
+  resolveBySlug: (slug: string) => Promise<void>;
 };
 
-const ProductPdpContext = createContext<PdpContextType | null>(null);
+const ProductPdpContext = createContext<ProductPdpContextValue | null>(null);
 
-// ---- CONFIG ----
-const INDEX_BASE_URL =
-  (import.meta as any).env?.VITE_INDEX_BASE_URL ||
-  (typeof window !== "undefined" ? new URL("/indexes", window.location.origin).toString() : "/indexes");
-
-const PRODUCTS_BASE_URL =
-  (import.meta as any).env?.VITE_PRODUCTS_BASE_URL ||
+const R2_BASE =
+  import.meta.env.VITE_R2_PUBLIC_BASE_URL ||
   "https://pub-efc133d84c664ca8ace8be57ec3e4d65.r2.dev";
-// ----------------
 
-type ShardMap = Record<string, string>;
-const SHARD_CACHE: Map<string, ShardMap> = new Map();
+// 🔴 ONLY CHANGE: pdp_paths -> pdp2
+const PDP_INDEX_BASE = `${R2_BASE}/indexes/pdp2`;
 
-function normalizeSlug(slug: string): string {
-  try { return decodeURIComponent(String(slug || "")).trim().toLowerCase(); }
-  catch { return String(slug || "").trim().toLowerCase(); }
-}
+export const ProductPdpProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  const [productUrl, setProductUrl] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
-function shardCandidatesForSlug(slug: string): string[] {
-  const s = normalizeSlug(slug);
-  if (!s) return ["xx"];
-  const c1 = s.slice(0, 1);
-  const c2 = s.slice(0, 2);
-  const out: string[] = [];
-  if (c2.length === 2) out.push(c2);
-  if (c1) out.push(`_${c1}`);
-  if (c1) out.push(c1);
-  out.push("xx");
-  return Array.from(new Set(out));
-}
+  const shardCache = useRef<Record<string, PDPIndex>>({});
 
-async function readGzipJson(res: Response): Promise<any> {
-  const buf = await res.arrayBuffer();
-  if (typeof (globalThis as any).DecompressionStream !== "undefined") {
-    const ds = new (globalThis as any).DecompressionStream("gzip");
-    const stream = new Blob([buf]).stream().pipeThrough(ds);
-    const text = await new Response(stream).text();
-    return JSON.parse(text);
-  }
-  throw new Error("Shard is .json.gz but DecompressionStream is unavailable. Add a gzip fallback (fflate/pako) or serve shards as .json with Content-Encoding:gzip.");
-}
+  const getShardKey = (slug: string) => {
+    const ch = slug?.[0]?.toLowerCase() || "_";
+    return `${ch}.json.gz`;
+  };
 
-async function fetchShardByKey(shardKey: string): Promise<ShardMap> {
-  if (SHARD_CACHE.has(shardKey)) return SHARD_CACHE.get(shardKey)!;
-  const url = `${INDEX_BASE_URL}/pdp_paths/${shardKey}.json.gz`;
-  const res = await fetch(url, { cache: "force-cache" });
-  if (!res.ok) throw new Error(`Failed to fetch shard ${shardKey}: ${res.status} ${res.statusText}`);
-  const json = (await readGzipJson(res)) as ShardMap;
-  SHARD_CACHE.set(shardKey, json);
-  return json;
-}
-
-async function fetchShardForSlug(slug: string): Promise<{ shardKey: string; shard: ShardMap }> {
-  let lastErr: any = null;
-  for (const key of shardCandidatesForSlug(slug)) {
-    try { return { shardKey: key, shard: await fetchShardByKey(key) }; }
-    catch (e) { lastErr = e; }
-  }
-  throw lastErr || new Error("Unable to load any shard candidate");
-}
-
-function normalizeProductUrl(rawPathOrUrl: string): string {
-  const raw = (rawPathOrUrl || "").trim();
-  if (!raw) return raw;
-  if (/^https?:\/\//i.test(raw)) return encodeURI(raw);
-  const cleaned = raw.replace(/^\//, "");
-  return new URL(cleaned, PRODUCTS_BASE_URL.endsWith("/") ? PRODUCTS_BASE_URL : `${PRODUCTS_BASE_URL}/`).toString();
-}
-
-export function ProductPdpProvider({ children }: { children: React.ReactNode }) {
-  const [lastError, setLastError] = useState<string | null>(null);
-  const clearError = useCallback(() => setLastError(null), []);
-  const preloadShardForSlug = useCallback(async (slug: string) => {
-    try { await fetchShardForSlug(slug); } catch (e: any) { setLastError(e?.message || String(e)); }
-  }, []);
-  const getUrlForSlug = useCallback(async (slug: string): Promise<string | null> => {
-    try {
-      const norm = normalizeSlug(slug);
-      const { shard } = await fetchShardForSlug(norm);
-      const raw = shard[norm];
-      if (!raw) return null;
-      return normalizeProductUrl(raw);
-    } catch (e: any) {
-      setLastError(e?.message || String(e));
-      return null;
+  const fetchShard = async (shardKey: string): Promise<PDPIndex> => {
+    if (shardCache.current[shardKey]) {
+      return shardCache.current[shardKey];
     }
-  }, []);
-  const value = useMemo<PdpContextType>(() => ({ getUrlForSlug, preloadShardForSlug, lastError, clearError }), [getUrlForSlug, preloadShardForSlug, lastError, clearError]);
-  return (
-    <ProductPdpContext.Provider value={value}>
-      {children}
-    </ProductPdpContext.Provider>
-  );
-}
 
-export function useProductPdp() {
+    const url = `${PDP_INDEX_BASE}/${shardKey}`;
+    const res = await fetch(url);
+    if (!res.ok) {
+      throw new Error(`Failed to load PDP shard: ${url}`);
+    }
+
+    const text = await res.text();
+    const data = JSON.parse(text) as PDPIndex;
+    shardCache.current[shardKey] = data;
+    return data;
+  };
+
+  const resolveBySlug = async (slug: string) => {
+    setLoading(true);
+    setError(null);
+    setProductUrl(null);
+
+    try {
+      const shardKey = getShardKey(slug);
+      const shard = await fetchShard(shardKey);
+      const url = shard[slug];
+
+      if (!url) {
+        throw new Error(`Slug not found in shard: ${slug}`);
+      }
+
+      setProductUrl(url);
+    } catch (err: any) {
+      setError(err?.message || "Failed to resolve PDP");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const value = useMemo(
+    () => ({ productUrl, loading, error, resolveBySlug }),
+    [productUrl, loading, error]
+  );
+
+  return <ProductPdpContext.Provider value={value}>{children}</ProductPdpContext.Provider>;
+};
+
+export const useProductPdp = () => {
   const ctx = useContext(ProductPdpContext);
-  if (!ctx) throw new Error("useProductPdp must be used within ProductPdpProvider");
+  if (!ctx) {
+    throw new Error("useProductPdp must be used within ProductPdpProvider");
+  }
   return ctx;
-}
+};
+
 
 
 
