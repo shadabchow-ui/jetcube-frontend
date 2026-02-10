@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { useParams } from "react-router-dom";
-import { useProductPdp } from "../pdp/ProductPdpContext";
+from "../pdp/ProductPdpContext";
 
 /**
  * PDP screen:
