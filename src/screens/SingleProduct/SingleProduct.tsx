@@ -17,19 +17,19 @@ export default function SingleProduct() {
         if (!slug) return;
 
         const index = await loadIndexOnce();
-        const item = index.find((i) => i.slug === slug);
+        const item = index.find((i: any) => i.slug === slug);
 
         if (!item) {
-          throw new Error("Product not found in index");
+          setError("Product not found in master index");
+          return;
         }
 
         const url = `${R2_PUBLIC_BASE}/${item.path}`;
-
         const res = await fetch(url);
         const text = await res.text();
 
-        if (text.trim().startsWith("<")) {
-          throw new Error(`Got HTML instead of JSON from ${url}`);
+        if (!res.ok || text.trim().startsWith("<")) {
+          throw new Error(`Bad PDP JSON at ${url}`);
         }
 
         const data = JSON.parse(text);
@@ -46,13 +46,8 @@ export default function SingleProduct() {
     };
   }, [slug, loadIndexOnce]);
 
-  if (error) {
-    return <div style={{ padding: 40, color: "red" }}>Product failed to load: {error}</div>;
-  }
-
-  if (!product) {
-    return <div style={{ padding: 40 }}>Loading product…</div>;
-  }
+  if (error) return <div style={{ padding: 40, color: "red" }}>{error}</div>;
+  if (!product) return <div style={{ padding: 40 }}>Loading…</div>;
 
   return (
     <div style={{ padding: 40 }}>
