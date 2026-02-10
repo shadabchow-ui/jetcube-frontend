@@ -17,21 +17,17 @@ export default function SingleProduct() {
         if (!slug) return;
 
         const index = await loadIndexOnce();
-        const item = index.find((i: any) => i.slug === slug);
+        const item = index.find((i) => i.slug === slug);
 
-        if (!item) {
-          throw new Error("Product not found in index");
-        }
+        if (!item) throw new Error("Product not found in index");
 
         const url = `${R2_PUBLIC_BASE}/${item.path}`;
 
-        console.log("PDP fetch:", url); // <-- verify correct URL
-
-        const res = await fetch(url, { cache: "force-cache" });
+        const res = await fetch(url);
         const text = await res.text();
 
         if (text.trim().startsWith("<")) {
-          throw new Error("Got HTML instead of JSON (R2 path wrong or file missing)");
+          throw new Error("Got HTML instead of JSON (R2 file missing)");
         }
 
         const data = JSON.parse(text);
@@ -65,6 +61,7 @@ export default function SingleProduct() {
     </div>
   );
 }
+
 
 
 
