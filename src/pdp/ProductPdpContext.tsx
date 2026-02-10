@@ -70,9 +70,14 @@ function normalizeProductUrl(raw: string): string {
 
 async function fetchShard(shard: string): Promise<ShardMap> {
   const shardFile = `${shard}.json.gz`;
-  const shardUrl = `${PDP_INDEX_BASE_URL}${shardFile}`;
+  
+  // NUCLEAR FIX: Add a timestamp query param (?ts=...) 
+  // This forces Cloudflare and the Browser to treat it as a NEW file every time.
+  const shardUrl = `${PDP_INDEX_BASE_URL}${shardFile}?ts=${Date.now()}`;
 
-  const res = await fetch(shardUrl, { cache: "default" });
+  // Use 'no-store' to forbid saving this to disk cache
+  const res = await fetch(shardUrl, { cache: "no-store" });
+  
   if (!res.ok) {
     throw new Error(`Failed to fetch shard ${shardFile}: ${res.status}`);
   }
@@ -162,7 +167,6 @@ export function useProductPdp() {
   }
   return ctx;
 }
-
 
 
 
