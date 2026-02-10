@@ -1,84 +1,66 @@
-import React, { createContext, useContext, useMemo, useRef, useState } from "react";
+// src/pdp/ProductPdpContext.tsx
+import React, { createContext, useContext, useEffect, useState } from "react";
 
-/**
- * Production-safe:
- * Always fetch PDP JSON from same-origin flat path:
- *   /products/{handle}.json
- */
-export const PRODUCTS_BASE_URL = "/products/";
-
-type ProductPdpContextValue = {
-  fetchProductByHandle: (handleOrUrl: string) => Promise<any>;
-  getUrlForHandle: (handleOrUrl: string) => string | null;
-  lastError: string | null;
+export type Product = {
+  slug: string;
+  path: string;
 };
 
-const Ctx = createContext<ProductPdpContextValue | null>(null);
+type PdpContextType = {
+  index: Product[] | null;
+  loading: boolean;
+  error: string | null;
+};
 
-function cleanHandle(input: string): string {
-  return (input || "")
-    .trim()
-    // If a full URL was passed, extract the filename
-    .replace(/^https?:\/\/[^/]+\//, "")
-    // Strip folders like products/batch X/part YY/
-    .replace(/^products\/.*?\//, "")
-    .replace(/^.*\/products\/.*?\//, "")
-    .replace(/^\/+|\/+$/g, "")
-    .replace(/\.json(\.gz)?$/i, "");
-}
+const ProductPdpContext = createContext<PdpContextType | null>(null);
 
-function buildUrl(handleOrUrl: string): string | null {
-  const h = cleanHandle(handleOrUrl);
-  if (!h) return null;
-  return `${PRODUCTS_BASE_URL}${h}.json`.replace(/\/{2,}/g, "/");
-}
+export const PRODUCTS_BASE_URL =
+  import.meta.env.VITE_PRODUCTS_BASE_URL ||
+  "https://pub-efc133d84c664ca8ace8be57ec3e4d65.r2.dev";
+
+const INDEX_PATH = "/indexes/_index.json.gz";
 
 export function ProductPdpProvider({ children }: { children: React.ReactNode }) {
-  const [lastError, setLastError] = useState<string | null>(null);
-  const cacheRef = useRef<Map<string, any>>(new Map());
+  const [index, setIndex] = useState<Product[] | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
-  const getUrlForHandle = (handleOrUrl: string) => buildUrl(handleOrUrl);
+  useEffect(() => {
+    const loadIndex = async () => {
+      try {
+        const res = await fetch(`${PRODUCTS_BASE_URL}${INDEX_PATH}`, {
+          headers: { "Accept-Encoding": "gzip" },
+        });
 
-  const fetchProductByHandle = async (handleOrUrl: string) => {
-    const url = buildUrl(handleOrUrl);
-    if (!url) throw new Error("Could not resolve PDP JSON URL");
+        if (!res.ok) {
+          throw new Error(`Index fetch failed: ${res.status}`);
+        }
 
-    const cacheKey = url;
-    const cached = cacheRef.current.get(cacheKey);
-    if (cached) return cached;
+        const data = await res.json();
+        setIndex(data.items || data);
+      } catch (err: any) {
+        setError(err.message || "Failed to load index");
+      } finally {
+        setLoading(false);
+      }
+    };
 
-    setLastError(null);
+    loadIndex();
+  }, []);
 
-    const res = await fetch(url, { cache: "no-cache" });
-    if (!res.ok) {
-      throw new Error(`PDP fetch failed (${res.status}) at ${url}`);
-    }
-
-    const text = await res.text();
-
-    // Guard against HTML (routing/404)
-    if (text.trim().startsWith("<")) {
-      throw new Error(`Expected JSON but got HTML at ${url}`);
-    }
-
-    const json = JSON.parse(text);
-    cacheRef.current.set(cacheKey, json);
-    return json;
-  };
-
-  const value = useMemo(
-    () => ({ fetchProductByHandle, getUrlForHandle, lastError }),
-    [lastError]
+  return (
+    <ProductPdpContext.Provider value={{ index, loading, error }}>
+      {children}
+    </ProductPdpContext.Provider>
   );
-
-  return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
 }
 
 export function useProductPdp() {
-  const ctx = useContext(Ctx);
+  const ctx = useContext(ProductPdpContext);
   if (!ctx) throw new Error("useProductPdp must be used within ProductPdpProvider");
   return ctx;
 }
+
 
 
 
