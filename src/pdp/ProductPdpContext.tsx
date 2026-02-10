@@ -1,54 +1,63 @@
-import React, { createContext, useContext, useEffect, useState } from 'react';
+import React, { createContext, useContext, useEffect, useState } from "react";
 
-export const R2_BASE =
-  'https://pub-efc133d84c664ca8ace8be57ec3e4d65.r2.dev';
+export type Product = {
+  id: string;
+  title: string;
+  price?: number;
+  images?: string[];
+  long_description?: string;
+  [key: string]: any;
+};
 
-type PdpIndex = Record<string, string>;
+const ProductPdpContext = createContext<Product | null>(null);
 
-const ProductPdpContext = createContext<{
-  pdpIndex: PdpIndex | null;
-  loading: boolean;
-  error: string | null;
-}>({
-  pdpIndex: null,
-  loading: true,
-  error: null,
-});
+const R2_BASE = "https://pub-efc133d84c664ca8ace8be57ec3e4d65.r2.dev";
 
-export const ProductPdpProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const [pdpIndex, setPdpIndex] = useState<PdpIndex | null>(null);
-  const [loading, setLoading] = useState(true);
+export function ProductPdpProvider({
+  slug,
+  children,
+}: {
+  slug: string;
+  children: React.ReactNode;
+}) {
+  const [product, setProduct] = useState<Product | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    const url = `${R2_BASE}/indexes/_index.json.gz`;
+    const url = `${R2_BASE}/products/${slug}.json.gz`;
 
     fetch(url)
-      .then((res) => {
-        if (!res.ok) {
-          throw new Error(`Index fetch failed: ${res.status}`);
+      .then(async (res) => {
+        const ct = res.headers.get("content-type") || "";
+        if (!res.ok || !ct.includes("application/json")) {
+          const text = await res.text();
+          throw new Error(`Expected JSON from ${url}, got ${ct}. Body: ${text.slice(0, 200)}`);
         }
         return res.json();
       })
-      .then((json) => {
-        setPdpIndex(json);
-        setLoading(false);
-      })
+      .then(setProduct)
       .catch((err) => {
-        console.error('Index load error:', err);
+        console.error("❌ PDP fetch failed:", err);
         setError(err.message);
-        setLoading(false);
       });
-  }, []);
+  }, [slug]);
+
+  if (error) return <div className="p-8 text-red-500">Product failed to load: {error}</div>;
+  if (!product) return <div className="p-8">Loading product…</div>;
 
   return (
-    <ProductPdpContext.Provider value={{ pdpIndex, loading, error }}>
+    <ProductPdpContext.Provider value={product}>
       {children}
     </ProductPdpContext.Provider>
   );
-};
+}
 
-export const useProductPdpIndex = () => useContext(ProductPdpContext);
+export function useProductPdp() {
+  const ctx = useContext(ProductPdpContext);
+  if (!ctx) throw new Error("useProductPdp must be used inside ProductPdpProvider");
+  return ctx;
+}
+
 
 
 
