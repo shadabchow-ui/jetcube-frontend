@@ -88,7 +88,8 @@ export function SingleProduct() {
       setFetchError(null);
 
       try {
-        const res = await fetch(url, { cache: "force-cache" });
+        // CHANGED: "force-cache" -> "default" to prevent stuck stale data
+        const res = await fetch(url, { cache: "default" });
         if (!res.ok) throw new Error(`Failed to load product: ${res.status}`);
 
         const json = await res.json();
