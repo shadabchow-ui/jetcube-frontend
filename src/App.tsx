@@ -303,20 +303,7 @@ function ProductRoute({ children }: { children: React.ReactNode }) {
   // Full URL already
   if (s.startsWith("http://") || s.startsWith("https://")) return s;
 
-  // Root-relative path
-  if (s.startsWith("/")) return joinUrl(R2_PUBLIC_BASE, s);
 
-  // ✅ IMPORTANT: if it already looks like a path (contains "/"), treat as a path under R2
-  // Examples: "products/batch-11a/part_01/x.json.gz" or "indexes/pdp_paths/ti.json"
-  if (s.includes("/")) return joinUrl(R2_PUBLIC_BASE, s);
-
-  // Filename / key normalization
-  if (s.endsWith(".json.gz")) return joinUrl(R2_PUBLIC_BASE, s);
-  if (s.endsWith(".json")) return joinUrl(R2_PUBLIC_BASE, `${s}.gz`);
-
-  // Bare key: assume under /products/
-  return joinUrl(R2_PUBLIC_BASE, `products/${s}.json.gz`);
-}
 
     async function load() {
       try {
