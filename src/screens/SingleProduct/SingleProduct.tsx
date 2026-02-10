@@ -2,246 +2,235 @@ import React, { useEffect, useMemo, useState } from "react";
 import { useParams } from "react-router-dom";
 import { useProductPdp } from "../../pdp/ProductPdpContext";
 
-// ✅ PDP shard directory
-const PDP_INDEX_BASE_URL =
-  (import.meta as any).env?.VITE_PDP_INDEX_BASE_URL ||
-  "https://pub-efc133d84c664ca8ace8be57ec3e4d65.r2.dev/indexes/pdp2/";
+const PRODUCTS_BASE_URL =
+  (import.meta as any).env?.VITE_R2_PRODUCTS_BASE_URL ||
+  "https://pub-efc133d84c664ca8ace8be57ec3e4d65.r2.dev/products";
 
-type ProductJson = any;
+export default function SingleProduct() {
+  const { slug } = useParams<{ slug: string }>();
 
-function safeTitle(p: any): string {
-  return (
-    p?.title ||
-    p?.name ||
-    p?.product_title ||
-    p?.productName ||
-    p?.handle ||
-    "Product"
-  );
-}
-
-function safePrice(p: any): string | null {
-  const v =
-    p?.price ??
-    p?.price_current ??
-    p?.current_price ??
-    p?.sale_price ??
-    p?.pricing?.price ??
-    null;
-
-  if (v == null) return null;
-  if (typeof v === "number") return `$${v.toFixed(2)}`;
-  return String(v);
-}
-
-function pickImages(p: any): string[] {
-  const imgs =
-    p?.images || p?.image_urls || p?.imageUrls || p?.media || p?.gallery || [];
-
-  if (Array.isArray(imgs)) {
-    return imgs
-      .map((x) => (typeof x === "string" ? x : x?.url || x?.src))
-      .filter(Boolean);
-  }
-
-  return [];
-}
-
-export function SingleProduct() {
-  const { slug = "" } = useParams();
-  const { getUrlForSlug, preloadShardForSlug, lastError, clearError } =
+  const { preloadShardForSlug, fetchProductBySlug, lastError, clearError } =
     useProductPdp();
 
+  const [product, setProduct] = useState<any | null>(null);
   const [loading, setLoading] = useState(true);
-  const [productUrl, setProductUrl] = useState<string | null>(null);
-  const [product, setProduct] = useState<ProductJson | null>(null);
-  const [notFound, setNotFound] = useState(false);
   const [fetchError, setFetchError] = useState<string | null>(null);
 
-  useEffect(() => {
-    // Only clear error on mount/slug change to prevent loops
-    clearError();
-    setLoading(true);
-    setProduct(null);
-    setProductUrl(null);
-    setNotFound(false);
-    setFetchError(null);
+  // Normalize slug once
+  const cleanSlug = useMemo(() => (slug ? slug.trim() : ""), [slug]);
 
+  useEffect(() => {
     let cancelled = false;
 
-    (async () => {
-      try {
-        await preloadShardForSlug(slug);
-
-        const url = await getUrlForSlug(slug);
-        if (cancelled) return;
-
-        if (!url) {
-          setNotFound(true);
-          setLoading(false);
-          return;
-        }
-
-        setProductUrl(url);
-        setFetchError(null);
-
-        // ✅ Use "default" cache. The shard mapping is what mattered most.
-        const res = await fetch(url, { cache: "default" });
-        if (!res.ok) throw new Error(`Failed to load product: ${res.status}`);
-
-        const json = await res.json();
-        if (cancelled) return;
-
-        setProduct(json);
+    async function load() {
+      if (!cleanSlug) {
+        setFetchError("Product not found (missing slug).");
         setLoading(false);
-      } catch (e: any) {
+        return;
+      }
+
+      setLoading(true);
+      setFetchError(null);
+      setProduct(null);
+      clearError();
+
+      try {
+        // Warm relevant maps so we don't fall back to the wrong URL shape.
+        await preloadShardForSlug(cleanSlug);
+
+        const { data } = await fetchProductBySlug(cleanSlug);
         if (cancelled) return;
-        setFetchError(e?.message || "Failed to load product");
+
+        setProduct(data);
+        setLoading(false);
+      } catch (err: any) {
+        if (cancelled) return;
+
+        const msg =
+          err?.message ||
+          "Product failed to load. The product JSON may be missing, or the index map does not contain this slug.";
+
+        setFetchError(msg);
         setLoading(false);
       }
-    })();
+    }
+
+    load();
 
     return () => {
       cancelled = true;
     };
-  }, [slug, getUrlForSlug, preloadShardForSlug, clearError]);
-
-  const title = useMemo(() => (product ? safeTitle(product) : ""), [product]);
-  const price = useMemo(() => (product ? safePrice(product) : null), [product]);
-  const images = useMemo(() => (product ? pickImages(product) : []), [product]);
+  }, [cleanSlug, preloadShardForSlug, fetchProductBySlug, clearError]);
 
   if (loading) {
     return (
       <div style={{ padding: 24 }}>
-        <h2 style={{ margin: 0 }}>Loading…</h2>
-        <p style={{ opacity: 0.7, marginTop: 8 }}>
-          Resolving PDP path for <code>{slug}</code>
-        </p>
-        <p style={{ opacity: 0.55, marginTop: 6, fontSize: 12 }}>
-          Shards: <code>{PDP_INDEX_BASE_URL}</code>
-        </p>
+        <div style={{ fontSize: 18, fontWeight: 600, marginBottom: 8 }}>
+          Loading…
+        </div>
+        <div style={{ opacity: 0.75 }}>
+          Pulling product JSON from R2…
+        </div>
       </div>
     );
   }
 
-  if (notFound) {
+  if (fetchError || lastError || !product) {
     return (
       <div style={{ padding: 24 }}>
-        <h2 style={{ margin: 0 }}>Not found</h2>
-        <p style={{ opacity: 0.75, marginTop: 8 }}>
-          No PDP URL found for <code>{slug}</code>.
-        </p>
+        <div
+          style={{
+            padding: 16,
+            border: "1px solid rgba(255,0,0,0.25)",
+            borderRadius: 12,
+          }}
+        >
+          <div style={{ fontSize: 18, fontWeight: 700, color: "#b91c1c" }}>
+            Product failed to load
+          </div>
+          <div style={{ marginTop: 8 }}>
+            {fetchError || lastError || "Unknown error"}
+          </div>
 
-        {lastError ? (
-          <pre
+          <div
             style={{
-              marginTop: 12,
-              padding: 12,
-              background: "rgba(0,0,0,0.06)",
-              borderRadius: 8,
-              overflow: "auto",
+              marginTop: 10,
+              fontSize: 12,
+              opacity: 0.85,
+              wordBreak: "break-all",
             }}
           >
-            {lastError}
-          </pre>
-        ) : null}
+            <div style={{ fontWeight: 600, marginBottom: 4 }}>
+              Slug
+            </div>
+            <code>{cleanSlug}</code>
+          </div>
+        </div>
       </div>
     );
   }
+
+  const images: string[] =
+    Array.isArray(product?.images) && product.images.length
+      ? product.images
+      : [];
+
+  const price =
+    product?.price ??
+    product?.price_num ??
+    product?.variants?.[0]?.price ??
+    null;
 
   return (
     <div style={{ padding: 24 }}>
-      <div style={{ display: "flex", alignItems: "baseline", gap: 12 }}>
-        <h1 style={{ margin: 0 }}>{title}</h1>
-        {price ? <span style={{ opacity: 0.8 }}>{price}</span> : null}
-      </div>
-
-      {productUrl ? (
-        <p style={{ marginTop: 10, opacity: 0.7 }}>
-          Source:{" "}
-          <a href={productUrl} target="_blank" rel="noreferrer">
-            {productUrl}
-          </a>
-        </p>
-      ) : null}
-
-      {images.length ? (
-        <div
-          style={{
-            display: "grid",
-            gridTemplateColumns: "repeat(auto-fill, minmax(160px, 1fr))",
-            gap: 12,
-            marginTop: 16,
-          }}
-        >
-          {images.slice(0, 12).map((src, i) => (
-            <div
-              key={`${src}-${i}`}
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 24 }}>
+        {/* Images */}
+        <div>
+          {images.length ? (
+            <img
+              src={images[0]}
+              alt={product?.title || cleanSlug}
               style={{
-                borderRadius: 10,
-                overflow: "hidden",
-                background: "rgba(0,0,0,0.06)",
-                border: "1px solid rgba(0,0,0,0.08)",
+                width: "100%",
+                borderRadius: 12,
+                border: "1px solid rgba(255,255,255,0.08)",
+              }}
+              loading="lazy"
+            />
+          ) : (
+            <div
+              style={{
+                width: "100%",
+                paddingTop: "70%",
+                borderRadius: 12,
+                border: "1px solid rgba(255,255,255,0.08)",
+                opacity: 0.7,
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
               }}
             >
-              <img
-                src={src}
-                alt=""
-                loading="lazy"
-                style={{ width: "100%", height: 160, objectFit: "cover" }}
-              />
+              No image
             </div>
-          ))}
+          )}
+
+          {images.length > 1 ? (
+            <div
+              style={{
+                display: "grid",
+                gridTemplateColumns: "repeat(5, 1fr)",
+                gap: 10,
+                marginTop: 12,
+              }}
+            >
+              {images.slice(0, 10).map((src, idx) => (
+                <img
+                  key={`${src}-${idx}`}
+                  src={src}
+                  alt={`${product?.title || cleanSlug} ${idx + 1}`}
+                  style={{
+                    width: "100%",
+                    aspectRatio: "1 / 1",
+                    objectFit: "cover",
+                    borderRadius: 10,
+                    border: "1px solid rgba(255,255,255,0.08)",
+                  }}
+                  loading="lazy"
+                />
+              ))}
+            </div>
+          ) : null}
         </div>
-      ) : null}
 
-      <details style={{ marginTop: 18 }}>
-        <summary style={{ cursor: "pointer" }}>Raw JSON</summary>
-        <pre
-          style={{
-            marginTop: 10,
-            padding: 12,
-            background: "rgba(0,0,0,0.06)",
-            borderRadius: 8,
-            overflow: "auto",
-            maxHeight: 520,
-          }}
-        >
-          {JSON.stringify(product, null, 2)}
-        </pre>
-      </details>
+        {/* Details */}
+        <div>
+          <h1 style={{ margin: 0, fontSize: 24 }}>
+            {product?.title || cleanSlug}
+          </h1>
 
-      {fetchError ? (
-        <pre
-          style={{
-            marginTop: 16,
-            padding: 12,
-            background: "rgba(255,0,0,0.06)",
-            borderRadius: 8,
-            overflow: "auto",
-          }}
-        >
-          {fetchError}
-        </pre>
-      ) : null}
-      {lastError ? (
-        <pre
-          style={{
-            marginTop: 16,
-            padding: 12,
-            background: "rgba(255,0,0,0.06)",
-            borderRadius: 8,
-            overflow: "auto",
-          }}
-        >
-          {lastError}
-        </pre>
-      ) : null}
+          {product?.brand ? (
+            <div style={{ marginTop: 6, opacity: 0.8 }}>
+              Brand: {product.brand}
+            </div>
+          ) : null}
+
+          {price != null ? (
+            <div style={{ marginTop: 12, fontSize: 22, fontWeight: 700 }}>
+              ${String(price)}
+            </div>
+          ) : null}
+
+          {product?.description ? (
+            <p style={{ marginTop: 12, opacity: 0.9, lineHeight: 1.45 }}>
+              {product.description}
+            </p>
+          ) : null}
+
+          {Array.isArray(product?.about_this_item) &&
+          product.about_this_item.length ? (
+            <div style={{ marginTop: 16 }}>
+              <div style={{ fontWeight: 700, marginBottom: 8 }}>
+                About this item
+              </div>
+              <ul style={{ margin: 0, paddingLeft: 18, opacity: 0.92 }}>
+                {product.about_this_item.slice(0, 12).map((t: string, i: number) => (
+                  <li key={`${i}-${t}`} style={{ marginBottom: 6 }}>
+                    {t}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ) : null}
+
+          <div style={{ marginTop: 18, fontSize: 12, opacity: 0.7 }}>
+            Source base: <code>{PRODUCTS_BASE_URL}</code>
+          </div>
+        </div>
+      </div>
     </div>
   );
 }
 
-export default SingleProduct;
 
 
 
