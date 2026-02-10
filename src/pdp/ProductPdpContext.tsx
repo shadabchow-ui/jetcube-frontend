@@ -1,62 +1,42 @@
-import React, { createContext, useContext, useEffect, useState } from "react";
+// src/pdp/ProductPdpContext.tsx
 
-export type Product = {
-  id: string;
-  title: string;
-  price?: number;
-  images?: string[];
-  long_description?: string;
-  [key: string]: any;
-};
+export const R2_PUBLIC_BASE = "https://pub-efc133d84c664ca8ace8be57ec3e4d65.r2.dev";
+export const INDEX_URL = `${R2_PUBLIC_BASE}/indexes/_index.json.gz`;
 
-const ProductPdpContext = createContext<Product | null>(null);
+let cachedIndex: any[] | null = null;
 
-const R2_BASE = "https://pub-efc133d84c664ca8ace8be57ec3e4d65.r2.dev";
+export async function loadIndex() {
+  if (cachedIndex) return cachedIndex;
 
-export function ProductPdpProvider({
-  slug,
-  children,
-}: {
-  slug: string;
-  children: React.ReactNode;
-}) {
-  const [product, setProduct] = useState<Product | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const res = await fetch(INDEX_URL);
+  if (!res.ok) throw new Error("Failed to load _index.json.gz");
 
-  useEffect(() => {
-    const url = `${R2_BASE}/products/${slug}.json.gz`;
+  const text = await res.text(); // browser auto-gunzips
+  const json = JSON.parse(text);
 
-    fetch(url)
-      .then(async (res) => {
-        const ct = res.headers.get("content-type") || "";
-        if (!res.ok || !ct.includes("application/json")) {
-          const text = await res.text();
-          throw new Error(`Expected JSON from ${url}, got ${ct}. Body: ${text.slice(0, 200)}`);
-        }
-        return res.json();
-      })
-      .then(setProduct)
-      .catch((err) => {
-        console.error("❌ PDP fetch failed:", err);
-        setError(err.message);
-      });
-  }, [slug]);
+  if (!Array.isArray(json)) {
+    throw new Error("Index is not an array");
+  }
 
-  if (error) return <div className="p-8 text-red-500">Product failed to load: {error}</div>;
-  if (!product) return <div className="p-8">Loading product…</div>;
-
-  return (
-    <ProductPdpContext.Provider value={product}>
-      {children}
-    </ProductPdpContext.Provider>
-  );
+  cachedIndex = json;
+  return cachedIndex;
 }
 
-export function useProductPdp() {
-  const ctx = useContext(ProductPdpContext);
-  if (!ctx) throw new Error("useProductPdp must be used inside ProductPdpProvider");
-  return ctx;
+export async function fetchProductBySlug(slug: string) {
+  const index = await loadIndex();
+  const item = index.find((i) => i.slug === slug);
+
+  if (!item?.path) {
+    throw new Error(`Product not found in index: ${slug}`);
+  }
+
+  const url = `${R2_PUBLIC_BASE}/${item.path}`;
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(`Failed PDP fetch: ${url}`);
+
+  return await res.json();
 }
+
 
 
 
