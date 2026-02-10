@@ -1,36 +1,70 @@
-import React, { useEffect } from "react";
+import React, { useEffect, useState } from "react";
 import { useParams } from "react-router-dom";
-import { useProductPdp } from "../../pdp/ProductPdpContext";
-import MainContent from "../MainContent";
+import { R2_PUBLIC_BASE, useProductPdpContext } from "../../pdp/ProductPdpContext";
 
 export default function SingleProduct() {
-  const { slug } = useParams<{ slug: string }>();
-  const { product, loading, error, loadBySlug } = useProductPdp();
+  const { slug } = useParams();
+  const { loadIndexOnce } = useProductPdpContext();
+
+  const [product, setProduct] = useState<any | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (slug) {
-      loadBySlug(slug);
-    }
-  }, [slug]);
+    let cancelled = false;
 
-  if (loading) {
-    return <div className="max-w-[1200px] mx-auto px-6 py-16">Loading product…</div>;
-  }
+    async function load() {
+      try {
+        if (!slug) return;
+
+        const index = await loadIndexOnce();
+        const item = index.find((i) => i.slug === slug);
+
+        if (!item) {
+          setError("Product not found in index");
+          return;
+        }
+
+        const url = `${R2_PUBLIC_BASE}/${item.path}`;
+
+        const res = await fetch(url);
+        const text = await res.text();
+
+        if (text.trim().startsWith("<")) {
+          throw new Error("Got HTML instead of JSON (bad R2 path or missing file)");
+        }
+
+        const data = JSON.parse(text);
+        if (!cancelled) setProduct(data);
+      } catch (e: any) {
+        console.error("PDP load error:", e);
+        if (!cancelled) setError(e.message || "Failed to load product");
+      }
+    }
+
+    load();
+    return () => {
+      cancelled = true;
+    };
+  }, [slug, loadIndexOnce]);
 
   if (error) {
-    return (
-      <div className="max-w-[1200px] mx-auto px-6 py-16 text-red-600">
-        Product failed to load: {error}
-      </div>
-    );
+    return <div style={{ padding: 40, color: "red" }}>Product failed to load: {error}</div>;
   }
 
   if (!product) {
-    return null;
+    return <div style={{ padding: 40 }}>Loading product…</div>;
   }
 
-  return <MainContent product={product} />;
+  return (
+    <div style={{ padding: 40 }}>
+      <h1>{product.title}</h1>
+      <pre style={{ maxWidth: 900, whiteSpace: "pre-wrap" }}>
+        {JSON.stringify(product, null, 2)}
+      </pre>
+    </div>
+  );
 }
+
 
 
 
