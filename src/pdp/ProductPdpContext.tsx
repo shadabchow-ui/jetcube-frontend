@@ -1,48 +1,51 @@
 import React, { createContext, useContext, useMemo, useRef, useState } from "react";
 
 /**
- * STRICT production rule:
- * Always fetch flat JSON from same-origin:
+ * Production-safe:
+ * Always fetch PDP JSON from same-origin flat path:
  *   /products/{handle}.json
- *
- * No gzip, no batch folders, no shards, no R2 public domain.
  */
-const PRODUCTS_BASE_URL = "/products/";
+export const PRODUCTS_BASE_URL = "/products/";
 
 type ProductPdpContextValue = {
-  fetchProductByHandle: (handle: string) => Promise<any>;
-  getUrlForHandle: (handle: string) => string | null;
+  fetchProductByHandle: (handleOrUrl: string) => Promise<any>;
+  getUrlForHandle: (handleOrUrl: string) => string | null;
   lastError: string | null;
 };
 
 const Ctx = createContext<ProductPdpContextValue | null>(null);
 
 function cleanHandle(input: string): string {
-  return (input || "").trim().replace(/^\/+|\/+$/g, "");
+  return (input || "")
+    .trim()
+    // If a full URL was passed, extract the filename
+    .replace(/^https?:\/\/[^/]+\//, "")
+    // Strip folders like products/batch X/part YY/
+    .replace(/^products\/.*?\//, "")
+    .replace(/^.*\/products\/.*?\//, "")
+    .replace(/^\/+|\/+$/g, "")
+    .replace(/\.json(\.gz)?$/i, "");
 }
 
-function buildUrl(handle: string): string | null {
-  const h = cleanHandle(handle);
+function buildUrl(handleOrUrl: string): string | null {
+  const h = cleanHandle(handleOrUrl);
   if (!h) return null;
-  const file = h.endsWith(".json") ? h : `${h}.json`;
-  return `${PRODUCTS_BASE_URL}${file}`.replace(/\/{2,}/g, "/");
+  return `${PRODUCTS_BASE_URL}${h}.json`.replace(/\/{2,}/g, "/");
 }
 
 export function ProductPdpProvider({ children }: { children: React.ReactNode }) {
   const [lastError, setLastError] = useState<string | null>(null);
   const cacheRef = useRef<Map<string, any>>(new Map());
 
-  const getUrlForHandle = (handle: string) => buildUrl(handle);
+  const getUrlForHandle = (handleOrUrl: string) => buildUrl(handleOrUrl);
 
-  const fetchProductByHandle = async (handle: string) => {
-    const h = cleanHandle(handle);
-    if (!h) throw new Error("Missing product handle");
+  const fetchProductByHandle = async (handleOrUrl: string) => {
+    const url = buildUrl(handleOrUrl);
+    if (!url) throw new Error("Could not resolve PDP JSON URL");
 
-    const cached = cacheRef.current.get(h);
+    const cacheKey = url;
+    const cached = cacheRef.current.get(cacheKey);
     if (cached) return cached;
-
-    const url = buildUrl(h);
-    if (!url) throw new Error("Could not resolve product URL");
 
     setLastError(null);
 
@@ -51,14 +54,15 @@ export function ProductPdpProvider({ children }: { children: React.ReactNode }) 
       throw new Error(`PDP fetch failed (${res.status}) at ${url}`);
     }
 
-    // If this ever returns HTML, it's a routing/404 problem
     const text = await res.text();
+
+    // Guard against HTML (routing/404)
     if (text.trim().startsWith("<")) {
-      throw new Error(`Expected JSON at ${url} but got HTML (missing file or misrouted)`);
+      throw new Error(`Expected JSON but got HTML at ${url}`);
     }
 
     const json = JSON.parse(text);
-    cacheRef.current.set(h, json);
+    cacheRef.current.set(cacheKey, json);
     return json;
   };
 
