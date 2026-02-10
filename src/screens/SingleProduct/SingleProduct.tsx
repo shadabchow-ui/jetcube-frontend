@@ -1,41 +1,35 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect } from "react";
 import { useParams } from "react-router-dom";
-import { PRODUCTS_BASE_URL, useProductIndex } from "../../pdp/ProductPdpContext";
+import { useProductPdp } from "../../pdp/ProductPdpContext";
+import MainContent from "../MainContent";
 
 export default function SingleProduct() {
-  const { slug } = useParams();
-  const { index, indexLoaded } = useProductIndex();
-  const [product, setProduct] = useState<any>(null);
-  const [error, setError] = useState<string | null>(null);
+  const { slug } = useParams<{ slug: string }>();
+  const { product, loading, error, loadBySlug } = useProductPdp();
 
   useEffect(() => {
-    if (!indexLoaded || !slug) return;
-
-    const item = index.find((i) => i.slug === slug);
-    if (!item) {
-      setError("Product not found in index");
-      return;
+    if (slug) {
+      loadBySlug(slug);
     }
+  }, [slug]);
 
-    const url = `${PRODUCTS_BASE_URL}/${item.path}`;
+  if (loading) {
+    return <div className="max-w-[1200px] mx-auto px-6 py-16">Loading product…</div>;
+  }
 
-    fetch(url)
-      .then((r) => r.json())
-      .then(setProduct)
-      .catch((e) => setError("Failed to load product JSON"));
-  }, [indexLoaded, slug, index]);
+  if (error) {
+    return (
+      <div className="max-w-[1200px] mx-auto px-6 py-16 text-red-600">
+        Product failed to load: {error}
+      </div>
+    );
+  }
 
-  if (error) return <div>{error}</div>;
-  if (!product) return <div>Loading…</div>;
+  if (!product) {
+    return null;
+  }
 
-  return (
-    <div style={{ padding: 24 }}>
-      <h1>{product.title}</h1>
-      <pre style={{ whiteSpace: "pre-wrap" }}>
-        {JSON.stringify(product, null, 2)}
-      </pre>
-    </div>
-  );
+  return <MainContent product={product} />;
 }
 
 
