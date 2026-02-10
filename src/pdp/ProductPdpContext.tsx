@@ -23,7 +23,7 @@ const INDEX_BASE_URL =
 // ✅ NEW: point specifically at the new PDP shard directory
 const PDP_INDEX_BASE_URL =
   (import.meta as any).env?.VITE_PDP_INDEX_BASE_URL ||
-  `${INDEX_BASE_URL}pdp2/`;
+  "https://pub-efc133d84c664ca8ace8be57ec3e4d65.r2.dev/indexes/pdp2/";
 
 function computeShardForSlug(slug: string): string {
   const s = (slug || "").trim().toLowerCase();
