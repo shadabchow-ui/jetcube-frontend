@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { useParams } from "react-router-dom";
-import { ProductPdpProvider, PRODUCTS_BASE_URL, useProductPdp } from "../../pdp/ProductPdpContext";
+import { ProductPdpProvider, useProductPdp } from "../../pdp/ProductPdpContext";
 
 function cleanSlug(input: string) {
   return (input || "").trim().replace(/^\/+|\/+$/g, "");
