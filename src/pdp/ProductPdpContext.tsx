@@ -22,7 +22,7 @@ const INDEX_BASE_URL =
 
 const PRODUCTS_BASE_URL =
   (import.meta as any).env?.VITE_PRODUCTS_BASE_URL ||
-  "https://pub-efc133d84c664ca8ace8be57ec3e4d65.r2.dev/products/";
+  "https://pub-efc133d84c664ca8ace8be57ec3e4d65.r2.dev/indexes/pdp2/";
 
 function normalizeSlug(slug: string): string {
   try { return decodeURIComponent(String(slug || "")).trim().toLowerCase(); }
