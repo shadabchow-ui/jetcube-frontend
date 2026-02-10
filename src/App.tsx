@@ -106,11 +106,9 @@ async function loadIndexOnce(): Promise<any[]> {
   if (INDEX_CACHE) return INDEX_CACHE;
   if (INDEX_PROMISE) return INDEX_PROMISE;
 
-  const candidates = [
-    joinUrl(R2_PUBLIC_BASE, "indexes/_index.json.gz"),
-    joinUrl(R2_PUBLIC_BASE, "indexes/_index.json.gz"),
-    joinUrl(R2_PUBLIC_BASE, "indexes/_index.json.gz"),
-  ];
+const candidates = [
+  joinUrl(R2_PUBLIC_BASE, "indexes/_index.json.gz"),
+];
 
   INDEX_PROMISE = (async () => {
     let lastErr: any = null;
