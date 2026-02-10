@@ -1,11 +1,8 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { useParams } from "react-router-dom";
-
-// NOTE: Cloudflare Pages builds on Linux (case-sensitive).
-// The PDP context lives in src/pdp/, so import it from there (not a local ./ProductPdpContext file).
 import { useProductPdp } from "../../pdp/ProductPdpContext";
 
-// ✅ NEW (parity / debug): PDP shard directory
+// ✅ PDP shard directory
 const PDP_INDEX_BASE_URL =
   (import.meta as any).env?.VITE_PDP_INDEX_BASE_URL ||
   "https://pub-efc133d84c664ca8ace8be57ec3e4d65.r2.dev/indexes/pdp2/";
@@ -62,6 +59,7 @@ export function SingleProduct() {
   const [fetchError, setFetchError] = useState<string | null>(null);
 
   useEffect(() => {
+    // Only clear error on mount/slug change to prevent loops
     clearError();
     setLoading(true);
     setProduct(null);
@@ -72,23 +70,22 @@ export function SingleProduct() {
     let cancelled = false;
 
     (async () => {
-      // Preload shard for faster resolution (optional)
-      await preloadShardForSlug(slug);
-
-      const url = await getUrlForSlug(slug);
-      if (cancelled) return;
-
-      if (!url) {
-        setNotFound(true);
-        setLoading(false);
-        return;
-      }
-
-      setProductUrl(url);
-      setFetchError(null);
-
       try {
-        // CHANGED: "force-cache" -> "default" to prevent stuck stale data
+        await preloadShardForSlug(slug);
+
+        const url = await getUrlForSlug(slug);
+        if (cancelled) return;
+
+        if (!url) {
+          setNotFound(true);
+          setLoading(false);
+          return;
+        }
+
+        setProductUrl(url);
+        setFetchError(null);
+
+        // ✅ Use "default" cache. The shard mapping is what mattered most.
         const res = await fetch(url, { cache: "default" });
         if (!res.ok) throw new Error(`Failed to load product: ${res.status}`);
 
@@ -99,7 +96,7 @@ export function SingleProduct() {
         setLoading(false);
       } catch (e: any) {
         if (cancelled) return;
-        setFetchError(e?.message || "Failed to load product JSON");
+        setFetchError(e?.message || "Failed to load product");
         setLoading(false);
       }
     })();
@@ -244,8 +241,6 @@ export function SingleProduct() {
   );
 }
 
-// ✅ Provide a default export so src/screens/SingleProduct/index.ts can do:
-// export { default as SingleProduct } from "./SingleProduct";
 export default SingleProduct;
 
 
