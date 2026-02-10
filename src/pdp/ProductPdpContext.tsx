@@ -72,7 +72,7 @@ async function fetchShard(shard: string): Promise<ShardMap> {
   const shardFile = `${shard}.json.gz`;
   const shardUrl = `${PDP_INDEX_BASE_URL}${shardFile}`;
 
-  const res = await fetch(shardUrl, { cache: "force-cache" });
+  const res = await fetch(shardUrl, { cache: "default" });
   if (!res.ok) {
     throw new Error(`Failed to fetch shard ${shardFile}: ${res.status}`);
   }
