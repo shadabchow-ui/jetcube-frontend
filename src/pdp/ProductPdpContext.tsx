@@ -1,89 +1,138 @@
-import React, { createContext, useContext, useEffect, useMemo, useRef, useState } from "react";
+import React, { createContext, useContext, useMemo, useState } from "react";
 
-type PDPIndex = Record<string, string>;
+type AnyObj = Record<string, any>;
+type ShardMap = Record<string, string>;
 
-type ProductPdpContextValue = {
-  productUrl: string | null;
+type ProductPdpContextShape = {
+  product: AnyObj | null;
   loading: boolean;
   error: string | null;
-  resolveBySlug: (slug: string) => Promise<void>;
+
+  /** Fetch product JSON for this slug using sharded slug → URL map */
+  loadBySlug: (slug: string) => Promise<AnyObj | null>;
+
+  /** Clear current product/error */
+  clear: () => void;
 };
 
-const ProductPdpContext = createContext<ProductPdpContextValue | null>(null);
+const ProductPdpContext = createContext<ProductPdpContextShape | null>(null);
 
-const R2_BASE =
-  import.meta.env.VITE_R2_PUBLIC_BASE_URL ||
-  "https://pub-efc133d84c664ca8ace8be57ec3e4d65.r2.dev";
+const R2_BASE_URL =
+  (import.meta as any)?.env?.VITE_R2_BASE_URL ||
+  (import.meta as any)?.env?.VITE_R2_PUBLIC_BASE_URL ||
+  "";
 
-// 🔴 ONLY CHANGE: pdp_paths -> pdp2
-const PDP_INDEX_BASE = `${R2_BASE}/indexes/pdp2`;
+const INDEX_BASE_URL =
+  (import.meta as any)?.env?.VITE_INDEX_BASE_URL ||
+  (import.meta as any)?.env?.VITE_R2_INDEX_BASE_URL ||
+  (R2_BASE_URL ? `${R2_BASE_URL}/indexes` : "");
 
-export const ProductPdpProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const [productUrl, setProductUrl] = useState<string | null>(null);
+const SHARD_CACHE = new Map<string, ShardMap>();
+
+function shardKeyFromSlug(slug: string): string {
+  const s = String(slug || "").trim().toLowerCase();
+  const ch = s[0] || "_";
+  if (ch >= "a" && ch <= "z") return ch;
+  if (ch >= "0" && ch <= "9") return "0";
+  return "_";
+}
+
+/** Read JSON from a .json.gz response (Cloudflare serves gzip content; browser auto-decompresses body bytes). */
+async function readGzipJson(res: Response): Promise<any> {
+  // Many deployments rely on CF auto-decompression; res.json() works if server sets correct headers.
+  // Keep it robust: try json(), fall back to text() parsing.
+  try {
+    return await res.json();
+  } catch {
+    const t = await res.text();
+    return JSON.parse(t);
+  }
+}
+
+async function fetchShardByKey(shardKey: string): Promise<ShardMap> {
+  if (SHARD_CACHE.has(shardKey)) return SHARD_CACHE.get(shardKey)!;
+  const url = `${INDEX_BASE_URL}/pdp2/${shardKey}.json.gz`;
+  const res = await fetch(url, { cache: "force-cache" });
+  if (!res.ok) throw new Error(`Failed to fetch shard ${shardKey}: ${res.status} ${res.statusText}`);
+  const json = (await readGzipJson(res)) as ShardMap;
+  SHARD_CACHE.set(shardKey, json);
+  return json;
+}
+
+async function resolveProductUrlFromSlug(slug: string): Promise<string | null> {
+  const key = shardKeyFromSlug(slug);
+  const shard = await fetchShardByKey(key);
+  const url = shard[String(slug)];
+  return url || null;
+}
+
+async function fetchProductJson(url: string): Promise<AnyObj> {
+  const res = await fetch(url, { cache: "no-store" });
+  if (!res.ok) throw new Error(`Failed to fetch product JSON: ${res.status} ${res.statusText}`);
+  return (await res.json()) as AnyObj;
+}
+
+export function ProductPdpProvider({ children }: { children: React.ReactNode }) {
+  const [product, setProduct] = useState<AnyObj | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const shardCache = useRef<Record<string, PDPIndex>>({});
-
-  const getShardKey = (slug: string) => {
-    const ch = slug?.[0]?.toLowerCase() || "_";
-    return `${ch}.json.gz`;
+  const clear = () => {
+    setProduct(null);
+    setError(null);
+    setLoading(false);
   };
 
-  const fetchShard = async (shardKey: string): Promise<PDPIndex> => {
-    if (shardCache.current[shardKey]) {
-      return shardCache.current[shardKey];
-    }
+  const loadBySlug = async (slug: string) => {
+    const s = String(slug || "").trim();
+    if (!s) return null;
 
-    const url = `${PDP_INDEX_BASE}/${shardKey}`;
-    const res = await fetch(url);
-    if (!res.ok) {
-      throw new Error(`Failed to load PDP shard: ${url}`);
-    }
-
-    const text = await res.text();
-    const data = JSON.parse(text) as PDPIndex;
-    shardCache.current[shardKey] = data;
-    return data;
-  };
-
-  const resolveBySlug = async (slug: string) => {
     setLoading(true);
     setError(null);
-    setProductUrl(null);
 
     try {
-      const shardKey = getShardKey(slug);
-      const shard = await fetchShard(shardKey);
-      const url = shard[slug];
-
-      if (!url) {
-        throw new Error(`Slug not found in shard: ${slug}`);
+      const productUrl = await resolveProductUrlFromSlug(s);
+      if (!productUrl) {
+        throw new Error(`Slug not found in PDP index: ${s}`);
       }
 
-      setProductUrl(url);
-    } catch (err: any) {
-      setError(err?.message || "Failed to resolve PDP");
+      const json = await fetchProductJson(productUrl);
+      setProduct(json);
+      return json;
+    } catch (e: any) {
+      setProduct(null);
+      setError(e?.message || "Failed to load product");
+      return null;
     } finally {
       setLoading(false);
     }
   };
 
-  const value = useMemo(
-    () => ({ productUrl, loading, error, resolveBySlug }),
-    [productUrl, loading, error]
+  const value = useMemo<ProductPdpContextShape>(
+    () => ({
+      product,
+      loading,
+      error,
+      loadBySlug,
+      clear,
+    }),
+    [product, loading, error]
   );
 
   return <ProductPdpContext.Provider value={value}>{children}</ProductPdpContext.Provider>;
-};
+}
 
-export const useProductPdp = () => {
+export function useProductPdpContext() {
   const ctx = useContext(ProductPdpContext);
-  if (!ctx) {
-    throw new Error("useProductPdp must be used within ProductPdpProvider");
-  }
+  if (!ctx) throw new Error("useProductPdpContext must be used inside <ProductPdpProvider>");
   return ctx;
-};
+}
+
+export default function useProductPdp() {
+  const ctx = useProductPdpContext();
+  return ctx.product;
+}
+
 
 
 
