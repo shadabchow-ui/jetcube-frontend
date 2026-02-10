@@ -1,51 +1,52 @@
-import React, { createContext, useContext, useEffect, useRef, useState } from "react";
+import React, { createContext, useContext, useRef } from "react";
 
 export const R2_PUBLIC_BASE =
   import.meta.env.VITE_R2_PUBLIC_BASE ||
-  "https://pub-efc133d84c664ca8ace8be57ec3e4d65.r2.dev";
+  "https://pub-efc133d84c64a8ace8be57ce3e4d65.r2.dev";
 
-export const INDEX_URL = `${R2_PUBLIC_BASE}/indexes/_index.json.gz`;
-
-export type IndexItem = {
+type IndexItem = {
   slug: string;
-  title: string;
-  price: number;
-  image: string | null;
-  category: string;
-  path: string; // products/batch-x/slug.json.gz
+  path: string;
+  title?: string;
+  price?: number;
+  image?: string | null;
+  category?: string;
 };
 
-type ProductPdpContextType = {
-  index: IndexItem[] | null;
+type Ctx = {
   loadIndexOnce: () => Promise<IndexItem[]>;
 };
 
-const ProductPdpContext = createContext<ProductPdpContextType | null>(null);
-
-let INDEX_CACHE: IndexItem[] | null = null;
-let INDEX_PROMISE: Promise<IndexItem[]> | null = null;
+const ProductPdpContext = createContext<Ctx | null>(null);
 
 export function ProductPdpProvider({ children }: { children: React.ReactNode }) {
-  const [index, setIndex] = useState<IndexItem[] | null>(INDEX_CACHE);
+  const cacheRef = useRef<IndexItem[] | null>(null);
+  const promiseRef = useRef<Promise<IndexItem[]> | null>(null);
 
-  async function loadIndexOnce() {
-    if (INDEX_CACHE) return INDEX_CACHE;
-    if (INDEX_PROMISE) return INDEX_PROMISE;
+  async function loadIndexOnce(): Promise<IndexItem[]> {
+    if (cacheRef.current) return cacheRef.current;
+    if (promiseRef.current) return promiseRef.current;
 
-    INDEX_PROMISE = (async () => {
-      const res = await fetch(INDEX_URL, { cache: "force-cache" });
-      if (!res.ok) throw new Error("Failed to load _index.json.gz");
-      const data = await res.json();
-      INDEX_CACHE = data;
-      setIndex(data);
+    const url = `${R2_PUBLIC_BASE}/indexes/_index.json.gz`;
+
+    promiseRef.current = (async () => {
+      const res = await fetch(url, { cache: "force-cache" });
+      const text = await res.text();
+
+      if (text.trim().startsWith("<")) {
+        throw new Error("Index URL returned HTML (bad R2 path or missing file)");
+      }
+
+      const data = JSON.parse(text);
+      cacheRef.current = data;
       return data;
     })();
 
-    return INDEX_PROMISE;
+    return promiseRef.current;
   }
 
   return (
-    <ProductPdpContext.Provider value={{ index, loadIndexOnce }}>
+    <ProductPdpContext.Provider value={{ loadIndexOnce }}>
       {children}
     </ProductPdpContext.Provider>
   );
@@ -56,6 +57,7 @@ export function useProductPdpContext() {
   if (!ctx) throw new Error("useProductPdpContext must be used inside ProductPdpProvider");
   return ctx;
 }
+
 
 
 
