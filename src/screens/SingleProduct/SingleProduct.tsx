@@ -19,7 +19,9 @@ export default function SingleProduct() {
         const index = await loadIndexOnce();
         const item = index.find((i) => i.slug === slug);
 
-        if (!item) throw new Error("Product not found in index");
+        if (!item) {
+          throw new Error("Product not found in index");
+        }
 
         const url = `${R2_PUBLIC_BASE}/${item.path}`;
 
@@ -27,7 +29,7 @@ export default function SingleProduct() {
         const text = await res.text();
 
         if (text.trim().startsWith("<")) {
-          throw new Error("Got HTML instead of JSON (R2 file missing)");
+          throw new Error(`Got HTML instead of JSON from ${url}`);
         }
 
         const data = JSON.parse(text);
