@@ -54,6 +54,7 @@ export function SingleProduct() {
   const [productUrl, setProductUrl] = useState<string | null>(null);
   const [product, setProduct] = useState<ProductJson | null>(null);
   const [notFound, setNotFound] = useState(false);
+  const [fetchError, setFetchError] = useState<string | null>(null);
 
   useEffect(() => {
     clearError();
@@ -61,6 +62,7 @@ export function SingleProduct() {
     setProduct(null);
     setProductUrl(null);
     setNotFound(false);
+    setFetchError(null);
 
     let cancelled = false;
 
@@ -78,6 +80,7 @@ export function SingleProduct() {
       }
 
       setProductUrl(url);
+      setFetchError(null);
 
       try {
         const res = await fetch(url, { cache: "force-cache" });
@@ -88,8 +91,9 @@ export function SingleProduct() {
 
         setProduct(json);
         setLoading(false);
-      } catch {
+      } catch (e: any) {
         if (cancelled) return;
+        setFetchError(e?.message || "Failed to load product JSON");
         setLoading(false);
       }
     })();
@@ -201,6 +205,19 @@ export function SingleProduct() {
         </pre>
       </details>
 
+      {fetchError ? (
+        <pre
+          style={{
+            marginTop: 16,
+            padding: 12,
+            background: "rgba(255,0,0,0.06)",
+            borderRadius: 8,
+            overflow: "auto",
+          }}
+        >
+          {fetchError}
+        </pre>
+      ) : null}
       {lastError ? (
         <pre
           style={{
@@ -221,6 +238,7 @@ export function SingleProduct() {
 // ✅ Provide a default export so src/screens/SingleProduct/index.ts can do:
 // export { default as SingleProduct } from "./SingleProduct";
 export default SingleProduct;
+
 
 
 
