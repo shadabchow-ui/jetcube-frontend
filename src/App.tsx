@@ -186,7 +186,6 @@ async function loadPdpShardOnce(key: string): Promise<PdpShard | null> {
   if (PDP_SHARD_CACHE[key]) return PDP_SHARD_CACHE[key];
   if (PDP_SHARD_PROMISE[key]) return PDP_SHARD_PROMISE[key] as Promise<PdpShard | null>;
 
-  const url = joinUrl(R2_PUBLIC_BASE, `indexes/pdp_paths/${key}.json`);
 
   PDP_SHARD_PROMISE[key] = fetch(encodeURI(url), { cache: "force-cache" })
     .then(async (res) => {
@@ -312,22 +311,7 @@ function ProductRoute({ children }: { children: React.ReactNode }) {
 
         if (!handle) throw new Error("Missing product handle");
 
-        // ✅ FASTEST FLOW:
-        // Try sharded handle → URL lookup first (indexes/pdp_paths/xx.json)
-        try {
-          const key = shardKeyFromHandle(handle);
-          const shard = await loadPdpShardOnce(key);
 
-          const mapped = shard?.[handle];
-          const directUrl = resolveMappedToUrl(mapped);
-          if (directUrl) {
-            const p = await fetchJson(directUrl);
-            if (!cancelled) setProduct(p);
-            return;
-          }
-        } catch (e: any) {
-          throw new Error(`Shard lookup failed for ${handle}`);
-        }
 
         // ✅ NEW PRIMARY FLOW:
         // 1) Load indexes/_index.json from R2 (CACHED IN MEMORY)
