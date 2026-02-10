@@ -4,7 +4,7 @@ import { R2_PUBLIC_BASE, useProductPdpContext } from "../../pdp/ProductPdpContex
 
 export default function SingleProduct() {
   const { slug } = useParams();
-  const { loadIndexOnce } = useProductPdpContext();
+  const { loadIndexOnce, loadPdpShard, fetchJson } = useProductPdpContext();
 
   const [product, setProduct] = useState<any | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -15,27 +15,55 @@ export default function SingleProduct() {
     async function load() {
       try {
         if (!slug) return;
+        setError(null);
+        setProduct(null);
 
-        const index = await loadIndexOnce();
-        const item = index.find((i: any) => i.slug === slug);
+        const handle = slug.trim();
+        console.log("[SingleProduct] Loading handle:", handle);
 
-        if (!item) {
-          setError("Product not found in master index");
-          return;
+        let path: string | null = null;
+
+        // 1. Try Shard Lookup (Fast path)
+        const shardKey = handle.slice(0, 2).toLowerCase();
+        // Regex validation ensures we don't request invalid keys
+        if (/^[a-z0-9_-]{2}$/.test(shardKey)) {
+          const shard = await loadPdpShard(shardKey);
+          if (shard && shard[handle]) {
+            path = shard[handle];
+            console.log("[SingleProduct] Found path in shard:", path);
+          }
         }
 
-        const url = `${R2_PUBLIC_BASE}/${item.path}`;
-        const res = await fetch(url);
-        const text = await res.text();
-
-        if (!res.ok || text.trim().startsWith("<")) {
-          throw new Error(`Bad PDP JSON at ${url}`);
+        // 2. Fallback to Global Index (Slow path)
+        if (!path) {
+          console.log("[SingleProduct] Shard miss, checking global index...");
+          const index = await loadIndexOnce();
+          const item = index.find((i: any) => i.slug === handle);
+          if (item && item.path) {
+            path = item.path;
+            console.log("[SingleProduct] Found path in global index:", path);
+          }
         }
 
-        const data = JSON.parse(text);
-        if (!cancelled) setProduct(data);
+        if (!path) {
+          throw new Error(`Product "${handle}" not found in shard or index.`);
+        }
+
+        // 3. Fetch Product JSON
+        // Robust path joining to prevent double slashes
+        const baseUrl = R2_PUBLIC_BASE.replace(/\/+$/, "");
+        const relativePath = path.replace(/^\/+/, "");
+        const url = `${baseUrl}/${relativePath}`;
+        
+        console.log("[SingleProduct] Fetching JSON:", url);
+        const data = await fetchJson(url);
+
+        if (!cancelled) {
+          setProduct(data);
+          console.log("[SingleProduct] Product loaded successfully");
+        }
       } catch (e: any) {
-        console.error("PDP load error:", e);
+        console.error("[SingleProduct] Error:", e);
         if (!cancelled) setError(e.message || "Failed to load product");
       }
     }
@@ -44,7 +72,7 @@ export default function SingleProduct() {
     return () => {
       cancelled = true;
     };
-  }, [slug, loadIndexOnce]);
+  }, [slug, loadIndexOnce, loadPdpShard, fetchJson]);
 
   if (error) return <div style={{ padding: 40, color: "red" }}>{error}</div>;
   if (!product) return <div style={{ padding: 40 }}>Loading…</div>;
