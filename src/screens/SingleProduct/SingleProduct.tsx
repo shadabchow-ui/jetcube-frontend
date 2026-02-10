@@ -1,243 +1,151 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { useParams } from "react-router-dom";
 
-// NOTE: Cloudflare Pages builds on Linux (case-sensitive).
-// The PDP context lives in src/pdp/, so import it from there (not a local ./ProductPdpContext file).
-import { useProductPdp } from "../../pdp/ProductPdpContext";
+// Base URL for PDP shard indexes (kept here for visibility; actual loading happens via ProductPdpContext)
+const PDP_INDEX_BASE_URL =
+  (import.meta as any).env?.VITE_PDP_INDEX_BASE_URL ||
+  "https://pub-efc133d84c664ca8ace8be57ec3e4d65.r2.dev/indexes/pdp2/";
+
+// Prevent TypeScript noUnusedLocals from failing builds in strict configs.
+void PDP_INDEX_BASE_URL;
 
 type ProductJson = any;
 
-function safeTitle(p: any): string {
-  return (
-    p?.title ||
-    p?.name ||
-    p?.product_title ||
-    p?.productName ||
-    p?.handle ||
-    "Product"
-  );
+function safeParseJson(text: string) {
+  try {
+    return JSON.parse(text);
+  } catch {
+    return null;
+  }
 }
 
-function safePrice(p: any): string | null {
-  const v =
-    p?.price ??
-    p?.price_current ??
-    p?.current_price ??
-    p?.sale_price ??
-    p?.pricing?.price ??
-    null;
+async function fetchGzipJson(url: string): Promise<any> {
+  const res = await fetch(url, { cache: "no-store" });
+  if (!res.ok) throw new Error(`Fetch failed: ${res.status} ${res.statusText}`);
 
-  if (v == null) return null;
-  if (typeof v === "number") return `$${v.toFixed(2)}`;
-  return String(v);
-}
+  const ct = res.headers.get("content-type") || "";
+  if (ct.includes("application/json")) return await res.json();
 
-function pickImages(p: any): string[] {
-  const imgs =
-    p?.images || p?.image_urls || p?.imageUrls || p?.media || p?.gallery || [];
+  const buf = await res.arrayBuffer();
+  try {
+    const text = new TextDecoder("utf-8").decode(buf);
+    const parsed = safeParseJson(text);
+    if (parsed) return parsed;
+  } catch {}
 
-  if (Array.isArray(imgs)) {
-    return imgs
-      .map((x) => (typeof x === "string" ? x : x?.url || x?.src))
-      .filter(Boolean);
+  if (typeof (window as any).DecompressionStream === "function") {
+    const ds = new (window as any).DecompressionStream("gzip");
+    const stream = new Blob([buf]).stream().pipeThrough(ds);
+    const decompressed = await new Response(stream).arrayBuffer();
+    const text = new TextDecoder("utf-8").decode(decompressed);
+    return JSON.parse(text);
   }
 
-  return [];
+  throw new Error("Unable to parse JSON (gzip bytes without decompression support).");
 }
 
-export function SingleProduct() {
-  const { slug = "" } = useParams();
-  const { getUrlForSlug, preloadShardForSlug, lastError, clearError } =
-    useProductPdp();
+import { useProductPdp } from "../../pdp/ProductPdpContext";
+
+export default function SingleProduct() {
+  const { slug = "" } = useParams<{ slug: string }>();
+  const { preloadShardForSlug, getUrlForSlug } = useProductPdp();
 
   const [loading, setLoading] = useState(true);
-  const [productUrl, setProductUrl] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
   const [product, setProduct] = useState<ProductJson | null>(null);
-  const [notFound, setNotFound] = useState(false);
-  const [fetchError, setFetchError] = useState<string | null>(null);
+
+  const normalizedSlug = useMemo(() => (slug || "").trim(), [slug]);
 
   useEffect(() => {
-    clearError();
-    setLoading(true);
-    setProduct(null);
-    setProductUrl(null);
-    setNotFound(false);
-    setFetchError(null);
-
     let cancelled = false;
 
-    (async () => {
-      // Preload shard for faster resolution (optional)
-      await preloadShardForSlug(slug);
+    async function run() {
+      if (!normalizedSlug) return;
 
-      const url = await getUrlForSlug(slug);
-      if (cancelled) return;
-
-      if (!url) {
-        setNotFound(true);
-        setLoading(false);
-        return;
-      }
-
-      setProductUrl(url);
-      setFetchError(null);
+      setLoading(true);
+      setError(null);
+      setProduct(null);
 
       try {
-        const res = await fetch(url, { cache: "force-cache" });
-        if (!res.ok) throw new Error(`Failed to load product: ${res.status}`);
+        await preloadShardForSlug(normalizedSlug);
 
-        const json = await res.json();
+        const url = await getUrlForSlug(normalizedSlug);
+        if (!url) {
+          throw new Error("Product not found");
+        }
+
+        const json = await fetchGzipJson(url);
         if (cancelled) return;
 
         setProduct(json);
-        setLoading(false);
       } catch (e: any) {
         if (cancelled) return;
-        setFetchError(e?.message || "Failed to load product JSON");
-        setLoading(false);
+        setError(e?.message || "Product failed to load");
+      } finally {
+        if (!cancelled) setLoading(false);
       }
-    })();
+    }
 
+    run();
     return () => {
       cancelled = true;
     };
-  }, [slug, getUrlForSlug, preloadShardForSlug, clearError]);
-
-  const title = useMemo(() => (product ? safeTitle(product) : ""), [product]);
-  const price = useMemo(() => (product ? safePrice(product) : null), [product]);
-  const images = useMemo(() => (product ? pickImages(product) : []), [product]);
+  }, [normalizedSlug, preloadShardForSlug, getUrlForSlug]);
 
   if (loading) {
     return (
-      <div style={{ padding: 24 }}>
-        <h2 style={{ margin: 0 }}>Loading…</h2>
-        <p style={{ opacity: 0.7, marginTop: 8 }}>
-          Resolving PDP path for <code>{slug}</code>
-        </p>
+      <div className="container" style={{ padding: "24px" }}>
+        <div style={{ opacity: 0.8 }}>Loading product…</div>
       </div>
     );
   }
 
-  if (notFound) {
+  if (error) {
     return (
-      <div style={{ padding: 24 }}>
-        <h2 style={{ margin: 0 }}>Not found</h2>
-        <p style={{ opacity: 0.75, marginTop: 8 }}>
-          No PDP URL found for <code>{slug}</code>.
-        </p>
+      <div className="container" style={{ padding: "24px" }}>
+        <div
+          style={{
+            background: "rgba(255, 0, 0, 0.08)",
+            border: "1px solid rgba(255, 0, 0, 0.25)",
+            padding: "12px 14px",
+            borderRadius: "10px",
+            marginBottom: "14px",
+          }}
+        >
+          <div style={{ fontWeight: 700, marginBottom: 6 }}>Product failed to load</div>
+          <div style={{ opacity: 0.9 }}>{error}</div>
+        </div>
+      </div>
+    );
+  }
 
-        {lastError ? (
-          <pre
-            style={{
-              marginTop: 12,
-              padding: 12,
-              background: "rgba(0,0,0,0.06)",
-              borderRadius: 8,
-              overflow: "auto",
-            }}
-          >
-            {lastError}
-          </pre>
-        ) : null}
+  if (!product) {
+    return (
+      <div className="container" style={{ padding: "24px" }}>
+        <div
+          style={{
+            background: "rgba(255, 0, 0, 0.08)",
+            border: "1px solid rgba(255, 0, 0, 0.25)",
+            padding: "12px 14px",
+            borderRadius: "10px",
+          }}
+        >
+          <div style={{ fontWeight: 700, marginBottom: 6 }}>Product failed to load</div>
+          <div style={{ opacity: 0.9 }}>Product not found</div>
+        </div>
       </div>
     );
   }
 
   return (
-    <div style={{ padding: 24 }}>
-      <div style={{ display: "flex", alignItems: "baseline", gap: 12 }}>
-        <h1 style={{ margin: 0 }}>{title}</h1>
-        {price ? <span style={{ opacity: 0.8 }}>{price}</span> : null}
-      </div>
-
-      {productUrl ? (
-        <p style={{ marginTop: 10, opacity: 0.7 }}>
-          Source:{" "}
-          <a href={productUrl} target="_blank" rel="noreferrer">
-            {productUrl}
-          </a>
-        </p>
-      ) : null}
-
-      {images.length ? (
-        <div
-          style={{
-            display: "grid",
-            gridTemplateColumns: "repeat(auto-fill, minmax(160px, 1fr))",
-            gap: 12,
-            marginTop: 16,
-          }}
-        >
-          {images.slice(0, 12).map((src, i) => (
-            <div
-              key={`${src}-${i}`}
-              style={{
-                borderRadius: 10,
-                overflow: "hidden",
-                background: "rgba(0,0,0,0.06)",
-                border: "1px solid rgba(0,0,0,0.08)",
-              }}
-            >
-              <img
-                src={src}
-                alt=""
-                loading="lazy"
-                style={{ width: "100%", height: 160, objectFit: "cover" }}
-              />
-            </div>
-          ))}
-        </div>
-      ) : null}
-
-      <details style={{ marginTop: 18 }}>
-        <summary style={{ cursor: "pointer" }}>Raw JSON</summary>
-        <pre
-          style={{
-            marginTop: 10,
-            padding: 12,
-            background: "rgba(0,0,0,0.06)",
-            borderRadius: 8,
-            overflow: "auto",
-            maxHeight: 520,
-          }}
-        >
-          {JSON.stringify(product, null, 2)}
-        </pre>
-      </details>
-
-      {fetchError ? (
-        <pre
-          style={{
-            marginTop: 16,
-            padding: 12,
-            background: "rgba(255,0,0,0.06)",
-            borderRadius: 8,
-            overflow: "auto",
-          }}
-        >
-          {fetchError}
-        </pre>
-      ) : null}
-      {lastError ? (
-        <pre
-          style={{
-            marginTop: 16,
-            padding: 12,
-            background: "rgba(255,0,0,0.06)",
-            borderRadius: 8,
-            overflow: "auto",
-          }}
-        >
-          {lastError}
-        </pre>
-      ) : null}
+    <div className="container" style={{ padding: "24px" }}>
+      <pre style={{ whiteSpace: "pre-wrap", wordBreak: "break-word" }}>
+        {JSON.stringify(product, null, 2)}
+      </pre>
     </div>
   );
 }
 
-// ✅ Provide a default export so src/screens/SingleProduct/index.ts can do:
-// export { default as SingleProduct } from "./SingleProduct";
-export default SingleProduct;
 
 
 
