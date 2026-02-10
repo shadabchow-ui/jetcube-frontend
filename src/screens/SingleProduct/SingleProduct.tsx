@@ -1,96 +1,178 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { useParams } from "react-router-dom";
-import { ProductPdpProvider } from "../pdp/ProductPdpContext";
+import { useProductPdp } from "../../pdp/ProductPdpContext";
 
-type Product = {
-  handle: string;
-  title: string;
-  price: number;
-  images: string[];
-  description: string;
-  long_description?: string;
-  reviews?: any[];
-};
-
-const PDP_INDEX_BASE_URL =
-  (import.meta as any).env?.VITE_PDP_INDEX_BASE_URL ||
-  "https://pub-efc133d84c664ca8ace8be57ec3e4d65.r2.dev/indexes/pdp2/";
+type AnyRecord = Record<string, any>;
 
 export default function SingleProduct(): JSX.Element {
-  const { handle } = useParams<{ handle: string }>();
-  const [product, setProduct] = useState<Product | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const { slug } = useParams<{ slug: string }>();
+
+  const { fetchProductBySlug, preloadShardForSlug, lastError, clearError } =
+    useProductPdp();
+
+  const [loading, setLoading] = useState<boolean>(true);
+  const [product, setProduct] = useState<AnyRecord | null>(null);
+  const [resolvedUrl, setResolvedUrl] = useState<string>("");
+
+  const safeSlug = useMemo(() => (slug || "").trim(), [slug]);
 
   useEffect(() => {
-    if (!handle) return;
+    if (!safeSlug) return;
+    // warm caches
+    void preloadShardForSlug(safeSlug);
+  }, [safeSlug, preloadShardForSlug]);
 
-    const shard = `${handle[0]}-.json.gz`;
-    const indexUrl = `${PDP_INDEX_BASE_URL}${shard}`;
+  useEffect(() => {
+    let cancelled = false;
 
-    fetch(indexUrl)
-      .then((r) => {
-        if (!r.ok) throw new Error("Index shard not found");
-        return r.arrayBuffer();
-      })
-      .then((buf) => {
-        const text = new TextDecoder().decode(buf);
-        const map = JSON.parse(text);
-        const productUrl = map[handle];
-        if (!productUrl) throw new Error("Product not in index");
+    async function run() {
+      if (!safeSlug) {
+        setLoading(false);
+        setProduct(null);
+        setResolvedUrl("");
+        return;
+      }
 
-        return fetch(productUrl).then((r) => {
-          if (!r.ok) throw new Error("Product JSON missing");
-          return r.arrayBuffer();
-        });
-      })
-      .then((buf) => {
-        const text = new TextDecoder().decode(buf);
-        const data = JSON.parse(text);
+      setLoading(true);
+      clearError();
+
+      try {
+        const { url, data } = await fetchProductBySlug(safeSlug);
+        if (cancelled) return;
+
+        setResolvedUrl(url);
         setProduct(data);
-      })
-      .catch((err) => {
-        console.error(err);
-        setError(err.message || "Failed to load product");
-      });
-  }, [handle]);
+      } catch {
+        if (cancelled) return;
+        setProduct(null);
+        setResolvedUrl("");
+      } finally {
+        if (cancelled) return;
+        setLoading(false);
+      }
+    }
 
-  if (error) {
+    void run();
+    return () => {
+      cancelled = true;
+    };
+  }, [safeSlug, fetchProductBySlug, clearError]);
+
+  if (!safeSlug) {
     return (
-      <div className="w-full min-h-screen flex items-center justify-center text-red-500">
-        Product failed to load: {error}
+      <div style={{ padding: 24 }}>
+        <h2>Missing product</h2>
+        <p>No slug provided.</p>
+      </div>
+    );
+  }
+
+  if (loading) {
+    return (
+      <div style={{ padding: 24 }}>
+        <h2>Loading…</h2>
+        <p>Fetching product: {safeSlug}</p>
       </div>
     );
   }
 
   if (!product) {
     return (
-      <div className="w-full min-h-screen flex items-center justify-center">
-        Loading product…
+      <div style={{ padding: 24 }}>
+        <h2>Couldn’t load product</h2>
+        <p>Slug: {safeSlug}</p>
+        {lastError ? (
+          <pre style={{ whiteSpace: "pre-wrap", marginTop: 12 }}>{lastError}</pre>
+        ) : null}
       </div>
     );
   }
 
+  // Flexible field mapping (your JSON may vary)
+  const title =
+    product?.title ||
+    product?.name ||
+    product?.product_title ||
+    product?.productName ||
+    safeSlug;
+
+  const price =
+    product?.price ||
+    product?.sale_price ||
+    product?.price_value ||
+    product?.pricing?.price;
+
+  const description =
+    product?.description ||
+    product?.body_html ||
+    product?.product_description ||
+    product?.desc ||
+    "";
+
+  const images: string[] =
+    (Array.isArray(product?.images) ? product.images : []) ||
+    (Array.isArray(product?.image_urls) ? product.image_urls : []) ||
+    (Array.isArray(product?.media) ? product.media : []) ||
+    [];
+
   return (
-    <ProductPdpProvider product={product}>
-      <div className="max-w-7xl mx-auto px-6 py-12 space-y-12">
-        <h1 className="text-3xl font-semibold">{product.title}</h1>
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-10">
-          <img
-            src={product.images?.[0]}
-            alt={product.title}
-            className="w-full rounded-lg"
-          />
-          <div>
-            <p className="text-xl font-semibold">${product.price}</p>
-            <p className="mt-4 text-gray-600 whitespace-pre-line">
-              {product.description}
-            </p>
-          </div>
+    <div style={{ padding: 24 }}>
+      <h1 style={{ marginBottom: 8 }}>{String(title)}</h1>
+
+      {price != null ? (
+        <p style={{ fontSize: 18, marginTop: 0 }}>
+          <strong>${String(price)}</strong>
+        </p>
+      ) : null}
+
+      {images?.length ? (
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 12, marginTop: 16 }}>
+          {images.slice(0, 8).map((src, idx) => (
+            <img
+              key={`${src}-${idx}`}
+              src={String(src)}
+              alt={String(title)}
+              style={{ width: "100%", height: 160, objectFit: "cover", borderRadius: 10 }}
+              loading="lazy"
+            />
+          ))}
         </div>
-      </div>
-    </ProductPdpProvider>
+      ) : (
+        <p style={{ opacity: 0.7, marginTop: 16 }}>
+          No images found in JSON (this is based on what fields exist in your product file).
+        </p>
+      )}
+
+      {description ? (
+        <div style={{ marginTop: 18, lineHeight: 1.6, maxWidth: 900 }}>
+          <h3>Description</h3>
+          <div
+            dangerouslySetInnerHTML={{
+              __html: String(description),
+            }}
+          />
+        </div>
+      ) : (
+        <p style={{ opacity: 0.7, marginTop: 16 }}>
+          No description field found in JSON.
+        </p>
+      )}
+
+      <details style={{ marginTop: 18 }}>
+        <summary>Debug</summary>
+        {resolvedUrl ? (
+          <p style={{ marginTop: 12 }}>
+            <strong>Resolved URL:</strong> {resolvedUrl}
+          </p>
+        ) : null}
+        <pre style={{ whiteSpace: "pre-wrap", marginTop: 12 }}>
+          {JSON.stringify(product, null, 2)}
+        </pre>
+      </details>
+    </div>
   );
 }
+
 
 
 
