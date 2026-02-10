@@ -1,97 +1,97 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { useParams } from "react-router-dom";
-from "../pdp/ProductPdpContext";
+import { ProductPdpProvider } from "../pdp/ProductPdpContext";
 
-/**
- * PDP screen:
- * - Pulls slug from route
- * - Preloads the shard map for the slug (fast)
- * - Fetches the product JSON via ProductPdpContext (resolves batch path + handles .json.gz)
- */
+type Product = {
+  handle: string;
+  title: string;
+  price: number;
+  images: string[];
+  description: string;
+  long_description?: string;
+  reviews?: any[];
+};
 
-export default function SingleProduct() {
-  const { slug } = useParams();
-  const { product, isLoading, error, preloadShardForSlug, fetchProductBySlug } = useProductPdp();
+const PDP_INDEX_BASE_URL =
+  (import.meta as any).env?.VITE_PDP_INDEX_BASE_URL ||
+  "https://pub-efc133d84c664ca8ace8be57ec3e4d65.r2.dev/indexes/pdp2/";
 
-  const cleanSlug = useMemo(() => {
-    const raw = (slug ?? "").trim();
-    try {
-      return decodeURIComponent(raw).trim().toLowerCase();
-    } catch {
-      return raw.toLowerCase();
-    }
-  }, [slug]);
-
-  const [localError, setLocalError] = useState<string | null>(null);
+export default function SingleProduct(): JSX.Element {
+  const { handle } = useParams<{ handle: string }>();
+  const [product, setProduct] = useState<Product | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    let cancelled = false;
+    if (!handle) return;
 
-    async function run() {
-      setLocalError(null);
+    const shard = `${handle[0]}-.json.gz`;
+    const indexUrl = `${PDP_INDEX_BASE_URL}${shard}`;
 
-      if (!cleanSlug) {
-        setLocalError("Missing product slug");
-        return;
-      }
+    fetch(indexUrl)
+      .then((r) => {
+        if (!r.ok) throw new Error("Index shard not found");
+        return r.arrayBuffer();
+      })
+      .then((buf) => {
+        const text = new TextDecoder().decode(buf);
+        const map = JSON.parse(text);
+        const productUrl = map[handle];
+        if (!productUrl) throw new Error("Product not in index");
 
-      try {
-        // Small optimization: load the shard index first
-        await preloadShardForSlug(cleanSlug);
+        return fetch(productUrl).then((r) => {
+          if (!r.ok) throw new Error("Product JSON missing");
+          return r.arrayBuffer();
+        });
+      })
+      .then((buf) => {
+        const text = new TextDecoder().decode(buf);
+        const data = JSON.parse(text);
+        setProduct(data);
+      })
+      .catch((err) => {
+        console.error(err);
+        setError(err.message || "Failed to load product");
+      });
+  }, [handle]);
 
-        // Then load the product
-        await fetchProductBySlug(cleanSlug);
-      } catch (e: any) {
-        if (cancelled) return;
-        if (e?.name === "AbortError") return;
-        setLocalError(e?.message || "Failed to load product");
-      }
-    }
-
-    run();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [cleanSlug, preloadShardForSlug, fetchProductBySlug]);
-
-  if (localError || error) {
+  if (error) {
     return (
-      <div style={{ padding: 16 }}>
-        <div style={{ background: "#2b0b0b", border: "1px solid #6b1a1a", padding: 12, borderRadius: 8 }}>
-          <div style={{ fontWeight: 700, marginBottom: 4 }}>Product failed to load</div>
-          <div style={{ opacity: 0.9 }}>{localError || error}</div>
-          <div style={{ marginTop: 10, opacity: 0.8, fontSize: 12 }}>
-            Slug: <code>{cleanSlug || "(empty)"}</code>
-          </div>
-        </div>
+      <div className="w-full min-h-screen flex items-center justify-center text-red-500">
+        Product failed to load: {error}
       </div>
     );
   }
 
-  if (isLoading || !product) {
+  if (!product) {
     return (
-      <div style={{ padding: 16, opacity: 0.9 }}>
+      <div className="w-full min-h-screen flex items-center justify-center">
         Loading product…
       </div>
     );
   }
 
-  // Render your existing PDP layout here.
-  // Keeping this minimal since you already have the full PDP UI in your codebase.
   return (
-    <div style={{ padding: 16 }}>
-      <h2 style={{ margin: 0, marginBottom: 8 }}>{product?.title || product?.name || "Untitled product"}</h2>
-      <div style={{ opacity: 0.85, marginBottom: 12 }}>
-        {product?.brand ? <span>Brand: {product.brand}</span> : null}
+    <ProductPdpProvider product={product}>
+      <div className="max-w-7xl mx-auto px-6 py-12 space-y-12">
+        <h1 className="text-3xl font-semibold">{product.title}</h1>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-10">
+          <img
+            src={product.images?.[0]}
+            alt={product.title}
+            className="w-full rounded-lg"
+          />
+          <div>
+            <p className="text-xl font-semibold">${product.price}</p>
+            <p className="mt-4 text-gray-600 whitespace-pre-line">
+              {product.description}
+            </p>
+          </div>
+        </div>
       </div>
-
-      <pre style={{ whiteSpace: "pre-wrap", opacity: 0.9 }}>
-        {JSON.stringify(product, null, 2)}
-      </pre>
-    </div>
+    </ProductPdpProvider>
   );
 }
+
 
 
 
