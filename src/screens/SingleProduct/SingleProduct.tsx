@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from "react";
 import { useParams } from "react-router-dom";
 import { useProductPdp } from "../../pdp/ProductPdpContext";
 
+// We re-declare this here just for display purposes in the debug section
 const PRODUCTS_BASE_URL =
   (import.meta as any).env?.VITE_R2_PRODUCTS_BASE_URL ||
   "https://pub-efc133d84c664ca8ace8be57ec3e4d65.r2.dev/products";
@@ -35,13 +36,20 @@ export default function SingleProduct() {
       clearError();
 
       try {
-        // Warm relevant maps so we don't fall back to the wrong URL shape.
+        // 1. Preload the shard to ensure we have the map
         await preloadShardForSlug(cleanSlug);
 
+        // 2. Fetch the actual product data
         const { data } = await fetchProductBySlug(cleanSlug);
+        
         if (cancelled) return;
 
-        setProduct(data);
+        if (data) {
+          setProduct(data);
+        } else {
+          throw new Error("Product data was empty");
+        }
+        
         setLoading(false);
       } catch (err: any) {
         if (cancelled) return;
@@ -75,6 +83,7 @@ export default function SingleProduct() {
     );
   }
 
+  // Error State
   if (fetchError || lastError || !product) {
     return (
       <div style={{ padding: 24 }}>
@@ -83,6 +92,7 @@ export default function SingleProduct() {
             padding: 16,
             border: "1px solid rgba(255,0,0,0.25)",
             borderRadius: 12,
+            backgroundColor: "rgba(255,0,0,0.03)"
           }}
         >
           <div style={{ fontSize: 18, fontWeight: 700, color: "#b91c1c" }}>
@@ -110,6 +120,8 @@ export default function SingleProduct() {
     );
   }
 
+  // --- Render Logic ---
+
   const images: string[] =
     Array.isArray(product?.images) && product.images.length
       ? product.images
@@ -124,7 +136,7 @@ export default function SingleProduct() {
   return (
     <div style={{ padding: 24 }}>
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 24 }}>
-        {/* Images */}
+        {/* Left Column: Images */}
         <div>
           {images.length ? (
             <img
@@ -133,7 +145,7 @@ export default function SingleProduct() {
               style={{
                 width: "100%",
                 borderRadius: 12,
-                border: "1px solid rgba(255,255,255,0.08)",
+                border: "1px solid rgba(0,0,0,0.08)",
               }}
               loading="lazy"
             />
@@ -143,11 +155,12 @@ export default function SingleProduct() {
                 width: "100%",
                 paddingTop: "70%",
                 borderRadius: 12,
-                border: "1px solid rgba(255,255,255,0.08)",
+                border: "1px solid rgba(0,0,0,0.08)",
                 opacity: 0.7,
                 display: "flex",
                 alignItems: "center",
                 justifyContent: "center",
+                backgroundColor: "#f9f9f9"
               }}
             >
               No image
@@ -173,16 +186,21 @@ export default function SingleProduct() {
                     aspectRatio: "1 / 1",
                     objectFit: "cover",
                     borderRadius: 10,
-                    border: "1px solid rgba(255,255,255,0.08)",
+                    border: "1px solid rgba(0,0,0,0.08)",
+                    cursor: "pointer"
                   }}
                   loading="lazy"
+                  onClick={() => {
+                      // Optional: You could add state here to change the main image
+                      // but for now we just render them.
+                  }}
                 />
               ))}
             </div>
           ) : null}
         </div>
 
-        {/* Details */}
+        {/* Right Column: Details */}
         <div>
           <h1 style={{ margin: 0, fontSize: 24 }}>
             {product?.title || cleanSlug}
@@ -196,7 +214,7 @@ export default function SingleProduct() {
 
           {price != null ? (
             <div style={{ marginTop: 12, fontSize: 22, fontWeight: 700 }}>
-              ${String(price)}
+              {typeof price === 'number' ? `$${price.toFixed(2)}` : price}
             </div>
           ) : null}
 
@@ -222,8 +240,17 @@ export default function SingleProduct() {
             </div>
           ) : null}
 
-          <div style={{ marginTop: 18, fontSize: 12, opacity: 0.7 }}>
-            Source base: <code>{PRODUCTS_BASE_URL}</code>
+          {/* Debug / Source Info */}
+          <div style={{ marginTop: 32, paddingTop: 16, borderTop: "1px solid #eee", fontSize: 12, opacity: 0.7 }}>
+            <div style={{ marginBottom: 4 }}>
+               Source base: <code>{PRODUCTS_BASE_URL}</code>
+            </div>
+            <details>
+                <summary style={{ cursor: 'pointer' }}>Raw JSON</summary>
+                <pre style={{ marginTop: 8, overflow: 'auto', maxHeight: 200, background: '#f5f5f5', padding: 8, borderRadius: 6 }}>
+                    {JSON.stringify(product, null, 2)}
+                </pre>
+            </details>
           </div>
         </div>
       </div>
