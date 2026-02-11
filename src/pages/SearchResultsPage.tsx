@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { R2_BASE, joinUrl } from "../config/r2";
 import { Link, useLocation } from "react-router-dom";
 
 type IndexItem = {
@@ -11,18 +12,6 @@ type IndexItem = {
   searchable: string; // pre-normalized
 };
 
-/* ============================
-   R2 Base (PUBLIC)
-   ============================ */
-const R2_PUBLIC_BASE =
-  import.meta.env.VITE_R2_PUBLIC_BASE ||
-  "https://pub-efc133d84c664ca8ace8be57ec3e4d65.r2.dev";
-
-function joinUrl(base: string, path: string) {
-  const b = String(base || "").replace(/\/+$/, "");
-  const p = String(path || "").replace(/^\/+/, "");
-  return `${b}/${p}`;
-}
 
 function useQueryParam(name: string) {
   const { search } = useLocation();
@@ -58,7 +47,7 @@ export default function SearchResultsPage() {
       try {
         setErr(null);
 
-        const url = joinUrl(R2_PUBLIC_BASE, "indexes/search_index.enriched.json");
+        const url = joinUrl(R2_BASE, "indexes/search_index.enriched.json");
         const res = await fetch(url, {
           cache: "force-cache",
         });
