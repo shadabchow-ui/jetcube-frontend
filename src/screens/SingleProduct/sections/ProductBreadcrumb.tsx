@@ -37,8 +37,8 @@ const Sep = () => <span className="mx-1 text-[#565959]">›</span>;
 const ProductBreadcrumb = () => {
   const product = useProductPdp();
   const displayTitle = stripBrandPrefix(
-    String(product.title || ""),
-    (product as any).brand
+    String(product?.title || ""),
+    String((product as any)?.brand || "")
   );
 
   return (
@@ -56,7 +56,7 @@ const ProductBreadcrumb = () => {
             <CrumbLink href="/shop">Women</CrumbLink>
           </li>
 
-          {product.category ? (
+          {product?.category ? (
             <>
               <Sep />
               <li className="capitalize">
@@ -69,7 +69,7 @@ const ProductBreadcrumb = () => {
 
           {/* current page crumb - Amazon keeps it same gray and not a link */}
           <li className="line-clamp-1 text-[#565959]" aria-current="page">
-            {displayTitle}
+            {displayTitle || "Product"}
           </li>
         </ol>
       </div>
