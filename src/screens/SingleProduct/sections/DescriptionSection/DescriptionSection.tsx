@@ -7,25 +7,24 @@ import {
   TabsTrigger,
 } from "../../../../components/ui/tabs";
 import { useProductPdp } from "../../../../pdp/ProductPdpContext";
-import { ProductReviewsSection } from "./ProductReviewsSection";
 
 const tabItems = [
   { value: "description", label: "Description" },
   { value: "additional", label: "Additional Information" },
-  { value: "reviews", label: "Reviews [5]" },
+  { value: "reviews", label: "Reviews" },
 ];
 
 export const DescriptionSection = (): JSX.Element => {
   const [activeTab, setActiveTab] = useState("description");
   const product = useProductPdp();
 
-  // ✅ These are template “description” images, NOT product gallery images.
+  // ✅ These are template "description" images, NOT product gallery images.
   const img1 = "/img/group-109-1.png";
   const img2 = "/img/group-109-1.png";
 
-  const shortDescription = product?.short_description;
+  const shortDescription = product?.short_description || "";
   const longDescriptionBlocks =
-    product?.long_description?.split("\n\n").filter(Boolean) ?? [];
+    (product?.long_description || "").split?.("\n\n")?.filter?.(Boolean) ?? [];
 
   return (
     <section className="w-full bg-white py-12">
@@ -54,7 +53,7 @@ export const DescriptionSection = (): JSX.Element => {
                 </p>
               )}
 
-              {longDescriptionBlocks.map((block, index) => (
+              {longDescriptionBlocks.map((block: string, index: number) => (
                 <p
                   key={index}
                   className="[font-family:'Poppins',Helvetica] font-normal text-[#9f9f9f] text-base text-justify tracking-[0] leading-normal"
@@ -87,9 +86,28 @@ export const DescriptionSection = (): JSX.Element => {
             </div>
           </TabsContent>
 
-          {/* REVIEWS TAB (NOW FULLY WIRED) */}
+          {/* REVIEWS TAB — inline fallback (ProductReviewsSection doesn't exist) */}
           <TabsContent value="reviews" className="mt-0">
-            <ProductReviewsSection />
+            <div className="max-w-[1026px] mx-auto">
+              {Array.isArray(product?.reviews?.items) && product.reviews.items.length > 0 ? (
+                <div className="space-y-4">
+                  {product.reviews.items.slice(0, 10).map((r: any, idx: number) => (
+                    <div key={idx} className="border-b pb-4">
+                      <div className="font-medium text-sm">
+                        {r?.author || "Verified buyer"}
+                      </div>
+                      {r?.body ? (
+                        <p className="text-sm text-gray-600 mt-1">{r.body}</p>
+                      ) : null}
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <p className="[font-family:'Poppins',Helvetica] font-normal text-[#9f9f9f] text-base text-center">
+                  No reviews yet.
+                </p>
+              )}
+            </div>
           </TabsContent>
         </Tabs>
       </div>
