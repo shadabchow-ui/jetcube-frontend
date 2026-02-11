@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { R2_BASE, joinUrl } from "../config/r2";
 
 /* -------------------------------------------------
    Types
@@ -36,11 +37,6 @@ export type UseIndexProductsReturn = {
    Constants
 ------------------------------------------------- */
 
-// ✅ R2 public base (fallback to your known public bucket if env not set)
-const R2_PUBLIC_BASE =
-  import.meta.env.VITE_R2_PUBLIC_BASE ||
-  "https://pub-efc133d84c664ca8ace8be57ec3e4d65.r2.dev";
-
 // ✅ where the cards index lives
 const INDEX_CARDS_PATH =
   import.meta.env.VITE_INDEX_CARDS_PATH || "/indexes/_index.cards.json.gz";
@@ -55,7 +51,7 @@ function joinUrl(base: string, path: string) {
 }
 
 const CARDS_INDEX_URL = (() => {
-  const url = joinUrl(R2_PUBLIC_BASE, INDEX_CARDS_PATH);
+  const url = joinUrl(R2_BASE, INDEX_CARDS_PATH);
   return INDEX_VERSION ? `${url}?v=${encodeURIComponent(INDEX_VERSION)}` : url;
 })();
 
