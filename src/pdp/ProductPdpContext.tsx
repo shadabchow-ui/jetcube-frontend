@@ -1,8 +1,6 @@
 import React, { createContext, useContext } from "react";
+import { R2_BASE, joinUrl } from "../config/r2";
 
-export const R2_PUBLIC_BASE =
-  import.meta.env.VITE_R2_PUBLIC_BASE ||
-  "https://pub-efc133d84c664ca8ace8be57ec3e4d65.r2.dev";
 
 type IndexItem = {
   slug: string;
@@ -15,8 +13,14 @@ type IndexItem = {
 
 type PdpShard = Record<string, string>;
 
+type IndexManifest = {
+  version: number;
+  base: string;
+  shards: Record<string, string>;
+};
+
 type Ctx = {
-  loadIndexOnce: () => Promise<IndexItem[]>;
+  loadIndexOnce: () => Promise<IndexItem[] | IndexManifest>;
   loadPdpShard: (shardKey: string) => Promise<PdpShard | null>;
   fetchJson: (url: string) => Promise<any>;
 };
@@ -45,8 +49,8 @@ export function useProductPdp(): any {
 /* ────────────────────────────────────────────────────────
    Caches (unchanged)
    ──────────────────────────────────────────────────────── */
-let INDEX_CACHE: IndexItem[] | null = null;
-let INDEX_PROMISE: Promise<IndexItem[]> | null = null;
+let INDEX_CACHE: (IndexItem[] | IndexManifest) | null = null;
+let INDEX_PROMISE: Promise<IndexItem[] | IndexManifest> | null = null;
 
 const SHARD_CACHE: Record<string, PdpShard> = {};
 const SHARD_PROMISES: Record<string, Promise<PdpShard | null>> = {};
@@ -97,7 +101,7 @@ export function ProductPdpProvider({
     if (INDEX_CACHE) return INDEX_CACHE;
     if (INDEX_PROMISE) return INDEX_PROMISE;
 
-    const url = `${R2_PUBLIC_BASE}/indexes/_index.json.gz`;
+    const url = joinUrl(R2_BASE, "indexes/_index.json.gz");
     console.log("[ProductPdpContext] Fetching global index:", url);
 
     INDEX_PROMISE = internalFetchJson(url)
@@ -105,9 +109,15 @@ export function ProductPdpProvider({
         // Support both array format and manifest { version, base, shards }
         if (Array.isArray(data)) {
           INDEX_CACHE = data;
-        } else if (data && typeof data === "object" && Array.isArray(data.shards)) {
+        } else if (
+          data &&
+          typeof data === "object" &&
+          data.shards &&
+          typeof data.shards === "object" &&
+          !Array.isArray(data.shards)
+        ) {
           // Manifest format — store as-is for now; callers handle shape
-          INDEX_CACHE = data as any;
+          INDEX_CACHE = data as IndexManifest;
         } else {
           throw new Error("Index is not an array or valid manifest");
         }
@@ -124,11 +134,11 @@ export function ProductPdpProvider({
   }
 
   async function loadPdpShard(shardKey: string) {
-    if (!shardKey || shardKey.length < 2) return null;
+    if (!shardKey) return null;
     if (SHARD_CACHE[shardKey]) return SHARD_CACHE[shardKey];
     if (SHARD_PROMISES[shardKey]) return SHARD_PROMISES[shardKey];
 
-    const url = `${R2_PUBLIC_BASE}/indexes/pdp_paths/${shardKey}.json.gz`;
+    const url = joinUrl(R2_BASE, `indexes/pdp_paths/${shardKey}.json.gz`);
     console.log("[ProductPdpContext] Fetching shard:", url);
 
     SHARD_PROMISES[shardKey] = internalFetchJson(url)
@@ -162,43 +172,3 @@ export function useProductPdpContext() {
     throw new Error("useProductPdpContext must be used inside ProductPdpProvider");
   return ctx;
 }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
- 
-
-
-
-
-
-
-
-
-
-
-
-
-
- 
-
-
-
-
-
