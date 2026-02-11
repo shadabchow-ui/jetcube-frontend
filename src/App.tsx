@@ -85,14 +85,54 @@ function joinUrl(base: string, path: string) {
 }
 
 /* ============================
+   ✅ Validated JSON fetch
+   - Rejects text/html (Cloudflare SPA fallback)
+   - Handles gzip transparently (browser decompresses)
+   ============================ */
+async function fetchJson(url: string) {
+  const res = await fetch(encodeURI(url), { cache: "force-cache" });
+
+  const ct = (res.headers.get("content-type") || "").toLowerCase();
+
+  // Reject HTML fallback pages
+  if (ct.includes("text/html")) {
+    throw new Error(
+      `Expected JSON at ${url} but got text/html (file missing from R2 or wrong Content-Type)`
+    );
+  }
+
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(`HTTP ${res.status} at ${url}: ${text.slice(0, 140)}`);
+  }
+
+  const text = await res.text();
+
+  // Extra guard: body starts with HTML
+  if (text.trim().startsWith("<")) {
+    throw new Error(
+      `Expected JSON at ${url} but got HTML (file missing or misrouted)`
+    );
+  }
+
+  try {
+    return JSON.parse(text);
+  } catch {
+    throw new Error(
+      `Expected JSON at ${url} but got non-JSON: ${text.slice(0, 140)}`
+    );
+  }
+}
+
+/* ============================
    ✅ GLOBAL INDEX CACHE
    - Loads indexes/_index.json.gz once
-   - Used to lookup product paths by slug
+   - Supports both flat array and manifest { version, base, shards }
    ============================ */
-let INDEX_CACHE: any[] | null = null;
-let INDEX_PROMISE: Promise<any[]> | null = null;
+let INDEX_CACHE: any = null;
+let INDEX_PROMISE: Promise<any> | null = null;
 
-async function loadIndexOnce(): Promise<any[]> {
+async function loadIndexOnce(): Promise<any> {
   if (INDEX_CACHE) return INDEX_CACHE;
   if (INDEX_PROMISE) return INDEX_PROMISE;
 
@@ -100,34 +140,9 @@ async function loadIndexOnce(): Promise<any[]> {
 
   INDEX_PROMISE = (async () => {
     try {
-      const res = await fetch(encodeURI(url), { cache: "force-cache" });
-      const text = await res.text();
-
-      // Detect HTML error pages
-      if (text.trim().startsWith("<")) {
-        throw new Error(
-          `Expected JSON at ${url} but got HTML (file missing or misrouted)`
-        );
-      }
-
-      if (!res.ok) {
-        throw new Error(
-          `HTTP ${res.status} at ${url}: ${text.slice(0, 140)}`
-        );
-      }
-
-      let parsed: any;
-      try {
-        parsed = JSON.parse(text);
-      } catch {
-        throw new Error(
-          `Expected JSON at ${url} but got non-JSON: ${text.slice(0, 140)}`
-        );
-      }
-
-      const arr = Array.isArray(parsed) ? parsed : [];
-      INDEX_CACHE = arr;
-      return arr;
+      const parsed = await fetchJson(url);
+      INDEX_CACHE = parsed;
+      return parsed;
     } catch (e) {
       console.error("Failed to load global index:", e);
       throw e;
@@ -137,6 +152,26 @@ async function loadIndexOnce(): Promise<any[]> {
   });
 
   return INDEX_PROMISE;
+}
+
+/* ============================
+   ✅ SHARD CACHE
+   ============================ */
+const SHARD_CACHE: Record<string, any> = {};
+
+async function loadShard(shardKey: string): Promise<Record<string, string> | null> {
+  if (SHARD_CACHE[shardKey]) return SHARD_CACHE[shardKey];
+
+  const url = joinUrl(R2_PUBLIC_BASE, `indexes/pdp_paths/${shardKey}.json.gz`);
+
+  try {
+    const data = await fetchJson(url);
+    SHARD_CACHE[shardKey] = data;
+    return data;
+  } catch (err) {
+    console.warn(`[ProductRoute] Shard ${shardKey} failed:`, err);
+    return null;
+  }
 }
 
 /* ============================
@@ -197,7 +232,7 @@ const ProductPdpProvider =
   (({ children }: any) => <>{children}</>);
 
 /* ============================
-   PDP ROUTE
+   PDP ROUTE — Full shard-based loader
    ============================ */
 function ProductRoute({ children }: { children: React.ReactNode }) {
   const { id } = useParams<{ id: string }>();
@@ -208,29 +243,6 @@ function ProductRoute({ children }: { children: React.ReactNode }) {
   React.useEffect(() => {
     let cancelled = false;
 
-    async function fetchJson(url: string) {
-      const res = await fetch(encodeURI(url), { cache: "force-cache" });
-      const text = await res.text();
-
-      if (text.trim().startsWith("<")) {
-        throw new Error(
-          `Expected JSON at ${url} but got HTML (file missing or misrouted)`
-        );
-      }
-
-      if (!res.ok) {
-        throw new Error(`HTTP ${res.status} at ${url}: ${text.slice(0, 140)}`);
-      }
-
-      try {
-        return JSON.parse(text);
-      } catch {
-        throw new Error(
-          `Expected JSON at ${url} but got non-JSON: ${text.slice(0, 140)}`
-        );
-      }
-    }
-
     async function load() {
       try {
         setError(null);
@@ -238,21 +250,55 @@ function ProductRoute({ children }: { children: React.ReactNode }) {
 
         if (!handle) throw new Error("Missing product handle");
 
-        // 1. Load the global index
-        const index = await loadIndexOnce();
+        let productPath: string | null = null;
 
-        // 2. Find the product entry by slug
-        const entry = index.find((p: any) => p?.slug === handle);
-
-        if (!entry || !entry.path) {
-          throw new Error("Product not found in index");
+        // ── Strategy 1: Shard lookup (fast path) ──
+        const shardKey = handle.slice(0, 2).toLowerCase();
+        if (/^[a-z0-9]{2}$/.test(shardKey)) {
+          const shard = await loadShard(shardKey);
+          if (shard && shard[handle]) {
+            productPath = shard[handle];
+            console.log("[ProductRoute] Found path in shard:", productPath);
+          }
         }
 
-        // 3. Construct the strict R2 URL from the index path
-        // Ensure we don't double-slash if entry.path starts with /
-        const productUrl = joinUrl(R2_PUBLIC_BASE, entry.path);
+        // ── Strategy 2: Fallback to global index ──
+        if (!productPath) {
+          console.log("[ProductRoute] Shard miss, checking global index…");
+          const index = await loadIndexOnce();
 
-        // 4. Fetch the specific product JSON
+          if (Array.isArray(index)) {
+            // Flat array format: [{ slug, path, … }]
+            const entry = index.find((p: any) => p?.slug === handle);
+            if (entry?.path) {
+              productPath = entry.path;
+              console.log("[ProductRoute] Found in flat index:", productPath);
+            }
+          } else if (index && typeof index === "object" && Array.isArray(index.shards)) {
+            // Manifest format: { version, base, shards: ["aa.json.gz", …] }
+            // Try loading each shard until we find the slug
+            for (const shardFile of index.shards) {
+              const key = String(shardFile).replace(/\.json(\.gz)?$/i, "");
+              const shard = await loadShard(key);
+              if (shard && shard[handle]) {
+                productPath = shard[handle];
+                console.log("[ProductRoute] Found in manifest shard:", key, productPath);
+                break;
+              }
+            }
+          }
+        }
+
+        // ── Strategy 3: Direct fetch by convention ──
+        if (!productPath) {
+          // Try direct R2 path: products/<slug>.json
+          productPath = `products/${handle}.json`;
+          console.log("[ProductRoute] Trying direct path:", productPath);
+        }
+
+        // ── Fetch the product JSON ──
+        const productUrl = joinUrl(R2_PUBLIC_BASE, productPath);
+        console.log("[ProductRoute] Fetching product JSON:", productUrl);
         const p = await fetchJson(productUrl);
 
         if (!cancelled) {
@@ -485,5 +531,3 @@ export const App = () => {
 };
 
 export default App;
-
-
