@@ -1,5 +1,6 @@
 import React from "react";
 import { useNavigate } from "react-router-dom";
+import { R2_BASE, joinUrl } from "../config/r2";
 
 type IndexItem = {
   slug: string;
@@ -20,25 +21,14 @@ function normalize(s: string) {
     .trim();
 }
 
-// ✅ R2 public base + optional version-busting
-const R2_PUBLIC_BASE =
-  import.meta.env.VITE_R2_PUBLIC_BASE ||
-  "https://pub-efc133d84c664ca8ace8be57ec3e4d65.r2.dev";
-
-const SEARCH_AUTOCOMPLETE_VERSION =
-  import.meta.env.VITE_SEARCH_AUTOCOMPLETE_VERSION || "";
-
-function joinUrl(base: string, path: string) {
-  const b = String(base || "").replace(/\/+$/, "");
-  const p = String(path || "").replace(/^\/+/, "");
-  return `${b}/${p}`;
-}
-
 function withVersion(url: string, v: string) {
   if (!v) return url;
   const sep = url.includes("?") ? "&" : "?";
   return `${url}${sep}v=${encodeURIComponent(v)}`;
 }
+
+const SEARCH_AUTOCOMPLETE_VERSION =
+  import.meta.env.VITE_SEARCH_AUTOCOMPLETE_VERSION || "";
 
 /* ----------------------------------------
    Component
@@ -61,10 +51,7 @@ export default function SearchBar() {
 
     async function load() {
       try {
-        const base = joinUrl(
-          R2_PUBLIC_BASE,
-          "indexes/search_autocomplete.json"
-        );
+        const base = joinUrl(R2_BASE, "indexes/search_autocomplete.json");
         const url = withVersion(base, SEARCH_AUTOCOMPLETE_VERSION);
 
         const res = await fetch(url, { cache: "force-cache" });
@@ -92,14 +79,14 @@ export default function SearchBar() {
      FAST AUTOSUGGEST LOOKUP
   ---------------------------------------- */
   const results = React.useMemo(() => {
-const term = normalize(q);
-if (term.length < 2) return [];
+    const term = normalize(q);
+    if (term.length < 2) return [];
 
-const firstWord = term.split(" ")[0];
-const key = firstWord.slice(0, 6);
+    const firstWord = term.split(" ")[0];
+    const key = firstWord.slice(0, 6);
 
-return autocomplete[key] || [];
-
+    return autocomplete[key] || [];
+  }, [q, autocomplete]);
 
   function submit(value: string) {
     const trimmed = value.trim();
@@ -203,4 +190,3 @@ return autocomplete[key] || [];
     </div>
   );
 }
-
