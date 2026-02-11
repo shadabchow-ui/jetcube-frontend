@@ -6,6 +6,8 @@ import {
   useParams,
 } from "react-router-dom";
 
+import { R2_BASE, joinUrl, fetchJsonStrict } from "./config/r2";
+
 /* ============================
    Layout Imports
    ============================ */
@@ -72,63 +74,16 @@ import * as CookiePolicyModule from "./pages/help/cookiepolicy";
 const RootLayout = MainLayout;
 
 /* ============================
-   R2 Base (PUBLIC)
+   R2 / Index / Shard Utilities
    ============================ */
-const R2_PUBLIC_BASE =
-  import.meta.env.VITE_R2_PUBLIC_BASE ||
-  "https://pub-efc133d84c664ca8ace8be57ec3e4d65.r2.dev";
 
-function joinUrl(base: string, path: string) {
-  const b = String(base || "").replace(/\/+$/, "");
-  const p = String(path || "").replace(/^\/+/, "");
-  return `${b}/${p}`;
-}
+/**
+ * Notes:
+ * - R2_BASE comes from VITE_R2_BASE_URL (preferred) or VITE_R2_BASE (legacy)
+ * - joinUrl prevents double slashes + protocol-relative URLs
+ * - fetchJsonStrict hardens against 401/403/404 + HTML error pages + gzip header mismatches
+ */
 
-/* ============================
-   ✅ Validated JSON fetch
-   - Rejects text/html (Cloudflare SPA fallback)
-   - Handles gzip transparently (browser decompresses)
-   ============================ */
-async function fetchJson(url: string) {
-  const res = await fetch(encodeURI(url), { cache: "force-cache" });
-
-  const ct = (res.headers.get("content-type") || "").toLowerCase();
-
-  // Reject HTML fallback pages
-  if (ct.includes("text/html")) {
-    throw new Error(
-      `Expected JSON at ${url} but got text/html (file missing from R2 or wrong Content-Type)`
-    );
-  }
-
-  if (!res.ok) {
-    const text = await res.text();
-    throw new Error(`HTTP ${res.status} at ${url}: ${text.slice(0, 140)}`);
-  }
-
-  const text = await res.text();
-
-  // Extra guard: body starts with HTML
-  if (text.trim().startsWith("<")) {
-    throw new Error(
-      `Expected JSON at ${url} but got HTML (file missing or misrouted)`
-    );
-  }
-
-  try {
-    return JSON.parse(text);
-  } catch {
-    throw new Error(
-      `Expected JSON at ${url} but got non-JSON: ${text.slice(0, 140)}`
-    );
-  }
-}
-
-/* ============================
-   ✅ GLOBAL INDEX CACHE
-   - Loads indexes/_index.json.gz once
-   - Supports both flat array and manifest { version, base, shards }
-   ============================ */
 let INDEX_CACHE: any = null;
 let INDEX_PROMISE: Promise<any> | null = null;
 
@@ -136,17 +91,12 @@ async function loadIndexOnce(): Promise<any> {
   if (INDEX_CACHE) return INDEX_CACHE;
   if (INDEX_PROMISE) return INDEX_PROMISE;
 
-  const url = joinUrl(R2_PUBLIC_BASE, "indexes/_index.json.gz");
+  const url = joinUrl(R2_BASE, "indexes/_index.json.gz");
 
   INDEX_PROMISE = (async () => {
-    try {
-      const parsed = await fetchJson(url);
-      INDEX_CACHE = parsed;
-      return parsed;
-    } catch (e) {
-      console.error("Failed to load global index:", e);
-      throw e;
-    }
+    const parsed = await fetchJsonStrict<any>(url, "Index fetch");
+    INDEX_CACHE = parsed;
+    return parsed;
   })().finally(() => {
     INDEX_PROMISE = null;
   });
@@ -154,24 +104,57 @@ async function loadIndexOnce(): Promise<any> {
   return INDEX_PROMISE;
 }
 
-/* ============================
-   ✅ SHARD CACHE
-   ============================ */
+/** Cache shards by URL (manifest can map many keys → filenames). */
 const SHARD_CACHE: Record<string, any> = {};
 
-async function loadShard(shardKey: string): Promise<Record<string, string> | null> {
-  if (SHARD_CACHE[shardKey]) return SHARD_CACHE[shardKey];
-
-  const url = joinUrl(R2_PUBLIC_BASE, `indexes/pdp_paths/${shardKey}.json.gz`);
+async function loadShardByUrl(
+  shardUrl: string
+): Promise<Record<string, string> | null> {
+  if (SHARD_CACHE[shardUrl]) return SHARD_CACHE[shardUrl];
 
   try {
-    const data = await fetchJson(url);
-    SHARD_CACHE[shardKey] = data;
+    const data = await fetchJsonStrict<Record<string, string>>(
+      shardUrl,
+      "Shard fetch"
+    );
+    SHARD_CACHE[shardUrl] = data;
     return data;
   } catch (err) {
-    console.warn(`[ProductRoute] Shard ${shardKey} failed:`, err);
+    console.warn(`[ProductRoute] shard failed: ${shardUrl}`, err);
     return null;
   }
+}
+
+/**
+ * Resolve a shard key from a slug using the keys present in the manifest.
+ * Works with common naming schemes like:
+ * - "12" (first 2 chars)
+ * - "0-" (first 2 chars with dash)
+ * - "_a" (underscore + first char)
+ * - "a" (first char)
+ */
+function resolveShardKeyFromManifest(slug: string, shards: Record<string, string>): string | null {
+  const keys = Object.keys(shards || {});
+  if (!slug || keys.length === 0) return null;
+
+  const a = slug.charAt(0).toLowerCase();
+  const b = slug.charAt(1).toLowerCase();
+
+  const candidates = [
+    a + b,      // "12", "0-"
+    a,          // "a"
+    "_" + a,    // "_a"
+  ];
+
+  for (const k of candidates) {
+    const hit = keys.find((x) => x.toLowerCase() === k);
+    if (hit) return hit;
+  }
+
+  // Fallback: deterministic hash bucketing into available keys
+  let hash = 0;
+  for (let i = 0; i < slug.length; i++) hash = (hash * 31 + slug.charCodeAt(i)) | 0;
+  return keys[Math.abs(hash) % keys.length];
 }
 
 /* ============================
@@ -252,19 +235,25 @@ function ProductRoute({ children }: { children: React.ReactNode }) {
 
         let productPath: string | null = null;
 
-        // ── Strategy 1: Shard lookup (fast path) ──
-        const shardKey = handle.slice(0, 2).toLowerCase();
-        if (/^[a-z0-9]{2}$/.test(shardKey)) {
-          const shard = await loadShard(shardKey);
+        // ── Strategy 1: Fast shard guess (optional) ──
+        // Many builds shard by the first 2 characters of the slug (e.g. "12", "0-").
+        // We'll try that as a quick win, but we do NOT rely on it.
+        const guessedKey = handle.slice(0, 2).toLowerCase();
+        if (guessedKey) {
+          const guessedUrl = joinUrl(
+            R2_BASE,
+            `indexes/pdp_paths/${guessedKey}.json.gz`
+          );
+          const shard = await loadShardByUrl(guessedUrl);
           if (shard && shard[handle]) {
             productPath = shard[handle];
-            console.log("[ProductRoute] Found path in shard:", productPath);
+            console.log("[ProductRoute] Found path in guessed shard:", productPath);
           }
         }
 
-        // ── Strategy 2: Fallback to global index ──
+        // ── Strategy 2: Use _index manifest (authoritative) ──
         if (!productPath) {
-          console.log("[ProductRoute] Shard miss, checking global index…");
+          console.log("[ProductRoute] Checking _index manifest…");
           const index = await loadIndexOnce();
 
           if (Array.isArray(index)) {
@@ -274,17 +263,38 @@ function ProductRoute({ children }: { children: React.ReactNode }) {
               productPath = entry.path;
               console.log("[ProductRoute] Found in flat index:", productPath);
             }
-          } else if (index && typeof index === "object" && Array.isArray(index.shards)) {
-            // Manifest format: { version, base, shards: ["aa.json.gz", …] }
-            // Try loading each shard until we find the slug
-            for (const shardFile of index.shards) {
-              const key = String(shardFile).replace(/\.json(\.gz)?$/i, "");
-              const shard = await loadShard(key);
+          } else if (
+            index &&
+            typeof index === "object" &&
+            index.shards &&
+            typeof index.shards === "object" &&
+            !Array.isArray(index.shards)
+          ) {
+            // Manifest format: { version, base, shards: { key: filename } }
+            const manifest = index as {
+              base: string;
+              shards: Record<string, string>;
+            };
+
+            const shardKey = resolveShardKeyFromManifest(handle, manifest.shards);
+
+            if (shardKey && manifest.shards[shardKey]) {
+              const base = String(manifest.base || "indexes/pdp_paths/")
+                .replace(/^\/+/, "")
+                .replace(/\/+$/, "")
+                .concat("/");
+              const filename = manifest.shards[shardKey].replace(/^\/+/, "");
+              const shardUrl = joinUrl(R2_BASE, `${base}${filename}`);
+
+              const shard = await loadShardByUrl(shardUrl);
               if (shard && shard[handle]) {
                 productPath = shard[handle];
-                console.log("[ProductRoute] Found in manifest shard:", key, productPath);
-                break;
+                console.log("[ProductRoute] Found via manifest shard:", shardKey, productPath);
+              } else {
+                console.warn("[ProductRoute] Slug not found in resolved shard:", shardKey, shardUrl);
               }
+            } else {
+              console.warn("[ProductRoute] Could not resolve shard key for slug:", handle);
             }
           }
         }
@@ -297,9 +307,9 @@ function ProductRoute({ children }: { children: React.ReactNode }) {
         }
 
         // ── Fetch the product JSON ──
-        const productUrl = joinUrl(R2_PUBLIC_BASE, productPath);
+        const productUrl = joinUrl(R2_BASE, productPath);
         console.log("[ProductRoute] Fetching product JSON:", productUrl);
-        const p = await fetchJson(productUrl);
+        const p = await fetchJsonStrict(productUrl, "Product fetch");
 
         if (!cancelled) {
           setProduct(p);
