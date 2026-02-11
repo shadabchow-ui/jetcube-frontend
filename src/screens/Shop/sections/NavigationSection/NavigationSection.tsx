@@ -7,6 +7,7 @@ import {
 } from "lucide-react";
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
+import { R2_BASE, joinUrl } from "../../../../config/r2";
 import { useCart } from "../../../../context/CartContext";
 import { Button } from "../../../../components/ui/button";
 import logo from "../../../../assets/logo.png";
@@ -94,11 +95,6 @@ function buildCategoryHref(item: CategoryUrlItem): string {
   const sep = base.includes("?") ? "&" : "?";
   return `${base}${sep}k=${encodeURIComponent(key)}`;
 }
-
-// ✅ R2 public base + optional version-busting (kept minimal + safe fallbacks)
-const R2_PUBLIC_BASE =
-  import.meta.env.VITE_R2_PUBLIC_BASE ||
-  "https://pub-efc133d84c664ca8ace8be57ec3e4d65.r2.dev";
 
 const SEARCH_INDEX_VERSION = import.meta.env.VITE_SEARCH_INDEX_VERSION || "";
 const CATEGORY_URLS_VERSION = import.meta.env.VITE_CATEGORY_URLS_VERSION || "";
@@ -329,11 +325,11 @@ export const NavigationSection = (): JSX.Element => {
 
     const load = async () => {
       // Prefer small autocomplete index for fast header suggestions.
-      const r2AutoBase = joinUrl(R2_PUBLIC_BASE, "indexes/search_autocomplete.json");
+      const r2AutoBase = joinUrl(R2_BASE, "indexes/search_autocomplete.json");
       const r2AutoUrl = withVersion(r2AutoBase, SEARCH_INDEX_VERSION);
 
       // Fallback to full search index (existing behavior) if autocomplete isn't present.
-      const r2FullBase = joinUrl(R2_PUBLIC_BASE, "indexes/search_index.enriched.json");
+      const r2FullBase = joinUrl(R2_BASE, "indexes/search_index.enriched.json");
       const r2FullUrl = withVersion(r2FullBase, SEARCH_INDEX_VERSION);
 
       const urls = [
@@ -462,7 +458,7 @@ export const NavigationSection = (): JSX.Element => {
       const origin = typeof window !== "undefined" ? window.location.origin : "https://ventari.net";
       const originUrl = withVersion(joinUrl(origin, "indexes/_category_urls.json"), CATEGORY_URLS_VERSION);
 
-      const r2Base = joinUrl(R2_PUBLIC_BASE, "indexes/_category_urls.json");
+      const r2Base = joinUrl(R2_BASE, "indexes/_category_urls.json");
       const r2Url = withVersion(r2Base, CATEGORY_URLS_VERSION);
 
       const urls = [
