@@ -16,7 +16,7 @@ import HelpLayout from "./layouts/HelpLayout";
 import ShopAllCategories from "./screens/Shop/ShopAllCategories";
 import Shop from "./screens/Shop/Shop";
 import Help from "./pages/help/HelpIndex";
-import CategoryDirectory from "./pages/CategoryDirectory";
+// import CategoryDirectory from "./pages/CategoryDirectory"; // ❌ Removed: Missing file
 
 /* ============================
    PDP Imports
@@ -69,7 +69,7 @@ import * as DevicesModule from "./pages/help/Devices";
 import * as ConditionsOfUseModule from "./pages/help/ConditionsOfUse";
 import * as PrivacyNoticeModule from "./pages/help/PrivacyNotice";
 import * as AccessibilityModule from "./pages/help/Accessibility";
-import * as CookiePolicyModule from "./pages/help/CookiePolicy";
+// import * as CookiePolicyModule from "./pages/help/CookiePolicy"; // ❌ Removed: Missing file
 
 /* ============================
    PDP Loader Helpers
@@ -88,17 +88,17 @@ async function loadIndexOnce(): Promise<any> {
   const url = joinUrl(R2_BASE, "indexes/_index.json.gz");
 
   INDEX_PROMISE = (async () => {
-    const parsed = await fetchJsonStrict<any>(url, { label: "Index fetch" });
+    const parsed = await fetchJsonStrict<any>(url, "Index fetch");
     INDEX_CACHE = parsed;
     return parsed;
-  })().finally(() => {
+  })().catch(() => {
     INDEX_PROMISE = null;
   });
 
   return INDEX_PROMISE;
 }
 
-/** Cache shards by URL (manifest can map many keys -> files) */
+/** Cache shards by URL */
 const SHARD_CACHE: Record<string, any> = {};
 
 async function loadShardByUrl(
@@ -107,9 +107,10 @@ async function loadShardByUrl(
   if (SHARD_CACHE[shardUrl]) return SHARD_CACHE[shardUrl];
 
   try {
-    const data = await fetchJsonStrict<Record<string, string>>(shardUrl, {
-      label: "Shard fetch",
-    });
+    const data = await fetchJsonStrict<Record<string, string>>(
+      shardUrl,
+      "Shard fetch"
+    );
     SHARD_CACHE[shardUrl] = data;
     return data;
   } catch (err) {
@@ -118,10 +119,7 @@ async function loadShardByUrl(
   }
 }
 
-function resolveShardKeyFromManifest(
-  slug: string,
-  shards: Record<string, string>
-): string | null {
+function resolveShardKeyFromManifest(slug: string, shards: Record<string, string>): string | null {
   const keys = Object.keys(shards || {});
   if (!slug || keys.length === 0) return null;
 
@@ -129,21 +127,17 @@ function resolveShardKeyFromManifest(
   const b = slug.charAt(1).toLowerCase();
 
   const candidates = [
-    a + b, // "12", "0-"
-    a, // "a"
-    "_" + a, // "_a"
+    a + b,      // "12", "0-"
+    a,          // "a"
+    "_" + a,    // "_a"
   ];
 
   for (const k of candidates) {
-    const hit = keys.find((x) => x.toLowerCase() === k);
-    if (hit) return hit;
+    if (shards[k]) return k;
   }
 
-  // Fallback: sometimes shards are stored as "ob.json.gz" keys, etc.
-  // Try best-effort by searching for a key that prefixes the slug.
-  const hit2 = keys.find((k) =>
-    slug.toLowerCase().startsWith(k.toLowerCase())
-  );
+  // Fallback: prefix match
+  const hit2 = keys.find((k) => slug.toLowerCase().startsWith(k.toLowerCase()));
   return hit2 || null;
 }
 
@@ -153,12 +147,10 @@ function resolveShardKeyFromManifest(
 function ProductRoute({ children }: { children: React.ReactNode }) {
   const { id } = useParams<{ id: string }>();
 
-  // Prefer router param, but fall back to window.location.pathname for extra safety (deep links / edge cases).
+  // Prefer router param, but fall back to window.location.pathname for deep links
   const pathHandle =
     typeof window !== "undefined" && window.location.pathname.startsWith("/p/")
-      ? decodeURIComponent(
-          window.location.pathname.slice(3).split("/")[0] || ""
-        ).trim()
+      ? decodeURIComponent(window.location.pathname.slice(3).split("/")[0] || "").trim()
       : "";
 
   const handle = decodeURIComponent(id || "").trim() || pathHandle;
@@ -178,58 +170,46 @@ function ProductRoute({ children }: { children: React.ReactNode }) {
         let productPath: string | null = null;
 
         // ── Strategy 1: Use manifest to resolve shard ──
-        // Always fetch indexes/_index.json.gz (manifest), then fetch exactly ONE shard for the handle.
-        const index = await loadIndexOnce();
+        try {
+          const index = await loadIndexOnce();
 
-        // Accept either:
-        // 1) Flat index array: [{slug, path}, ...]
-        // 2) Manifest format: { version, base, shards: { key: filename } }
-        if (Array.isArray(index)) {
-          const entry = index.find((x: any) => x?.slug === handle);
-          if (entry?.path) {
-            productPath = entry.path;
-            console.log("[ProductRoute] Found in flat index:", productPath);
-          }
-        } else if (
-          index &&
-          typeof index === "object" &&
-          index.shards &&
-          typeof index.shards === "object" &&
-          !Array.isArray(index.shards)
-        ) {
-          // Manifest format: { version, base, shards: { key: filename } }
-          const manifest = index as {
-            base: string;
-            shards: Record<string, string>;
-          };
+          if (Array.isArray(index)) {
+            const entry = index.find((x: any) => x?.slug === handle);
+            if (entry?.path) productPath = entry.path;
+          } else if (
+            index &&
+            typeof index === "object" &&
+            index.shards &&
+            !Array.isArray(index.shards)
+          ) {
+            const manifest = index as {
+              base: string;
+              shards: Record<string, string>;
+            };
 
-          const shardKey = resolveShardKeyFromManifest(handle, manifest.shards);
+            const shardKey = resolveShardKeyFromManifest(handle, manifest.shards);
 
-          if (shardKey && manifest.shards[shardKey]) {
-            const base = String(manifest.base || "indexes/pdp_paths/")
-              .replace(/^\/+/, "")
-              .replace(/\/+$/, "")
-              .concat("/");
-            const filename = manifest.shards[shardKey].replace(/^\/+/, "");
-            const shardUrl = joinUrl(R2_BASE, `${base}${filename}`);
+            if (shardKey && manifest.shards[shardKey]) {
+              const base = String(manifest.base || "indexes/pdp_paths/")
+                .replace(/^\/+/, "")
+                .replace(/\/+$/, "")
+                .concat("/");
+              const filename = manifest.shards[shardKey].replace(/^\/+/, "");
+              const shardUrl = joinUrl(R2_BASE, `${base}${filename}`);
 
-            const shard = await loadShardByUrl(shardUrl);
-            if (shard && shard[handle]) {
-              productPath = shard[handle];
-              console.log(
-                "[ProductRoute] Found in shard:",
-                shardKey,
-                productPath
-              );
+              const shard = await loadShardByUrl(shardUrl);
+              if (shard && shard[handle]) {
+                productPath = shard[handle];
+              }
             }
           }
+        } catch (e) {
+          console.warn("[ProductRoute] Index/Shard lookup failed, trying fallback", e);
         }
 
-        // If shard resolution didn't find a path, fall back to direct product path.
-        // This keeps PDP resilient even if index is missing a handle.
+        // Fallback: direct product path
         if (!productPath) {
           productPath = `products/${handle}.json`;
-          console.log("[ProductRoute] Falling back to direct path:", productPath);
         }
 
         // ── Fetch the product JSON ──
@@ -238,9 +218,7 @@ function ProductRoute({ children }: { children: React.ReactNode }) {
           : joinUrl(R2_BASE, productPath);
 
         console.log("[ProductRoute] Fetching product JSON:", productUrl);
-        const p = await fetchJsonStrict<any>(productUrl, {
-          label: "Product fetch",
-        });
+        const p = await fetchJsonStrict(productUrl, "Product fetch");
 
         if (!cancelled) {
           setProduct(p);
@@ -266,6 +244,7 @@ function ProductRoute({ children }: { children: React.ReactNode }) {
         <div className="border border-red-200 bg-red-50 text-red-800 rounded p-4">
           <div className="font-semibold">Product failed to load</div>
           <div className="text-sm mt-1">{error}</div>
+          <a href="/shop" className="inline-block mt-3 text-blue-600 hover:underline">Return to Shop</a>
         </div>
       </div>
     );
@@ -273,8 +252,8 @@ function ProductRoute({ children }: { children: React.ReactNode }) {
 
   if (!product) {
     return (
-      <div className="max-w-[1200px] mx-auto px-4 py-8 text-sm text-gray-600">
-        Loading product…
+      <div className="max-w-[1200px] mx-auto px-4 py-20 flex justify-center">
+        <div className="text-gray-500 animate-pulse">Loading product details...</div>
       </div>
     );
   }
@@ -322,7 +301,7 @@ const Devices = pick<any>(DevicesModule, "Devices");
 const ConditionsOfUse = pick<any>(ConditionsOfUseModule, "ConditionsOfUse");
 const PrivacyNotice = pick<any>(PrivacyNoticeModule, "PrivacyNotice");
 const Accessibility = pick<any>(AccessibilityModule, "Accessibility");
-const CookiePolicy = pick<any>(CookiePolicyModule, "CookiePolicy");
+// const CookiePolicy = pick<any>(CookiePolicyModule, "CookiePolicy"); // ❌ Removed
 
 /* ============================
    Router
@@ -366,7 +345,7 @@ const router = createBrowserRouter([
       { path: "press", element: <Press /> },
       { path: "sustainability", element: <Sustainability /> },
       { path: "newsletter", element: <Newsletter /> },
-      { path: "category-directory", element: <CategoryDirectory /> },
+      // { path: "category-directory", element: <CategoryDirectory /> }, // ❌ Removed
       { path: "single-product", element: <Navigate to="/shop" replace /> },
       { path: "*", element: <Navigate to="/" replace /> },
     ],
@@ -387,7 +366,7 @@ const router = createBrowserRouter([
       { path: "product-safety", element: <ProductSafety /> },
       { path: "devices", element: <Devices /> },
       { path: "contact", element: <Contact /> },
-      { path: "cookiepolicy", element: <CookiePolicy /> },
+      // { path: "cookiepolicy", element: <CookiePolicy /> }, // ❌ Removed
       { path: "*", element: <Help /> },
     ],
   },
@@ -399,15 +378,7 @@ const router = createBrowserRouter([
   { path: "/login", element: <LoginPage /> },
 ]);
 
-export default function App() {
+// ✅ Named export is REQUIRED by index.tsx
+export function App() {
   return <RouterProvider router={router} />;
 }
-
-declare global {
-  interface Window {
-    gtag?: (...args: any[]) => void;
-  }
-}
-
-type ConsentChoice = "granted" | "denied";
-
