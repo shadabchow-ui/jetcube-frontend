@@ -115,4 +115,28 @@ export async function fetchJsonStrict<T = any>(
   url: string,
   a: any = {},
   b: any = undefined
-): Promise<T | n
+): Promise<T | null> {
+  const label = typeof a === "string" ? (a as string) : undefined;
+  const opts: FetchJsonOptions =
+    typeof a === "string" ? ((b || {}) as FetchJsonOptions) : ((a || {}) as FetchJsonOptions);
+
+  const res = await fetch(url, {
+    method: "GET",
+    headers: {
+      Accept: "application/json,text/plain,*/*",
+      ...(opts.headers || {}),
+    },
+    signal: opts.signal,
+  });
+
+  if (res.status === 404 && opts.allow404) return null;
+
+  if (!res.ok) {
+    const body = await readBodyText(res);
+    const hint = looksLikeHtml(body) ? " (returned HTML – likely wrong URL/path)" : "";
+    const prefix = label ? `${label}: ` : "";
+    throw new Error(`${prefix}${res.status} ${res.statusText} for ${url}${hint}`);
+  }
+
+  return (await parseJsonPossiblyGzipped(res, url)) as T;
+}
