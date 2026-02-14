@@ -22,8 +22,6 @@ import Help from "./pages/help/HelpIndex";
    PDP Imports
    ============================ */
 import * as PdpContext from "./pdp/ProductPdpContext";
-import { CartProvider } from "./context/CartContext";
-import { WishlistProvider } from "./context/WishlistContext";
 
 /* ============================
    Screen / Page Imports
@@ -42,34 +40,17 @@ import OrdersPage from "./pages/OrdersPage";
 import OrderDetailsPage from "./pages/OrderDetailsPage";
 import SignupPage from "./pages/SignupPage";
 import LoginPage from "./pages/LoginPage";
-import AccountPage from "./pages/AccountPage";
-import WishlistPage from "./pages/WishlistPage";
 
 /* ============================
-   Brand Page Imports
+   Help Pages
    ============================ */
-import * as AboutUsModule from "./pages/help/AboutUs";
-import * as CareersModule from "./pages/help/Careers";
-import * as PressModule from "./pages/help/Press";
-import * as SustainabilityModule from "./pages/help/Sustainability";
-import * as NewsletterModule from "./pages/help/Newsletter";
-
-/* ============================
-   Help / Legal Page Imports
-   ============================ */
-import * as HelpIndexModule from "./pages/help/HelpIndex";
-import * as ContactModule from "./pages/help/Contact";
-import * as ShippingModule from "./pages/help/Shipping";
-import * as ReturnsModule from "./pages/help/Returns";
-import * as PaymentsModule from "./pages/help/Payments";
-import * as AdsPrivacyModule from "./pages/help/AdsPrivacy";
-import * as ConsumerDataModule from "./pages/help/ConsumerData";
-import * as ProductSafetyModule from "./pages/help/ProductSafety";
-import * as DevicesModule from "./pages/help/Devices";
+import * as AboutVentariModule from "./pages/help/AboutVentari";
 import * as ConditionsOfUseModule from "./pages/help/ConditionsOfUse";
 import * as PrivacyNoticeModule from "./pages/help/PrivacyNotice";
 import * as AccessibilityModule from "./pages/help/Accessibility";
 // import * as CookiePolicyModule from "./pages/help/CookiePolicy"; // ❌ Removed: Missing file
+import * as ContactModule from "./pages/help/Contact";
+import * as DevicesModule from "./pages/help/Devices";
 
 /* ============================
    PDP Loader Helpers
@@ -77,29 +58,54 @@ import * as AccessibilityModule from "./pages/help/Accessibility";
 
 const ProductPdpProvider = (PdpContext as any).ProductPdpProvider as any;
 
-/** Cache the global manifest (indexes/_index.json.gz) */
+/** Cache the global manifest/index */
 let INDEX_CACHE: any | null = null;
 let INDEX_PROMISE: Promise<any> | null = null;
+
+const SHARD_CACHE: Record<string, Record<string, string>> = {};
 
 async function loadIndexOnce(): Promise<any> {
   if (INDEX_CACHE) return INDEX_CACHE;
   if (INDEX_PROMISE) return INDEX_PROMISE;
 
-  const url = joinUrl(R2_BASE, "indexes/_index.json.gz");
+  const candidates = [
+    "indexes/pdp2/_index.json.gz",
+    "indexes/pdp2/_index.json",
+    "indexes/_index.json.gz",
+    "indexes/_index.json",
+  ].map((rel) => joinUrl(R2_BASE, rel));
 
   INDEX_PROMISE = (async () => {
-    const parsed = await fetchJsonStrict<any>(url, "Index fetch");
-    INDEX_CACHE = parsed;
-    return parsed;
-  })().catch(() => {
+    for (const u of candidates) {
+      const data = await fetchJsonStrict<any>(u, "Index fetch", { allow404: true });
+      if (data !== null) {
+        INDEX_CACHE = data;
+        return data;
+      }
+    }
+    throw new Error(`Global PDP index not found. Tried: ${candidates.join(", ")}`);
+  })().catch((err) => {
     INDEX_PROMISE = null;
+    throw err;
   });
 
   return INDEX_PROMISE;
 }
 
-/** Cache shards by URL */
-const SHARD_CACHE: Record<string, any> = {};
+function resolveShardKeyFromManifest(
+  slug: string,
+  shardMap: Record<string, string>
+): string | null {
+  const keys = Object.keys(shardMap || {});
+  if (!keys.length) return null;
+
+  // Exact match
+  if (shardMap[slug]) return slug;
+
+  // Fallback: prefix match
+  const hit = keys.find((k) => slug.toLowerCase().startsWith(k.toLowerCase()));
+  return hit || null;
+}
 
 async function loadShardByUrl(
   shardUrl: string
@@ -111,34 +117,56 @@ async function loadShardByUrl(
       shardUrl,
       "Shard fetch"
     );
-    SHARD_CACHE[shardUrl] = data;
-    return data;
+    SHARD_CACHE[shardUrl] = data || {};
+    return data || {};
   } catch (err) {
     console.warn(`[ProductRoute] shard failed: ${shardUrl}`, err);
     return null;
   }
 }
 
-function resolveShardKeyFromManifest(slug: string, shards: Record<string, string>): string | null {
-  const keys = Object.keys(shards || {});
-  if (!slug || keys.length === 0) return null;
+async function fetchProductJsonWithFallback(productUrl: string): Promise<any> {
+  const variants: string[] = [];
+  const seen = new Set<string>();
 
-  const a = slug.charAt(0).toLowerCase();
-  const b = slug.charAt(1).toLowerCase();
+  const push = (u: string) => {
+    if (!u) return;
+    if (seen.has(u)) return;
+    seen.add(u);
+    variants.push(u);
+  };
 
-  const candidates = [
-    a + b,      // "12", "0-"
-    a,          // "a"
-    "_" + a,    // "_a"
-  ];
+  push(productUrl);
 
-  for (const k of candidates) {
-    if (shards[k]) return k;
+  // If caller asked for .json, try .json.gz too
+  if (productUrl.endsWith(".json")) push(`${productUrl}.gz`);
+  if (productUrl.endsWith(".json.gz"))
+    push(productUrl.replace(/\.json\.gz$/i, ".json"));
+
+  // If no json extension, try both
+  if (!/\.json(\.gz)?$/i.test(productUrl)) {
+    push(`${productUrl}.json`);
+    push(`${productUrl}.json.gz`);
   }
 
-  // Fallback: prefix match
-  const hit2 = keys.find((k) => slug.toLowerCase().startsWith(k.toLowerCase()));
-  return hit2 || null;
+  let lastErr: any = null;
+
+  for (const u of variants) {
+    try {
+      const data = await fetchJsonStrict<any>(u, "Product fetch", {
+        allow404: true,
+      });
+      if (data !== null) return data;
+    } catch (e) {
+      lastErr = e;
+    }
+  }
+
+  const tried = variants.join(", ");
+  if (lastErr) {
+    throw new Error(`${lastErr?.message || "Product fetch failed"}. Tried: ${tried}`);
+  }
+  throw new Error(`Product not found. Tried: ${tried}`);
 }
 
 /* ============================
@@ -150,11 +178,12 @@ function ProductRoute({ children }: { children: React.ReactNode }) {
   // Prefer router param, but fall back to window.location.pathname for deep links
   const pathHandle =
     typeof window !== "undefined" && window.location.pathname.startsWith("/p/")
-      ? decodeURIComponent(window.location.pathname.slice(3).split("/")[0] || "").trim()
-      : "";
+      ? window.location.pathname.replace(/^\/p\//, "").split("/")[0]
+      : null;
 
-  const handle = decodeURIComponent(id || "").trim() || pathHandle;
-  const [product, setProduct] = React.useState<any>(null);
+  const handle = id || pathHandle;
+
+  const [product, setProduct] = React.useState<any | null>(null);
   const [error, setError] = React.useState<string | null>(null);
 
   React.useEffect(() => {
@@ -169,7 +198,7 @@ function ProductRoute({ children }: { children: React.ReactNode }) {
 
         let productPath: string | null = null;
 
-        // ── Strategy 1: Use manifest to resolve shard ──
+        // ── Strategy 1: Use manifest/index to resolve shard ──
         try {
           const index = await loadIndexOnce();
 
@@ -190,7 +219,7 @@ function ProductRoute({ children }: { children: React.ReactNode }) {
             const shardKey = resolveShardKeyFromManifest(handle, manifest.shards);
 
             if (shardKey && manifest.shards[shardKey]) {
-              const base = String(manifest.base || "indexes/pdp_paths/")
+              const base = String(manifest.base || "indexes/pdp2/")
                 .replace(/^\/+/, "")
                 .replace(/\/+$/, "")
                 .concat("/");
@@ -198,27 +227,26 @@ function ProductRoute({ children }: { children: React.ReactNode }) {
               const shardUrl = joinUrl(R2_BASE, `${base}${filename}`);
 
               const shard = await loadShardByUrl(shardUrl);
-              if (shard && shard[handle]) {
-                productPath = shard[handle];
-              }
+              if (shard && shard[handle]) productPath = shard[handle];
             }
           }
         } catch (e) {
-          console.warn("[ProductRoute] Index/Shard lookup failed, trying fallback", e);
+          // If index is missing, we’ll surface it below via the final error.
+          console.warn("[ProductRoute] index resolution failed:", e);
         }
 
-        // Fallback: direct product path
+        // ── Strategy 2: fallback to direct products/<slug>.json (common legacy) ──
         if (!productPath) {
           productPath = `products/${handle}.json`;
         }
 
-        // ── Fetch the product JSON ──
-        const productUrl = /^https?:\/\//i.test(productPath)
-          ? productPath
-          : joinUrl(R2_BASE, productPath);
+        const productUrl =
+          /^https?:\/\//i.test(productPath) || productPath.startsWith("/")
+            ? productPath
+            : joinUrl(R2_BASE, productPath);
 
         console.log("[ProductRoute] Fetching product JSON:", productUrl);
-        const p = await fetchJsonStrict(productUrl, "Product fetch");
+        const p = await fetchProductJsonWithFallback(productUrl);
 
         if (!cancelled) {
           setProduct(p);
@@ -244,7 +272,12 @@ function ProductRoute({ children }: { children: React.ReactNode }) {
         <div className="border border-red-200 bg-red-50 text-red-800 rounded p-4">
           <div className="font-semibold">Product failed to load</div>
           <div className="text-sm mt-1">{error}</div>
-          <a href="/shop" className="inline-block mt-3 text-blue-600 hover:underline">Return to Shop</a>
+          <a
+            href="/shop"
+            className="inline-block mt-3 text-blue-600 hover:underline"
+          >
+            Return to Shop
+          </a>
         </div>
       </div>
     );
@@ -253,7 +286,7 @@ function ProductRoute({ children }: { children: React.ReactNode }) {
   if (!product) {
     return (
       <div className="max-w-[1200px] mx-auto px-4 py-20 flex justify-center">
-        <div className="text-gray-500 animate-pulse">Loading product details...</div>
+        <div className="text-gray-500">Loading product…</div>
       </div>
     );
   }
@@ -262,72 +295,58 @@ function ProductRoute({ children }: { children: React.ReactNode }) {
 }
 
 /* ============================
-   Helper: pick named export
-   ============================ */
-function pick<T = any>(mod: any, named: string): T {
-  return (mod?.[named] ?? mod?.default) as T;
-}
-
-/* ============================
-   Component Resolvers
-   ============================ */
-const Home = pick<any>(HomeModule, "Home");
-const Shop = pick<any>(ShopModule, "Shop");
-const SingleProduct = pick<any>(SingleProductModule, "SingleProduct");
-const Cart = pick<any>(CartModule, "Cart");
-const Checkout = pick<any>(CheckoutModule, "Checkout");
-const CartSidebar = pick<any>(CartSidebarModule, "CartSidebar");
-const ProductComparison = pick<any>(ProductComparisonModule, "ProductComparison");
-const SearchResultsPage = pick<any>(SearchResultsPageModule, "default");
-const CategoryPage = pick<any>(CategoryPageModule, "CategoryPage");
-
-/* Brand */
-const AboutUs = pick<any>(AboutUsModule, "AboutUs");
-const Careers = pick<any>(CareersModule, "Careers");
-const Press = pick<any>(PressModule, "Press");
-const Sustainability = pick<any>(SustainabilityModule, "Sustainability");
-const Newsletter = pick<any>(NewsletterModule, "Newsletter");
-
-/* Help */
-const HelpIndex = pick<any>(HelpIndexModule, "HelpIndex");
-const Contact = pick<any>(ContactModule, "Contact");
-const Shipping = pick<any>(ShippingModule, "Shipping");
-const Returns = pick<any>(ReturnsModule, "Returns");
-const Payments = pick<any>(PaymentsModule, "Payments");
-const AdsPrivacy = pick<any>(AdsPrivacyModule, "AdsPrivacy");
-const ConsumerData = pick<any>(ConsumerDataModule, "ConsumerData");
-const ProductSafety = pick<any>(ProductSafetyModule, "ProductSafety");
-const Devices = pick<any>(DevicesModule, "Devices");
-const ConditionsOfUse = pick<any>(ConditionsOfUseModule, "ConditionsOfUse");
-const PrivacyNotice = pick<any>(PrivacyNoticeModule, "PrivacyNotice");
-const Accessibility = pick<any>(AccessibilityModule, "Accessibility");
-// const CookiePolicy = pick<any>(CookiePolicyModule, "CookiePolicy"); // ❌ Removed
-
-/* ============================
    Router
    ============================ */
+
+const Home = (HomeModule as any).default || (HomeModule as any).Home;
+const ShopAll = (ShopModule as any).default || (ShopModule as any).ShopAll;
+const SingleProduct =
+  (SingleProductModule as any).default || (SingleProductModule as any).SingleProduct;
+const Cart = (CartModule as any).default || (CartModule as any).Cart;
+const Checkout =
+  (CheckoutModule as any).default || (CheckoutModule as any).Checkout;
+const CartSidebar =
+  (CartSidebarModule as any).default || (CartSidebarModule as any).CartSidebar;
+const ProductComparison =
+  (ProductComparisonModule as any).default ||
+  (ProductComparisonModule as any).ProductComparison;
+
+const SearchResultsPage =
+  (SearchResultsPageModule as any).default || SearchResultsPageModule;
+
+const CategoryPage =
+  (CategoryPageModule as any).default || (CategoryPageModule as any).CategoryPage;
+
+const AboutVentari =
+  (AboutVentariModule as any).default || (AboutVentariModule as any).AboutVentari;
+const ConditionsOfUse =
+  (ConditionsOfUseModule as any).default ||
+  (ConditionsOfUseModule as any).ConditionsOfUse;
+const PrivacyNotice =
+  (PrivacyNoticeModule as any).default ||
+  (PrivacyNoticeModule as any).PrivacyNotice;
+const Accessibility =
+  (AccessibilityModule as any).default ||
+  (AccessibilityModule as any).Accessibility;
+// const CookiePolicy = (CookiePolicyModule as any).default || (CookiePolicyModule as any).CookiePolicy;
+const Contact = (ContactModule as any).default || (ContactModule as any).Contact;
+const Devices = (DevicesModule as any).default || (DevicesModule as any).Devices;
+
 const router = createBrowserRouter([
   {
     path: "/",
-    element: (
-      <CartProvider>
-        <WishlistProvider>
-          <MainLayout />
-        </WishlistProvider>
-      </CartProvider>
-    ),
+    element: <MainLayout />,
     children: [
-      { index: true, element: <Home /> },
-      {
-        path: "shop",
-        children: [
-          { index: true, element: <ShopAllCategories /> },
-          { path: "browse", element: <Shop /> },
-          { path: "all", element: <Navigate to="/shop" replace /> },
-        ],
-      },
+      { path: "", element: <Home /> },
+      { path: "shop", element: <Shop /> },
+      { path: "shopall", element: <ShopAll /> },
+      { path: "shopallcategories", element: <ShopAllCategories /> },
       { path: "search", element: <SearchResultsPage /> },
-      { path: "c/*", element: <CategoryPage /> },
+      { path: "category/:category", element: <CategoryPage /> },
+      { path: "orders", element: <OrdersPage /> },
+      { path: "orders/:id", element: <OrderDetailsPage /> },
+
+      // PDP route wrapper
       {
         path: "p/:id",
         element: (
@@ -336,40 +355,29 @@ const router = createBrowserRouter([
           </ProductRoute>
         ),
       },
-      { path: "orders", element: <OrdersPage /> },
-      { path: "orders/:id", element: <OrderDetailsPage /> },
-      { path: "account", element: <AccountPage /> },
-      { path: "wishlist", element: <WishlistPage /> },
-      { path: "about", element: <AboutUs /> },
-      { path: "careers", element: <Careers /> },
-      { path: "press", element: <Press /> },
-      { path: "sustainability", element: <Sustainability /> },
-      { path: "newsletter", element: <Newsletter /> },
-      // { path: "category-directory", element: <CategoryDirectory /> }, // ❌ Removed
-      { path: "single-product", element: <Navigate to="/shop" replace /> },
+
+      // default route
       { path: "*", element: <Navigate to="/" replace /> },
     ],
   },
+
+  // Help routes
   {
     path: "/help",
     element: <HelpLayout />,
     children: [
-      { index: true, element: <HelpIndex /> },
-      { path: "shipping", element: <Shipping /> },
-      { path: "returns", element: <Returns /> },
-      { path: "payments", element: <Payments /> },
-      { path: "conditions-of-use", element: <ConditionsOfUse /> },
-      { path: "privacy-notice", element: <PrivacyNotice /> },
+      { path: "", element: <Help /> },
+      { path: "about", element: <AboutVentari /> },
+      { path: "conditionsofuse", element: <ConditionsOfUse /> },
+      { path: "privacy", element: <PrivacyNotice /> },
       { path: "accessibility", element: <Accessibility /> },
-      { path: "ads-privacy", element: <AdsPrivacy /> },
-      { path: "consumer-data", element: <ConsumerData /> },
-      { path: "product-safety", element: <ProductSafety /> },
       { path: "devices", element: <Devices /> },
       { path: "contact", element: <Contact /> },
       // { path: "cookiepolicy", element: <CookiePolicy /> }, // ❌ Removed
       { path: "*", element: <Help /> },
     ],
   },
+
   { path: "/cart", element: <Cart /> },
   { path: "/checkout", element: <Checkout /> },
   { path: "/cart-sidebar", element: <CartSidebar /> },
