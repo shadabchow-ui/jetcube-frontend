@@ -1,61 +1,16 @@
-// src/config/r2.ts
+// src/r2.ts
+export const R2_BASE =
+  (import.meta as any).env?.VITE_R2_BASE ||
+  (import.meta as any).env?.R2_BASE ||
+  "https://r2.ventari.net"; // <-- set to your public R2 domain
 
-export type FetchJsonOptions = {
-  /**
-   * If true, a 404 returns null instead of throwing.
-   */
-  allow404?: boolean;
-
-  /**
-   * Abort signal support.
-   */
-  signal?: AbortSignal;
-
-  /**
-   * Extra headers if needed (rare for public R2).
-   */
-  headers?: Record<string, string>;
-};
-
-export function joinUrl(baseUrl: string, ...parts: string[]): string {
-  const base = (baseUrl || "").replace(/\/+$/, "");
-  const cleaned = parts
-    .filter(Boolean)
-    .map((p) => String(p).replace(/^\/+/, "").replace(/\/+$/, ""));
-  return [base, ...cleaned].join("/");
+export function joinUrl(base: string, path: string) {
+  const b = String(base || "").replace(/\/+$/, "");
+  const p = String(path || "").replace(/^\/+/, "");
+  return `${b}/${p}`;
 }
 
-/**
- * Prefer an env-provided base. Fallback to your custom domain.
- * NOTE: Avoid referencing `process.env` in Vite/browser builds.
- */
-export function getR2BaseUrl(): string {
-  const env = ((import.meta as any)?.env || {}) as Record<string, string | undefined>;
-
-  const raw =
-    (env.VITE_R2_PUBLIC_BASE ||
-      env.VITE_R2_PUBLIC_URL ||
-      env.VITE_R2_BASE_URL ||
-      "").trim();
-
-  // ✅ Fallback to your custom domain (matches your R2 “Custom Domains” screenshot)
-  const fallback = "https://r2.ventari.net";
-
-  return raw || fallback;
-}
-
-/**
- * Backwards-compatible constant used across the codebase.
- * (Several components import { R2_BASE } directly.)
- */
-export const R2_BASE: string = getR2BaseUrl();
-
-function looksLikeHtml(text: string): boolean {
-  const t = (text || "").trim().toLowerCase();
-  return t.startsWith("<!doctype html") || t.startsWith("<html") || t.includes("<head");
-}
-
-async function safeReadText(res: Response): Promise<string> {
+async function readTextSafe(res: Response) {
   try {
     return await res.text();
   } catch {
@@ -63,55 +18,55 @@ async function safeReadText(res: Response): Promise<string> {
   }
 }
 
-/**
- * Fetch JSON with strict error messages when R2 returns HTML/404/etc.
- * Supports allow404 => return null on 404.
- */
-export async function fetchJsonStrict<T = any>(
-  url: string,
-  opts: FetchJsonOptions = {}
-): Promise<T | null> {
-  const res = await fetch(url, {
-    signal: opts.signal,
-    headers: {
-      accept: "application/json,text/plain,*/*",
-      ...(opts.headers || {}),
-    },
-  });
-
-  if (res.status === 404 && opts.allow404) return null;
-
-  if (!res.ok) {
-    const body = await safeReadText(res);
-    throw new Error(
-      `[fetchJsonStrict] ${res.status} ${res.statusText} for ${url}` +
-        (body ? `\nBody (first 200): ${body.slice(0, 200)}` : "")
-    );
-  }
-
-  const contentType = (res.headers.get("content-type") || "").toLowerCase();
-
-  // If it claims JSON, use res.json()
-  if (contentType.includes("application/json") || contentType.includes("json")) {
-    return (await res.json()) as T;
-  }
-
-  // Otherwise read as text and try to parse; detect HTML clearly.
-  const text = await safeReadText(res);
-
-  if (looksLikeHtml(text)) {
-    throw new Error(
-      `[fetchJsonStrict] Expected JSON but got HTML at ${url} (likely 404 fallback or wrong R2 path).`
-    );
-  }
-
-  try {
-    return JSON.parse(text) as T;
-  } catch {
-    throw new Error(
-      `[fetchJsonStrict] Expected JSON but got non-JSON content at ${url} (content-type: ${contentType || "unknown"}).`
-    );
-  }
+function looksLikeHtml(body: string) {
+  const s = body.trim().slice(0, 200).toLowerCase();
+  return s.includes("<!doctype html") || s.includes("<html");
 }
+
+export async function fetchJsonStrict(url: string) {
+  // Try .json.gz first, then .json
+  const u = new URL(url);
+  const tryUrls: string[] = [];
+
+  if (u.pathname.endsWith(".json")) {
+    const gz = new URL(u.toString());
+    gz.pathname = gz.pathname.replace(/\.json$/i, ".json.gz");
+    tryUrls.push(gz.toString());
+    tryUrls.push(u.toString());
+  } else {
+    tryUrls.push(u.toString());
+  }
+
+  let lastErr = "";
+
+  for (const candidate of tryUrls) {
+    const res = await fetch(candidate, { cache: "no-store" });
+
+    if (!res.ok) {
+      lastErr = `${res.status} ${res.statusText} for ${candidate}`;
+      continue;
+    }
+
+    const ct = (res.headers.get("content-type") || "").toLowerCase();
+
+    // If it’s gz, parse as JSON from text (Cloudflare may not set JSON content-type)
+    const body = await readTextSafe(res);
+
+    if (looksLikeHtml(body)) {
+      lastErr = `Got HTML from ${candidate} (likely wrong base/origin or missing object)`;
+      continue;
+    }
+
+    try {
+      return JSON.parse(body);
+    } catch (e: any) {
+      lastErr = `JSON parse failed for ${candidate}: ${e?.message || String(e)} (ct=${ct})`;
+      continue;
+    }
+  }
+
+  throw new Error(`[fetchJsonStrict] Failed. ${lastErr || `Tried: ${tryUrls.join(", ")}`}`);
+}
+
 
 
