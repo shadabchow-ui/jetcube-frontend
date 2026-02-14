@@ -3,17 +3,21 @@ import { createRoot } from "react-dom/client";
 import { App } from "./App";
 import { CartProvider } from "./context/CartContext";
 
-const root = document.getElementById("root");
+const mount =
+  document.getElementById("root") ||
+  document.getElementById("app") ||
+  document.getElementById("main");
 
-if (!root) {
-  throw new Error("Root container missing in index.html");
+if (!mount) {
+  // Don’t hard-crash; fail gracefully so you can inspect DOM if needed
+  console.error("No mount element found. Expected #root or #app or #main.");
+} else {
+  createRoot(mount).render(
+    <StrictMode>
+      <CartProvider>
+        <App />
+      </CartProvider>
+    </StrictMode>
+  );
 }
-
-createRoot(root).render(
-  <StrictMode>
-    <CartProvider>
-      <App />
-    </CartProvider>
-  </StrictMode>
-);
 
