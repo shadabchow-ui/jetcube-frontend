@@ -16,7 +16,6 @@ import HelpLayout from "./layouts/HelpLayout";
 import ShopAllCategories from "./screens/Shop/ShopAllCategories";
 import Shop from "./screens/Shop/Shop";
 import Help from "./pages/help/HelpIndex";
-// import CategoryDirectory from "./pages/CategoryDirectory"; // ❌ Removed: Missing file
 
 /* ============================
    PDP Imports
@@ -40,17 +39,6 @@ import OrdersPage from "./pages/OrdersPage";
 import OrderDetailsPage from "./pages/OrderDetailsPage";
 import SignupPage from "./pages/SignupPage";
 import LoginPage from "./pages/LoginPage";
-
-/* ============================
-   Help Pages
-   ============================ */
-import * as AboutVentariModule from "./pages/help/AboutVentari";
-import * as ConditionsOfUseModule from "./pages/help/ConditionsOfUse";
-import * as PrivacyNoticeModule from "./pages/help/PrivacyNotice";
-import * as AccessibilityModule from "./pages/help/Accessibility";
-// import * as CookiePolicyModule from "./pages/help/CookiePolicy"; // ❌ Removed: Missing file
-import * as ContactModule from "./pages/help/Contact";
-import * as DevicesModule from "./pages/help/Devices";
 
 /* ============================
    PDP Loader Helpers
@@ -231,11 +219,10 @@ function ProductRoute({ children }: { children: React.ReactNode }) {
             }
           }
         } catch (e) {
-          // If index is missing, we’ll surface it below via the final error.
           console.warn("[ProductRoute] index resolution failed:", e);
         }
 
-        // ── Strategy 2: fallback to direct products/<slug>.json (common legacy) ──
+        // ── Strategy 2: fallback to direct products/<slug>.json (legacy) ──
         if (!productPath) {
           productPath = `products/${handle}.json`;
         }
@@ -317,21 +304,6 @@ const SearchResultsPage =
 const CategoryPage =
   (CategoryPageModule as any).default || (CategoryPageModule as any).CategoryPage;
 
-const AboutVentari =
-  (AboutVentariModule as any).default || (AboutVentariModule as any).AboutVentari;
-const ConditionsOfUse =
-  (ConditionsOfUseModule as any).default ||
-  (ConditionsOfUseModule as any).ConditionsOfUse;
-const PrivacyNotice =
-  (PrivacyNoticeModule as any).default ||
-  (PrivacyNoticeModule as any).PrivacyNotice;
-const Accessibility =
-  (AccessibilityModule as any).default ||
-  (AccessibilityModule as any).Accessibility;
-// const CookiePolicy = (CookiePolicyModule as any).default || (CookiePolicyModule as any).CookiePolicy;
-const Contact = (ContactModule as any).default || (ContactModule as any).Contact;
-const Devices = (DevicesModule as any).default || (DevicesModule as any).Devices;
-
 const router = createBrowserRouter([
   {
     path: "/",
@@ -356,24 +328,16 @@ const router = createBrowserRouter([
         ),
       },
 
-      // default route
       { path: "*", element: <Navigate to="/" replace /> },
     ],
   },
 
-  // Help routes
+  // ✅ Keep HelpIndex only (removes missing help-page imports)
   {
     path: "/help",
     element: <HelpLayout />,
     children: [
       { path: "", element: <Help /> },
-      { path: "about", element: <AboutVentari /> },
-      { path: "conditionsofuse", element: <ConditionsOfUse /> },
-      { path: "privacy", element: <PrivacyNotice /> },
-      { path: "accessibility", element: <Accessibility /> },
-      { path: "devices", element: <Devices /> },
-      { path: "contact", element: <Contact /> },
-      // { path: "cookiepolicy", element: <CookiePolicy /> }, // ❌ Removed
       { path: "*", element: <Help /> },
     ],
   },
@@ -386,7 +350,7 @@ const router = createBrowserRouter([
   { path: "/login", element: <LoginPage /> },
 ]);
 
-// ✅ Named export is REQUIRED by index.tsx
+// ✅ Named export required by src/index.tsx
 export function App() {
   return <RouterProvider router={router} />;
 }
