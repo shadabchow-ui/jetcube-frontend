@@ -6,7 +6,8 @@ import {
   useParams,
 } from "react-router-dom";
 
-import { R2_BASE, joinUrl } from "./config/r2";
+// ❌ Removed joinUrl from import (it doesn't exist in repo)
+import { R2_BASE } from "./config/r2";
 
 /* ============================
    Layout Imports
@@ -76,6 +77,15 @@ import * as AccessibilityModule from "./pages/help/Accessibility";
    ============================ */
 
 const ProductPdpProvider = (PdpContext as any).ProductPdpProvider as any;
+
+/**
+ * Local helper to join URL parts since it isn't exported from config
+ */
+function joinUrl(base: string, path: string): string {
+  const b = base.replace(/\/+$/, "");
+  const p = path.replace(/^\/+/, "");
+  return `${b}/${p}`;
+}
 
 /**
  * STRICT Fetcher: explicitly rejects HTML to prevent 404/SPA fallbacks
