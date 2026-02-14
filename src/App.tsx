@@ -6,7 +6,7 @@ import {
   useParams,
 } from "react-router-dom";
 
-import { R2_BASE } from "./config/r2";
+import { R2_BASE, joinUrl } from "./config/r2";
 
 /* ============================
    Layout Imports
@@ -16,7 +16,7 @@ import HelpLayout from "./layouts/HelpLayout";
 import ShopAllCategories from "./screens/Shop/ShopAllCategories";
 import Shop from "./screens/Shop/Shop";
 import Help from "./pages/help/HelpIndex";
-// import CategoryDirectory from "./pages/CategoryDirectory"; // ❌ Removed
+// import CategoryDirectory from "./pages/CategoryDirectory"; // ❌ Removed: Missing file
 
 /* ============================
    PDP Imports
@@ -69,22 +69,13 @@ import * as DevicesModule from "./pages/help/Devices";
 import * as ConditionsOfUseModule from "./pages/help/ConditionsOfUse";
 import * as PrivacyNoticeModule from "./pages/help/PrivacyNotice";
 import * as AccessibilityModule from "./pages/help/Accessibility";
-// import * as CookiePolicyModule from "./pages/help/CookiePolicy"; // ❌ Removed
+// import * as CookiePolicyModule from "./pages/help/CookiePolicy"; // ❌ Removed: Missing file
 
 /* ============================
    PDP Loader Helpers
    ============================ */
 
 const ProductPdpProvider = (PdpContext as any).ProductPdpProvider as any;
-
-/**
- * Local helper to join URL parts since it isn't exported from config
- */
-function joinUrl(base: string, path: string): string {
-  const b = base.replace(/\/+$/, "");
-  const p = path.replace(/^\/+/, "");
-  return `${b}/${p}`;
-}
 
 /**
  * STRICT Fetcher: explicitly rejects HTML to prevent 404/SPA fallbacks
