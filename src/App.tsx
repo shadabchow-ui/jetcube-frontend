@@ -18,6 +18,11 @@ import Shop from "./screens/Shop/Shop";
 import Help from "./pages/help/HelpIndex";
 
 /* ============================
+   CART Provider (REQUIRED)
+   ============================ */
+import { CartProvider } from "./context/CartContext";
+
+/* ============================
    PDP Imports
    ============================ */
 import * as PdpContext from "./pdp/ProductPdpContext";
@@ -65,7 +70,9 @@ async function loadIndexOnce(): Promise<any> {
 
   INDEX_PROMISE = (async () => {
     for (const u of candidates) {
-      const data = await fetchJsonStrict<any>(u, "Index fetch", { allow404: true });
+      const data = await fetchJsonStrict<any>(u, "Index fetch", {
+        allow404: true,
+      });
       if (data !== null) {
         INDEX_CACHE = data;
         return data;
@@ -152,7 +159,9 @@ async function fetchProductJsonWithFallback(productUrl: string): Promise<any> {
 
   const tried = variants.join(", ");
   if (lastErr) {
-    throw new Error(`${lastErr?.message || "Product fetch failed"}. Tried: ${tried}`);
+    throw new Error(
+      `${lastErr?.message || "Product fetch failed"}. Tried: ${tried}`
+    );
   }
   throw new Error(`Product not found. Tried: ${tried}`);
 }
@@ -259,10 +268,7 @@ function ProductRoute({ children }: { children: React.ReactNode }) {
         <div className="border border-red-200 bg-red-50 text-red-800 rounded p-4">
           <div className="font-semibold">Product failed to load</div>
           <div className="text-sm mt-1">{error}</div>
-          <a
-            href="/shop"
-            className="inline-block mt-3 text-blue-600 hover:underline"
-          >
+          <a href="/shop" className="inline-block mt-3 text-blue-600 hover:underline">
             Return to Shop
           </a>
         </div>
@@ -332,7 +338,7 @@ const router = createBrowserRouter([
     ],
   },
 
-  // ✅ Keep HelpIndex only (removes missing help-page imports)
+  // ✅ Keep HelpIndex only
   {
     path: "/help",
     element: <HelpLayout />,
@@ -352,5 +358,9 @@ const router = createBrowserRouter([
 
 // ✅ Named export required by src/index.tsx
 export function App() {
-  return <RouterProvider router={router} />;
+  return (
+    <CartProvider>
+      <RouterProvider router={router} />
+    </CartProvider>
+  );
 }
