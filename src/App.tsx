@@ -6,7 +6,6 @@ import {
   useParams,
 } from "react-router-dom";
 
-// ❌ Removed joinUrl from import (it doesn't exist in repo)
 import { R2_BASE } from "./config/r2";
 
 /* ============================
@@ -17,7 +16,7 @@ import HelpLayout from "./layouts/HelpLayout";
 import ShopAllCategories from "./screens/Shop/ShopAllCategories";
 import Shop from "./screens/Shop/Shop";
 import Help from "./pages/help/HelpIndex";
-// import CategoryDirectory from "./pages/CategoryDirectory"; // ❌ Removed: Missing file
+// import CategoryDirectory from "./pages/CategoryDirectory"; // ❌ Removed
 
 /* ============================
    PDP Imports
@@ -70,7 +69,7 @@ import * as DevicesModule from "./pages/help/Devices";
 import * as ConditionsOfUseModule from "./pages/help/ConditionsOfUse";
 import * as PrivacyNoticeModule from "./pages/help/PrivacyNotice";
 import * as AccessibilityModule from "./pages/help/Accessibility";
-// import * as CookiePolicyModule from "./pages/help/CookiePolicy"; // ❌ Removed: Missing file
+// import * as CookiePolicyModule from "./pages/help/CookiePolicy"; // ❌ Removed
 
 /* ============================
    PDP Loader Helpers
