@@ -14,9 +14,12 @@ import { R2_BASE, joinUrl, fetchJsonStrict } from "./config/r2";
 import MainLayout from "./layouts/MainLayout";
 import HelpLayout from "./layouts/HelpLayout";
 import ShopAllCategories from "./screens/Shop/ShopAllCategories";
+import Shop from "./screens/Shop/Shop";
+import Help from "./pages/help/Help";
+import CategoryDirectory from "./pages/CategoryDirectory";
 
 /* ============================
-   Context Imports
+   PDP Imports
    ============================ */
 import * as PdpContext from "./pdp/ProductPdpContext";
 import { CartProvider } from "./context/CartContext";
@@ -32,7 +35,7 @@ import * as CartModule from "./screens/Cart";
 import * as CheckoutModule from "./screens/Checkout";
 import * as CartSidebarModule from "./screens/CartSidebar";
 import * as ProductComparisonModule from "./screens/ProductComparison";
-import * as SearchResultsPageModule from "./pages/SearchResultsPage";
+import SearchResultsPageModule from "./pages/SearchResultsPage";
 import * as CategoryPageModule from "./screens/category/CategoryPage";
 
 import OrdersPage from "./pages/OrdersPage";
@@ -66,25 +69,16 @@ import * as DevicesModule from "./pages/help/Devices";
 import * as ConditionsOfUseModule from "./pages/help/ConditionsOfUse";
 import * as PrivacyNoticeModule from "./pages/help/PrivacyNotice";
 import * as AccessibilityModule from "./pages/help/Accessibility";
-import * as CookiePolicyModule from "./pages/help/cookiepolicy";
+import * as CookiePolicyModule from "./pages/help/CookiePolicy";
 
 /* ============================
-   Root Layout Alias
-   ============================ */
-const RootLayout = MainLayout;
-
-/* ============================
-   R2 / Index / Shard Utilities
+   PDP Loader Helpers
    ============================ */
 
-/**
- * Notes:
- * - R2_BASE comes from VITE_R2_BASE_URL (preferred) or VITE_R2_BASE (legacy)
- * - joinUrl prevents double slashes + protocol-relative URLs
- * - fetchJsonStrict hardens against 401/403/404 + HTML error pages + gzip header mismatches
- */
+const ProductPdpProvider = (PdpContext as any).ProductPdpProvider as any;
 
-let INDEX_CACHE: any = null;
+/** Cache the global manifest (indexes/_index.json.gz) */
+let INDEX_CACHE: any | null = null;
 let INDEX_PROMISE: Promise<any> | null = null;
 
 async function loadIndexOnce(): Promise<any> {
@@ -104,7 +98,7 @@ async function loadIndexOnce(): Promise<any> {
   return INDEX_PROMISE;
 }
 
-/** Cache shards by URL (manifest can map many keys → filenames). */
+/** Cache shards by URL (manifest can map many keys -> files) */
 const SHARD_CACHE: Record<string, any> = {};
 
 async function loadShardByUrl(
@@ -125,14 +119,6 @@ async function loadShardByUrl(
   }
 }
 
-/**
- * Resolve a shard key from a slug using the keys present in the manifest.
- * Works with common naming schemes like:
- * - "12" (first 2 chars)
- * - "0-" (first 2 chars with dash)
- * - "_a" (underscore + first char)
- * - "a" (first char)
- */
 function resolveShardKeyFromManifest(slug: string, shards: Record<string, string>): string | null {
   const keys = Object.keys(shards || {});
   if (!slug || keys.length === 0) return null;
@@ -151,75 +137,25 @@ function resolveShardKeyFromManifest(slug: string, shards: Record<string, string
     if (hit) return hit;
   }
 
-  // Fallback: deterministic hash bucketing into available keys
-  let hash = 0;
-  for (let i = 0; i < slug.length; i++) hash = (hash * 31 + slug.charCodeAt(i)) | 0;
-  return keys[Math.abs(hash) % keys.length];
+  // Fallback: sometimes shards are stored as "ob.json.gz" keys, etc.
+  // Try best-effort by searching for a key that prefixes the slug.
+  const hit2 = keys.find((k) => slug.toLowerCase().startsWith(k.toLowerCase()));
+  return hit2 || null;
 }
-
-/* ============================
-   Helper: pick named export
-   ============================ */
-function pick<T = any>(mod: any, named: string): T {
-  return (mod?.[named] ?? mod?.default) as T;
-}
-
-/* ============================
-   Component Resolvers
-   ============================ */
-const Home = pick<any>(HomeModule, "Home");
-const Shop = pick<any>(ShopModule, "Shop");
-const SingleProduct = pick<any>(SingleProductModule, "SingleProduct");
-const Cart = pick<any>(CartModule, "Cart");
-const Checkout = pick<any>(CheckoutModule, "Checkout");
-const CartSidebar = pick<any>(CartSidebarModule, "CartSidebar");
-const ProductComparison = pick<any>(
-  ProductComparisonModule,
-  "ProductComparison"
-);
-const SearchResultsPage = pick<any>(
-  SearchResultsPageModule,
-  "SearchResultsPage"
-);
-const CategoryPage = pick<any>(CategoryPageModule, "CategoryPage");
-
-/* Brand */
-const AboutUs = pick<any>(AboutUsModule, "AboutUs");
-const Careers = pick<any>(CareersModule, "Careers");
-const Press = pick<any>(PressModule, "Press");
-const Sustainability = pick<any>(SustainabilityModule, "Sustainability");
-const Newsletter = pick<any>(NewsletterModule, "Newsletter");
-
-/* Help */
-const HelpIndex = pick<any>(HelpIndexModule, "HelpIndex");
-const Contact = pick<any>(ContactModule, "Contact");
-const Shipping = pick<any>(ShippingModule, "Shipping");
-const Returns = pick<any>(ReturnsModule, "Returns");
-const Payments = pick<any>(PaymentsModule, "Payments");
-const AdsPrivacy = pick<any>(AdsPrivacyModule, "AdsPrivacy");
-const ConsumerData = pick<any>(ConsumerDataModule, "ConsumerData");
-const ProductSafety = pick<any>(ProductSafetyModule, "ProductSafety");
-const Devices = pick<any>(DevicesModule, "Devices");
-
-/* Legal */
-const ConditionsOfUse = pick<any>(ConditionsOfUseModule, "ConditionsOfUse");
-const PrivacyNotice = pick<any>(PrivacyNoticeModule, "PrivacyNotice");
-const Accessibility = pick<any>(AccessibilityModule, "Accessibility");
-const CookiePolicy = pick<any>(CookiePolicyModule, "CookiePolicy");
-
-/* ============================
-   PDP Provider
-   ============================ */
-const ProductPdpProvider =
-  pick<any>(PdpContext, "ProductPdpProvider") ||
-  (({ children }: any) => <>{children}</>);
 
 /* ============================
    PDP ROUTE — Full shard-based loader
    ============================ */
 function ProductRoute({ children }: { children: React.ReactNode }) {
   const { id } = useParams<{ id: string }>();
-  const handle = decodeURIComponent(id || "").trim();
+
+  // Prefer router param, but fall back to window.location.pathname for extra safety (deep links / edge cases).
+  const pathHandle =
+    typeof window !== "undefined" && window.location.pathname.startsWith("/p/")
+      ? decodeURIComponent(window.location.pathname.slice(3).split("/")[0] || "").trim()
+      : "";
+
+  const handle = decodeURIComponent(id || "").trim() || pathHandle;
   const [product, setProduct] = React.useState<any>(null);
   const [error, setError] = React.useState<string | null>(null);
 
@@ -235,79 +171,62 @@ function ProductRoute({ children }: { children: React.ReactNode }) {
 
         let productPath: string | null = null;
 
-        // ── Strategy 1: Fast shard guess (optional) ──
-        // Many builds shard by the first 2 characters of the slug (e.g. "12", "0-").
-        // We'll try that as a quick win, but we do NOT rely on it.
-        const guessedKey = handle.slice(0, 2).toLowerCase();
-        if (guessedKey) {
-          const guessedUrl = joinUrl(
-            R2_BASE,
-            `indexes/pdp_paths/${guessedKey}.json.gz`
-          );
-          const shard = await loadShardByUrl(guessedUrl);
-          if (shard && shard[handle]) {
-            productPath = shard[handle];
-            console.log("[ProductRoute] Found path in guessed shard:", productPath);
+        // ── Strategy 1: Use manifest to resolve shard ──
+        // Always fetch indexes/_index.json.gz (manifest), then fetch exactly ONE shard for the handle.
+        const index = await loadIndexOnce();
+
+        // Accept either:
+        // 1) Flat index array: [{slug, path}, ...]
+        // 2) Manifest format: { version, base, shards: { key: filename } }
+        if (Array.isArray(index)) {
+          const entry = index.find((x: any) => x?.slug === handle);
+          if (entry?.path) {
+            productPath = entry.path;
+            console.log("[ProductRoute] Found in flat index:", productPath);
           }
-        }
+        } else if (
+          index &&
+          typeof index === "object" &&
+          index.shards &&
+          typeof index.shards === "object" &&
+          !Array.isArray(index.shards)
+        ) {
+          // Manifest format: { version, base, shards: { key: filename } }
+          const manifest = index as {
+            base: string;
+            shards: Record<string, string>;
+          };
 
-        // ── Strategy 2: Use _index manifest (authoritative) ──
-        if (!productPath) {
-          console.log("[ProductRoute] Checking _index manifest…");
-          const index = await loadIndexOnce();
+          const shardKey = resolveShardKeyFromManifest(handle, manifest.shards);
 
-          if (Array.isArray(index)) {
-            // Flat array format: [{ slug, path, … }]
-            const entry = index.find((p: any) => p?.slug === handle);
-            if (entry?.path) {
-              productPath = entry.path;
-              console.log("[ProductRoute] Found in flat index:", productPath);
-            }
-          } else if (
-            index &&
-            typeof index === "object" &&
-            index.shards &&
-            typeof index.shards === "object" &&
-            !Array.isArray(index.shards)
-          ) {
-            // Manifest format: { version, base, shards: { key: filename } }
-            const manifest = index as {
-              base: string;
-              shards: Record<string, string>;
-            };
+          if (shardKey && manifest.shards[shardKey]) {
+            const base = String(manifest.base || "indexes/pdp_paths/")
+              .replace(/^\/+/, "")
+              .replace(/\/+$/, "")
+              .concat("/");
+            const filename = manifest.shards[shardKey].replace(/^\/+/, "");
+            const shardUrl = joinUrl(R2_BASE, `${base}${filename}`);
 
-            const shardKey = resolveShardKeyFromManifest(handle, manifest.shards);
-
-            if (shardKey && manifest.shards[shardKey]) {
-              const base = String(manifest.base || "indexes/pdp_paths/")
-                .replace(/^\/+/, "")
-                .replace(/\/+$/, "")
-                .concat("/");
-              const filename = manifest.shards[shardKey].replace(/^\/+/, "");
-              const shardUrl = joinUrl(R2_BASE, `${base}${filename}`);
-
-              const shard = await loadShardByUrl(shardUrl);
-              if (shard && shard[handle]) {
-                productPath = shard[handle];
-                console.log("[ProductRoute] Found via manifest shard:", shardKey, productPath);
-              } else {
-                console.warn("[ProductRoute] Slug not found in resolved shard:", shardKey, shardUrl);
-              }
-            } else {
-              console.warn("[ProductRoute] Could not resolve shard key for slug:", handle);
+            const shard = await loadShardByUrl(shardUrl);
+            if (shard && shard[handle]) {
+              productPath = shard[handle];
+              console.log("[ProductRoute] Found in shard:", shardKey, productPath);
             }
           }
         }
 
-        // ── Strategy 3: Direct fetch by convention ──
+        // If shard resolution didn't find a path, fall back to direct product path.
+        // This keeps PDP resilient even if index is missing a handle.
         if (!productPath) {
-          // Try direct R2 path: products/<slug>.json
           productPath = `products/${handle}.json`;
-          console.log("[ProductRoute] Trying direct path:", productPath);
+          console.log("[ProductRoute] Falling back to direct path:", productPath);
         }
 
         // ── Fetch the product JSON ──
-        const productUrl = joinUrl(R2_BASE, productPath);
+        const productUrl = /^https?:\/\//i.test(productPath)
+          ? productPath
+          : joinUrl(R2_BASE, productPath);
+
         console.log("[ProductRoute] Fetching product JSON:", productUrl);
         const p = await fetchJsonStrict(productUrl, "Product fetch");
 
@@ -352,44 +271,60 @@ function ProductRoute({ children }: { children: React.ReactNode }) {
 }
 
 /* ============================
-   ORDER COMPLETE
+   Helper: pick named export
    ============================ */
-function OrderComplete() {
-  return (
-    <div className="max-w-[1200px] mx-auto px-4 py-10">
-      <div className="bg-white border border-[#d5dbdb] rounded p-6">
-        <div className="text-[22px] font-bold text-[#0F1111]">
-          Order complete
-        </div>
-        <div className="mt-2 text-[14px] text-[#565959]">
-          Thanks! Your payment was successful.
-        </div>
-        <div className="mt-5 flex flex-wrap gap-3">
-          <a
-            href="/orders"
-            className="inline-flex items-center justify-center bg-[#ffd814] hover:bg-[#f7ca00] text-black text-[13px] font-semibold px-4 py-2 rounded"
-          >
-            View orders
-          </a>
-          <a
-            href="/shop"
-            className="text-[#007185] hover:underline text-[13px]"
-          >
-            Continue shopping
-          </a>
-        </div>
-      </div>
-    </div>
-  );
+function pick<T = any>(mod: any, named: string): T {
+  return (mod?.[named] ?? mod?.default) as T;
 }
 
 /* ============================
-   ROUTER
+   Component Resolvers
+   ============================ */
+const Home = pick<any>(HomeModule, "Home");
+const Shop = pick<any>(ShopModule, "Shop");
+const SingleProduct = pick<any>(SingleProductModule, "SingleProduct");
+const Cart = pick<any>(CartModule, "Cart");
+const Checkout = pick<any>(CheckoutModule, "Checkout");
+const CartSidebar = pick<any>(CartSidebarModule, "CartSidebar");
+const ProductComparison = pick<any>(ProductComparisonModule, "ProductComparison");
+const SearchResultsPage = pick<any>(SearchResultsPageModule, "default");
+const CategoryPage = pick<any>(CategoryPageModule, "CategoryPage");
+
+/* Brand */
+const AboutUs = pick<any>(AboutUsModule, "AboutUs");
+const Careers = pick<any>(CareersModule, "Careers");
+const Press = pick<any>(PressModule, "Press");
+const Sustainability = pick<any>(SustainabilityModule, "Sustainability");
+const Newsletter = pick<any>(NewsletterModule, "Newsletter");
+
+/* Help */
+const HelpIndex = pick<any>(HelpIndexModule, "HelpIndex");
+const Contact = pick<any>(ContactModule, "Contact");
+const Shipping = pick<any>(ShippingModule, "Shipping");
+const Returns = pick<any>(ReturnsModule, "Returns");
+const Payments = pick<any>(PaymentsModule, "Payments");
+const AdsPrivacy = pick<any>(AdsPrivacyModule, "AdsPrivacy");
+const ConsumerData = pick<any>(ConsumerDataModule, "ConsumerData");
+const ProductSafety = pick<any>(ProductSafetyModule, "ProductSafety");
+const Devices = pick<any>(DevicesModule, "Devices");
+const ConditionsOfUse = pick<any>(ConditionsOfUseModule, "ConditionsOfUse");
+const PrivacyNotice = pick<any>(PrivacyNoticeModule, "PrivacyNotice");
+const Accessibility = pick<any>(AccessibilityModule, "Accessibility");
+const CookiePolicy = pick<any>(CookiePolicyModule, "CookiePolicy");
+
+/* ============================
+   Router
    ============================ */
 const router = createBrowserRouter([
   {
     path: "/",
-    element: <RootLayout />,
+    element: (
+      <CartProvider>
+        <WishlistProvider>
+          <MainLayout />
+        </WishlistProvider>
+      </CartProvider>
+    ),
     children: [
       { index: true, element: <Home /> },
       {
@@ -419,36 +354,43 @@ const router = createBrowserRouter([
       { path: "press", element: <Press /> },
       { path: "sustainability", element: <Sustainability /> },
       { path: "newsletter", element: <Newsletter /> },
-      { path: "signup", element: <SignupPage /> },
-      { path: "login", element: <LoginPage /> },
+      { path: "category-directory", element: <CategoryDirectory /> },
       { path: "single-product", element: <Navigate to="/shop" replace /> },
-      { path: "*", element: <CategoryPage /> },
-      {
-        path: "help",
-        element: <HelpLayout />,
-        children: [
-          { index: true, element: <HelpIndex /> },
-          { path: "shipping", element: <Shipping /> },
-          { path: "returns", element: <Returns /> },
-          { path: "payments", element: <Payments /> },
-          { path: "conditions-of-use", element: <ConditionsOfUse /> },
-          { path: "privacy-notice", element: <PrivacyNotice /> },
-          { path: "accessibility", element: <Accessibility /> },
-          { path: "ads-privacy", element: <AdsPrivacy /> },
-          { path: "consumer-data", element: <ConsumerData /> },
-          { path: "product-safety", element: <ProductSafety /> },
-          { path: "devices", element: <Devices /> },
-          { path: "contact", element: <Contact /> },
-          { path: "cookiepolicy", element: <CookiePolicy /> },
-        ],
-      },
+      { path: "*", element: <Navigate to="/" replace /> },
     ],
   },
+  {
+    path: "/help",
+    element: <HelpLayout />,
+    children: [
+      { index: true, element: <HelpIndex /> },
+      { path: "shipping", element: <Shipping /> },
+      { path: "returns", element: <Returns /> },
+      { path: "payments", element: <Payments /> },
+      { path: "conditions-of-use", element: <ConditionsOfUse /> },
+      { path: "privacy-notice", element: <PrivacyNotice /> },
+      { path: "accessibility", element: <Accessibility /> },
+      { path: "ads-privacy", element: <AdsPrivacy /> },
+      { path: "consumer-data", element: <ConsumerData /> },
+      { path: "product-safety", element: <ProductSafety /> },
+      { path: "devices", element: <Devices /> },
+      { path: "contact", element: <Contact /> },
+      { path: "cookiepolicy", element: <CookiePolicy /> },
+      { path: "*", element: <Help /> },
+    ],
+  },
+  { path: "/cart", element: <Cart /> },
+  { path: "/checkout", element: <Checkout /> },
+  { path: "/cart-sidebar", element: <CartSidebar /> },
+  { path: "/compare", element: <ProductComparison /> },
+  { path: "/signup", element: <SignupPage /> },
+  { path: "/login", element: <LoginPage /> },
 ]);
 
-/* ============================
-   CONSENT BANNER
-   ============================ */
+export default function App() {
+  return <RouterProvider router={router} />;
+}
+
 declare global {
   interface Window {
     gtag?: (...args: any[]) => void;
@@ -456,88 +398,3 @@ declare global {
 }
 
 type ConsentChoice = "granted" | "denied";
-const CONSENT_KEY = "ventari_consent_v1";
-
-function applyConsent(choice: ConsentChoice) {
-  window.gtag?.("consent", "update", {
-    ad_storage: choice,
-    analytics_storage: choice,
-    ad_user_data: choice,
-    ad_personalization: choice,
-  });
-}
-
-function ConsentBanner() {
-  const [open, setOpen] = React.useState(false);
-
-  React.useEffect(() => {
-    const saved =
-      (localStorage.getItem(CONSENT_KEY) as ConsentChoice | null) || null;
-    if (saved) {
-      applyConsent(saved);
-      setOpen(false);
-    } else {
-      setOpen(true);
-    }
-  }, []);
-
-  if (!open) return null;
-
-  return (
-    <div className="fixed left-4 right-4 bottom-4 z-[9999]">
-      <div className="max-w-[900px] mx-auto bg-white border border-[#d5dbdb] rounded-xl shadow-lg p-4">
-        <div className="flex flex-col sm:flex-row sm:items-start gap-3">
-          <div className="flex-1">
-            <div className="text-[14px] font-semibold text-[#0F1111]">
-              Cookies & analytics
-            </div>
-            <div className="mt-1 text-[13px] text-[#565959] leading-relaxed">
-              We use cookies/analytics to understand traffic and improve the
-              site. You can accept or reject.
-            </div>
-          </div>
-
-          <div className="flex gap-2 sm:justify-end">
-            <button
-              className="px-4 py-2 rounded-lg border border-[#d5dbdb] text-[13px] font-semibold text-[#0F1111] hover:bg-gray-50"
-              onClick={() => {
-                localStorage.setItem(CONSENT_KEY, "denied");
-                applyConsent("denied");
-                setOpen(false);
-              }}
-            >
-              Reject
-            </button>
-
-            <button
-              className="px-4 py-2 rounded-lg bg-[#0F1111] text-white text-[13px] font-semibold hover:opacity-90"
-              onClick={() => {
-                localStorage.setItem(CONSENT_KEY, "granted");
-                applyConsent("granted");
-                setOpen(false);
-              }}
-            >
-              Accept
-            </button>
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-/* ============================
-   APP EXPORT
-   ============================ */
-export const App = () => {
-  return (
-    <CartProvider>
-      <WishlistProvider>
-        <ConsentBanner />
-        <RouterProvider router={router} />
-      </WishlistProvider>
-    </CartProvider>
-  );
-};
-
-export default App;
