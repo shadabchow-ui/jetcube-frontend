@@ -1,6 +1,7 @@
 import React, { createContext, useContext } from "react";
 import { R2_BASE, joinUrl, fetchJsonStrict } from "../config/r2";
 
+
 type IndexItem = {
   slug: string;
   path: string;
@@ -27,7 +28,7 @@ type Ctx = {
 const ProductPdpContext = createContext<Ctx | null>(null);
 
 /* ────────────────────────────────────────────────────────
-   Product DATA context (consumed by useProductPdp)
+   NEW: Product DATA context (consumed by useProductPdp)
    ──────────────────────────────────────────────────────── */
 const ProductDataContext = createContext<any>(null);
 
@@ -54,13 +55,6 @@ let INDEX_PROMISE: Promise<IndexItem[] | IndexManifest> | null = null;
 const SHARD_CACHE: Record<string, PdpShard> = {};
 const SHARD_PROMISES: Record<string, Promise<PdpShard | null>> = {};
 
-async function internalFetchJson(url: string) {
-  // Strict JSON fetch:
-  // - rejects HTML fallbacks
-  // - supports .json.gz even without Content-Encoding
-  return fetchJsonStrict<any>(url, { label: "ProductPdpContext fetch" });
-}
-
 /* ────────────────────────────────────────────────────────
    Provider
    ──────────────────────────────────────────────────────── */
@@ -78,11 +72,11 @@ export function ProductPdpProvider({
     const url = joinUrl(R2_BASE, "indexes/_index.json.gz");
     console.log("[ProductPdpContext] Fetching global index:", url);
 
-    INDEX_PROMISE = internalFetchJson(url)
-      .then((data) => {
+    INDEX_PROMISE = fetchJsonStrict(url)
+      .then((data: any) => {
         // Support both array format and manifest { version, base, shards }
         if (Array.isArray(data)) {
-          INDEX_CACHE = data;
+          INDEX_CACHE = data as IndexItem[];
         } else if (
           data &&
           typeof data === "object" &&
@@ -90,7 +84,7 @@ export function ProductPdpProvider({
           typeof data.shards === "object" &&
           !Array.isArray(data.shards)
         ) {
-          // Manifest format — store as-is for now; callers handle shape
+          // Manifest format
           INDEX_CACHE = data as IndexManifest;
         } else {
           throw new Error("Index is not an array or valid manifest");
@@ -115,17 +109,14 @@ export function ProductPdpProvider({
     const url = joinUrl(R2_BASE, `indexes/pdp_paths/${shardKey}.json.gz`);
     console.log("[ProductPdpContext] Fetching shard:", url);
 
-    SHARD_PROMISES[shardKey] = internalFetchJson(url)
+    SHARD_PROMISES[shardKey] = fetchJsonStrict<PdpShard>(url)
       .then((data) => {
         SHARD_CACHE[shardKey] = data;
         console.log(`[ProductPdpContext] Shard ${shardKey} loaded`);
         return data;
       })
       .catch((err) => {
-        console.warn(
-          `[ProductPdpContext] Shard ${shardKey} not found or failed:`,
-          err
-        );
+        console.warn(`[ProductPdpContext] Shard ${shardKey} not found or failed:`, err);
         return null;
       });
 
@@ -134,7 +125,7 @@ export function ProductPdpProvider({
 
   return (
     <ProductPdpContext.Provider
-      value={{ loadIndexOnce, loadPdpShard, fetchJson: internalFetchJson }}
+      value={{ loadIndexOnce, loadPdpShard, fetchJson: fetchJsonStrict }}
     >
       <ProductDataContext.Provider value={product ?? null}>
         {children}
@@ -149,4 +140,3 @@ export function useProductPdpContext() {
     throw new Error("useProductPdpContext must be used inside ProductPdpProvider");
   return ctx;
 }
-
