@@ -1,19 +1,21 @@
-// src/index.tsx
-import React from "react";
-import ReactDOM from "react-dom/client";
-import App from "./App";
-import "./index.css"; // keep your existing CSS import(s)
+import { StrictMode } from "react";
+import { createRoot } from "react-dom/client";
+import { App } from "./App";
+import "./index.css"; // ✅ REQUIRED
 
 const el = document.getElementById("app");
 if (!el) {
-  throw new Error('Root container missing. Expected <div id="app"></div> in index.html');
+  throw new Error(
+    'Root container missing: expected <div id="app"></div> in index.html',
+  );
 }
 
-ReactDOM.createRoot(el).render(
-  <React.StrictMode>
+createRoot(el).render(
+  <StrictMode>
     <App />
-  </React.StrictMode>
+  </StrictMode>,
 );
+
 
 
 
