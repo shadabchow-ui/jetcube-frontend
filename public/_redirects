@@ -7,9 +7,7 @@
 /category-directory/* /category-directory/:splat 200
 
 /p/* /index.html 200
-
 /* /index.html 200
-
  
 
 
