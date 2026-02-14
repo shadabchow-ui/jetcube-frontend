@@ -1,72 +1,117 @@
 // src/config/r2.ts
 
-export const R2_BASE_URL: string =
-  (import.meta as any).env?.VITE_R2_BASE_URL ||
-  (import.meta as any).env?.VITE_R2_PUBLIC_BASE ||
-  'https://r2.ventari.net';
+export type FetchJsonOptions = {
+  /**
+   * If true, a 404 returns null instead of throwing.
+   */
+  allow404?: boolean;
 
-export function joinUrl(base: string, ...parts: string[]) {
-  const all = [base, ...parts]
+  /**
+   * Abort signal support.
+   */
+  signal?: AbortSignal;
+
+  /**
+   * Extra headers if needed (rare for public R2).
+   */
+  headers?: Record<string, string>;
+};
+
+export function joinUrl(baseUrl: string, ...parts: string[]): string {
+  const base = (baseUrl || "").replace(/\/+$/, "");
+  const cleaned = parts
     .filter(Boolean)
-    .map((s) => String(s))
-    .map((s, i) => (i === 0 ? s.replace(/\/+$/g, '') : s.replace(/^\/+|\/+$/g, '')));
-  return all.join('/');
+    .map((p) => String(p).replace(/^\/+/, "").replace(/\/+$/, ""));
+  return [base, ...cleaned].join("/");
 }
 
-function looksGzipped(url: string, contentType: string | null, contentEncoding: string | null) {
-  if (url.endsWith('.gz')) return true;
-  if (contentEncoding && contentEncoding.toLowerCase().includes('gzip')) return true;
-  if (contentType && contentType.toLowerCase().includes('gzip')) return true;
-  return false;
+/**
+ * Prefer an env-provided base. Fallback to your custom domain.
+ * NOTE: Avoid referencing `process.env` in Vite/browser builds.
+ */
+export function getR2BaseUrl(): string {
+  const env = ((import.meta as any)?.env || {}) as Record<string, string | undefined>;
+
+  const raw =
+    (env.VITE_R2_PUBLIC_BASE ||
+      env.VITE_R2_PUBLIC_URL ||
+      env.VITE_R2_BASE_URL ||
+      "").trim();
+
+  // ✅ Fallback to your custom domain (matches your R2 “Custom Domains” screenshot)
+  const fallback = "https://r2.ventari.net";
+
+  return raw || fallback;
 }
 
-async function readBodyAsTextPossiblyGzip(res: Response, url: string): Promise<string> {
-  const ct = res.headers.get('content-type');
-  const ce = res.headers.get('content-encoding');
+/**
+ * Backwards-compatible constant used across the codebase.
+ * (Several components import { R2_BASE } directly.)
+ */
+export const R2_BASE: string = getR2BaseUrl();
 
-  if (!looksGzipped(url, ct, ce)) {
+function looksLikeHtml(text: string): boolean {
+  const t = (text || "").trim().toLowerCase();
+  return t.startsWith("<!doctype html") || t.startsWith("<html") || t.includes("<head");
+}
+
+async function safeReadText(res: Response): Promise<string> {
+  try {
     return await res.text();
+  } catch {
+    return "";
   }
-
-  const buf = await res.arrayBuffer();
-
-  // Modern browser gzip decode (no dependency)
-  // Cloudflare Pages visitors will generally have this available.
-  if (typeof (globalThis as any).DecompressionStream !== 'undefined') {
-    const ds = new (globalThis as any).DecompressionStream('gzip');
-    const stream = new Blob([buf]).stream().pipeThrough(ds);
-    return await new Response(stream).text();
-  }
-
-  // If DecompressionStream isn't available, fail loudly with a clear message.
-  throw new Error(
-    `Response appears gzipped but DecompressionStream is not available in this browser. URL=${url}`
-  );
 }
 
-export async function fetchJsonStrict<T = any>(url: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(url, init);
+/**
+ * Fetch JSON with strict error messages when R2 returns HTML/404/etc.
+ * Supports allow404 => return null on 404.
+ */
+export async function fetchJsonStrict<T = any>(
+  url: string,
+  opts: FetchJsonOptions = {}
+): Promise<T | null> {
+  const res = await fetch(url, {
+    signal: opts.signal,
+    headers: {
+      accept: "application/json,text/plain,*/*",
+      ...(opts.headers || {}),
+    },
+  });
+
+  if (res.status === 404 && opts.allow404) return null;
 
   if (!res.ok) {
-    const preview = await res.text().catch(() => '');
+    const body = await safeReadText(res);
     throw new Error(
-      `fetchJsonStrict: ${res.status} ${res.statusText} for ${url}\n` +
-        (preview ? `Body preview:\n${preview.slice(0, 300)}` : '')
+      `[fetchJsonStrict] ${res.status} ${res.statusText} for ${url}` +
+        (body ? `\nBody (first 200): ${body.slice(0, 200)}` : "")
     );
   }
 
-  const text = await readBodyAsTextPossiblyGzip(res, url);
+  const contentType = (res.headers.get("content-type") || "").toLowerCase();
 
-  // Guard against HTML error pages masquerading as 200s
-  const trimmed = text.trim();
-  if (trimmed.startsWith('<!DOCTYPE') || trimmed.startsWith('<html')) {
-    throw new Error(`fetchJsonStrict: Expected JSON but got HTML for ${url}`);
+  // If it claims JSON, use res.json()
+  if (contentType.includes("application/json") || contentType.includes("json")) {
+    return (await res.json()) as T;
+  }
+
+  // Otherwise read as text and try to parse; detect HTML clearly.
+  const text = await safeReadText(res);
+
+  if (looksLikeHtml(text)) {
+    throw new Error(
+      `[fetchJsonStrict] Expected JSON but got HTML at ${url} (likely 404 fallback or wrong R2 path).`
+    );
   }
 
   try {
     return JSON.parse(text) as T;
-  } catch (e: any) {
-    throw new Error(`fetchJsonStrict: Invalid JSON from ${url}: ${e?.message || String(e)}`);
+  } catch {
+    throw new Error(
+      `[fetchJsonStrict] Expected JSON but got non-JSON content at ${url} (content-type: ${contentType || "unknown"}).`
+    );
   }
 }
+
 
