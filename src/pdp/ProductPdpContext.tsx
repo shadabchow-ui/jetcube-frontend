@@ -1,5 +1,5 @@
 import React, { createContext, useContext } from "react";
-import { R2_BASE, joinUrl } from "../config/r2";
+import { R2_BASE } from "../config/r2";
 
 
 type IndexItem = {
@@ -44,6 +44,15 @@ export function useProductPdp(): any {
     );
   }
   return product;
+}
+
+/**
+ * Local helper since joinUrl is not exported from config
+ */
+function joinUrl(base: string, path: string): string {
+  const b = base.replace(/\/+$/, "");
+  const p = path.replace(/^\/+/, "");
+  return `${b}/${p}`;
 }
 
 /* ────────────────────────────────────────────────────────
