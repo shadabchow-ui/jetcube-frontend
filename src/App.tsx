@@ -16,7 +16,7 @@ import HelpLayout from "./layouts/HelpLayout";
 import ShopAllCategories from "./screens/Shop/ShopAllCategories";
 import Shop from "./screens/Shop/Shop";
 import Help from "./pages/help/HelpIndex";
-// import CategoryDirectory from "./pages/CategoryDirectory"; // ❌ Removed: Missing file caused build failure
+// import CategoryDirectory from "./pages/CategoryDirectory"; // ❌ Removed: Missing file
 
 /* ============================
    PDP Imports
@@ -69,7 +69,7 @@ import * as DevicesModule from "./pages/help/Devices";
 import * as ConditionsOfUseModule from "./pages/help/ConditionsOfUse";
 import * as PrivacyNoticeModule from "./pages/help/PrivacyNotice";
 import * as AccessibilityModule from "./pages/help/Accessibility";
-import * as CookiePolicyModule from "./pages/help/CookiePolicy";
+// import * as CookiePolicyModule from "./pages/help/CookiePolicy"; // ❌ Removed: Missing file
 
 /* ============================
    PDP Loader Helpers
@@ -319,7 +319,7 @@ const Devices = pick<any>(DevicesModule, "Devices");
 const ConditionsOfUse = pick<any>(ConditionsOfUseModule, "ConditionsOfUse");
 const PrivacyNotice = pick<any>(PrivacyNoticeModule, "PrivacyNotice");
 const Accessibility = pick<any>(AccessibilityModule, "Accessibility");
-const CookiePolicy = pick<any>(CookiePolicyModule, "CookiePolicy");
+// const CookiePolicy = pick<any>(CookiePolicyModule, "CookiePolicy"); // ❌ Removed
 
 /* ============================
    Router
@@ -384,7 +384,7 @@ const router = createBrowserRouter([
       { path: "product-safety", element: <ProductSafety /> },
       { path: "devices", element: <Devices /> },
       { path: "contact", element: <Contact /> },
-      { path: "cookiepolicy", element: <CookiePolicy /> },
+      // { path: "cookiepolicy", element: <CookiePolicy /> }, // ❌ Removed
       { path: "*", element: <Help /> },
     ],
   },
