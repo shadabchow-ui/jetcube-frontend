@@ -25,8 +25,7 @@ export default function SingleProduct() {
       <FooterSection />
     </>
   );
-}
-
+} 
 
 
 
