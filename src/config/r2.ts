@@ -1,8 +1,23 @@
-// src/r2.ts
-export const R2_BASE =
-  (import.meta as any).env?.VITE_R2_BASE ||
-  (import.meta as any).env?.R2_BASE ||
-  "https://r2.ventari.net"; // <-- set to your public R2 domain
+/* src/config/r2.ts
+   R2 helper utilities (Cloudflare Pages-safe)
+   - Exports: R2_BASE, joinUrl, fetchJsonStrict
+   - fetchJsonStrict supports BOTH signatures:
+       fetchJsonStrict(url, opts)
+       fetchJsonStrict(url, label, opts)
+*/
+
+export const DEFAULT_R2_BASE = "https://r2.ventari.net";
+
+export function getR2BaseUrl() {
+  const base =
+    (import.meta as any)?.env?.VITE_R2_BASE ||
+    (globalThis as any)?.VITE_R2_BASE ||
+    DEFAULT_R2_BASE;
+
+  return String(base).replace(/\/+$/, "");
+}
+
+export const R2_BASE = getR2BaseUrl();
 
 export function joinUrl(base: string, path: string) {
   const b = String(base || "").replace(/\/+$/, "");
@@ -10,62 +25,115 @@ export function joinUrl(base: string, path: string) {
   return `${b}/${p}`;
 }
 
-async function readTextSafe(res: Response) {
-  try {
-    return await res.text();
-  } catch {
-    return "";
-  }
-}
+type FetchJsonStrictOpts = {
+  /** If true, return null instead of throwing on 404 */
+  allow404?: boolean;
 
-function looksLikeHtml(body: string) {
-  const s = body.trim().slice(0, 200).toLowerCase();
-  return s.includes("<!doctype html") || s.includes("<html");
-}
+  /** Optional RequestInit to pass to fetch() */
+  init?: RequestInit;
 
-export async function fetchJsonStrict(url: string) {
-  // Try .json.gz first, then .json
-  const u = new URL(url);
-  const tryUrls: string[] = [];
+  /** Optional label for error messages */
+  label?: string;
+};
 
-  if (u.pathname.endsWith(".json")) {
-    const gz = new URL(u.toString());
-    gz.pathname = gz.pathname.replace(/\.json$/i, ".json.gz");
-    tryUrls.push(gz.toString());
-    tryUrls.push(u.toString());
+function normalizeFetchArgs(
+  url: string,
+  arg2?: string | FetchJsonStrictOpts,
+  arg3?: FetchJsonStrictOpts,
+) {
+  let label: string | undefined;
+  let opts: FetchJsonStrictOpts | undefined;
+
+  if (typeof arg2 === "string") {
+    label = arg2;
+    opts = arg3;
   } else {
-    tryUrls.push(u.toString());
+    opts = arg2;
   }
 
-  let lastErr = "";
+  return {
+    url,
+    label: opts?.label || label,
+    opts: opts || {},
+  };
+}
 
-  for (const candidate of tryUrls) {
-    const res = await fetch(candidate, { cache: "no-store" });
+/**
+ * Fetch JSON with strict erroring, but supports allow404 => null.
+ * Backwards compatible with older code that calls:
+ *   fetchJsonStrict(url, "Label", { allow404: true })
+ */
+export async function fetchJsonStrict<T = any>(
+  url: string,
+  opts?: FetchJsonStrictOpts,
+): Promise<T>;
+export async function fetchJsonStrict<T = any>(
+  url: string,
+  label?: string,
+  opts?: FetchJsonStrictOpts,
+): Promise<T>;
+export async function fetchJsonStrict<T = any>(
+  url: string,
+  arg2?: string | FetchJsonStrictOpts,
+  arg3?: FetchJsonStrictOpts,
+): Promise<T> {
+  const { label, opts } = normalizeFetchArgs(url, arg2, arg3);
+  const tag = label || "fetchJsonStrict";
 
-    if (!res.ok) {
-      lastErr = `${res.status} ${res.statusText} for ${candidate}`;
-      continue;
-    }
+  const init: RequestInit = {
+    ...opts.init,
+    headers: {
+      Accept: "application/json, text/plain, */*",
+      ...(opts.init?.headers || {}),
+    },
+  };
 
-    const ct = (res.headers.get("content-type") || "").toLowerCase();
+  const res = await fetch(url, init);
 
-    // If it’s gz, parse as JSON from text (Cloudflare may not set JSON content-type)
-    const body = await readTextSafe(res);
+  if (res.status === 404 && opts.allow404) {
+    return null as any;
+  }
 
-    if (looksLikeHtml(body)) {
-      lastErr = `Got HTML from ${candidate} (likely wrong base/origin or missing object)`;
-      continue;
-    }
-
+  if (!res.ok) {
+    // Read a small snippet to help debugging (often HTML error pages)
+    let snippet = "";
     try {
-      return JSON.parse(body);
+      const text = await res.text();
+      snippet = text.slice(0, 220).replace(/\s+/g, " ").trim();
+    } catch {
+      // ignore
+    }
+    throw new Error(
+      `[${tag}] HTTP ${res.status} for ${url}` +
+        (snippet ? ` (body: ${snippet})` : ""),
+    );
+  }
+
+  // Try to parse JSON even if content-type is wrong (some CDNs mislabel)
+  const ct = res.headers.get("content-type") || "";
+  const looksJson =
+    ct.includes("application/json") ||
+    /\.json(\.gz)?$/i.test(url) ||
+    ct.includes("+json");
+
+  if (looksJson) {
+    try {
+      return (await res.json()) as T;
     } catch (e: any) {
-      lastErr = `JSON parse failed for ${candidate}: ${e?.message || String(e)} (ct=${ct})`;
-      continue;
+      // fall through to text parse
     }
   }
 
-  throw new Error(`[fetchJsonStrict] Failed. ${lastErr || `Tried: ${tryUrls.join(", ")}`}`);
+  const raw = await res.text();
+  try {
+    return JSON.parse(raw) as T;
+  } catch {
+    const snippet = raw.slice(0, 220).replace(/\s+/g, " ").trim();
+    throw new Error(
+      `[${tag}] Expected JSON but got non-JSON from ${url}` +
+        (snippet ? ` (body: ${snippet})` : ""),
+    );
+  }
 }
 
 
