@@ -16,7 +16,7 @@ import HelpLayout from "./layouts/HelpLayout";
 import ShopAllCategories from "./screens/Shop/ShopAllCategories";
 import Shop from "./screens/Shop/Shop";
 import Help from "./pages/help/HelpIndex";
-import CategoryDirectory from "./pages/CategoryDirectory";
+// import CategoryDirectory from "./pages/CategoryDirectory"; // ❌ Removed: Missing file caused build failure
 
 /* ============================
    PDP Imports
@@ -363,7 +363,7 @@ const router = createBrowserRouter([
       { path: "press", element: <Press /> },
       { path: "sustainability", element: <Sustainability /> },
       { path: "newsletter", element: <Newsletter /> },
-      { path: "category-directory", element: <CategoryDirectory /> },
+      // { path: "category-directory", element: <CategoryDirectory /> }, // ❌ Removed
       { path: "single-product", element: <Navigate to="/shop" replace /> },
       { path: "*", element: <Navigate to="/" replace /> },
     ],
