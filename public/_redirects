@@ -6,6 +6,7 @@
 /category-directory /category-directory/index.html 200
 /category-directory/* /category-directory/:splat 200
 
+/p/* /index.html 200
 /* /index.html 200
 
 
