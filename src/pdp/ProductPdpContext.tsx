@@ -1,6 +1,5 @@
 import React, { createContext, useContext } from "react";
-import { R2_BASE, joinUrl } from "../config/r2";
-
+import { R2_BASE, joinUrl, fetchJsonStrict } from "../config/r2";
 
 type IndexItem = {
   slug: string;
@@ -28,7 +27,7 @@ type Ctx = {
 const ProductPdpContext = createContext<Ctx | null>(null);
 
 /* ────────────────────────────────────────────────────────
-   NEW: Product DATA context (consumed by useProductPdp)
+   Product DATA context (consumed by useProductPdp)
    ──────────────────────────────────────────────────────── */
 const ProductDataContext = createContext<any>(null);
 
@@ -56,35 +55,10 @@ const SHARD_CACHE: Record<string, PdpShard> = {};
 const SHARD_PROMISES: Record<string, Promise<PdpShard | null>> = {};
 
 async function internalFetchJson(url: string) {
-  const res = await fetch(url, { cache: "force-cache" });
-
-  const ct = (res.headers.get("content-type") || "").toLowerCase();
-
-  // Reject HTML fallback (Cloudflare SPA fallback or 404 page)
-  if (ct.includes("text/html")) {
-    throw new Error(
-      `Expected JSON but received text/html at ${url}. ` +
-        `The file may be missing from R2 or served without correct Content-Type.`
-    );
-  }
-
-  if (!res.ok) {
-    const text = await res.text();
-    throw new Error(`HTTP ${res.status} error fetching ${url}: ${text.slice(0, 100)}`);
-  }
-
-  const text = await res.text();
-
-  // Extra guard: body starts with HTML
-  if (text.trim().startsWith("<")) {
-    throw new Error(`Expected JSON but got HTML at ${url}`);
-  }
-
-  try {
-    return JSON.parse(text);
-  } catch (e) {
-    throw new Error(`JSON parse failed at ${url}`);
-  }
+  // Strict JSON fetch:
+  // - rejects HTML fallbacks
+  // - supports .json.gz even without Content-Encoding
+  return fetchJsonStrict<any>(url, { label: "ProductPdpContext fetch" });
 }
 
 /* ────────────────────────────────────────────────────────
@@ -148,7 +122,10 @@ export function ProductPdpProvider({
         return data;
       })
       .catch((err) => {
-        console.warn(`[ProductPdpContext] Shard ${shardKey} not found or failed:`, err);
+        console.warn(
+          `[ProductPdpContext] Shard ${shardKey} not found or failed:`,
+          err
+        );
         return null;
       });
 
@@ -172,3 +149,4 @@ export function useProductPdpContext() {
     throw new Error("useProductPdpContext must be used inside ProductPdpProvider");
   return ctx;
 }
+
