@@ -15,7 +15,7 @@ import MainLayout from "./layouts/MainLayout";
 import HelpLayout from "./layouts/HelpLayout";
 import ShopAllCategories from "./screens/Shop/ShopAllCategories";
 import Shop from "./screens/Shop/Shop";
-import Help from "./pages/help/Help";
+import Help from "./pages/help/HelpIndex";
 import CategoryDirectory from "./pages/CategoryDirectory";
 
 /* ============================
