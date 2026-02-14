@@ -74,7 +74,7 @@ function dedupeImages(images: any): string[] {
 
 function stripAmazonMentions(s: string): string {
   if (!s) return "";
-  return s
+  return String(s)
     .replace(/\bamazon customer\b/gi, "Verified buyer")
     .replace(/\bamazon\b/gi, "")
     .replace(/\basin\b/gi, "")
@@ -206,6 +206,8 @@ function urlKey(u: string): string {
 }
 
 function normalizeLongBlocks(product: any): LongBlock[] {
+  if (!product) return [];
+
   const blocksRaw = product?.long_description_blocks;
 
   // ✅ If blocks exist, FORCE order: all text first, then images
