@@ -17,50 +17,6 @@ export type FetchJsonOptions = {
   headers?: Record<string, string>;
 };
 
-/**
- * Joins URL parts safely without producing `//` or dropping path segments.
- */
-export function joinUrl(base: string, ...parts: string[]): string {
-  const b = String(base || "").trim();
-  if (!b) throw new Error("joinUrl: base is empty");
-
-  const baseUrl = b.endsWith("/") ? b.slice(0, -1) : b;
-
-  const cleaned = parts
-    .filter((p) => p !== undefined && p !== null)
-    .map((p) => String(p).trim())
-    .filter((p) => p.length > 0)
-    .map((p) => p.replace(/^\/+/, "").replace(/\/+$/, ""));
-
-  return [baseUrl, ...cleaned].join("/");
-}
-
-/**
- * Prefer an env-provided base. Fallback to your custom domain.
- * Update fallback if your domain changes.
- */
-export function getR2BaseUrl(): string {
-  // Vite-style envs:
-  const vite =
-    (import.meta as any)?.env?.VITE_R2_PUBLIC_BASE ||
-    (import.meta as any)?.env?.VITE_R2_PUBLIC_URL ||
-    (import.meta as any)?.env?.VITE_R2_BASE_URL;
-
-  // CRA-style envs (if applicable):
-  const cra =
-    (process as any)?.env?.REACT_APP_R2_PUBLIC_BASE ||
-    (process as any)?.env?.REACT_APP_R2_PUBLIC_URL ||
-    (process as any)?.env?.REACT_APP_R2_BASE_URL;
-
-  const raw = (vite || cra || "").trim();
-
-  // ✅ Fallback to your custom domain (based on your screenshot)
-  const fallback = "https://r2.ventari.net";
-
-  const base = raw || fallback;
-  return base.endsWith("/") ? base.slice(0, -1) : base;
-}
-
 async function readBodyText(res: Response): Promise<string> {
   try {
     return await res.text();
@@ -71,81 +27,127 @@ async function readBodyText(res: Response): Promise<string> {
 
 function looksLikeHtml(text: string): boolean {
   const t = (text || "").trim().toLowerCase();
-  return t.startsWith("<!doctype html") || t.startsWith("<html") || t.includes("<head");
-}
-
-async function parseJsonPossiblyGzipped(res: Response, url: string): Promise<any> {
-  const contentType = (res.headers.get("content-type") || "").toLowerCase();
-  const contentEncoding = (res.headers.get("content-encoding") || "").toLowerCase();
-  const isGzByHeader = contentEncoding.includes("gzip") || contentType.includes("application/gzip");
-  const isGzByName = url.toLowerCase().endsWith(".gz");
-
-  // If it’s normal JSON, parse directly.
-  if (!isGzByHeader && !isGzByName) {
-    const text = await readBodyText(res);
-
-    // If we got HTML, surface a clearer error.
-    if (looksLikeHtml(text)) {
-      throw new Error(
-        `fetchJsonStrict: Expected JSON but got HTML from ${url}. ` +
-          `This usually means a 404/403 or wrong base URL/path.`
-      );
-    }
-
-    try {
-      return JSON.parse(text);
-    } catch (e) {
-      throw new Error(`fetchJsonStrict: Invalid JSON from ${url} (${String(e)})`);
-    }
-  }
-
-  // Gzip path:
-  // If server set Content-Encoding:gzip, browsers *may* already decode,
-  // but for R2 objects served as .json.gz without encoding headers, we must decode ourselves.
-  const buf = await res.arrayBuffer();
-
-  // If DecompressionStream exists, use it (modern Chromium/Safari).
-  if (typeof (globalThis as any).DecompressionStream === "function") {
-    try {
-      const ds = new (globalThis as any).DecompressionStream("gzip");
-      const decompressedStream = new Response(
-        new Blob([buf]).stream().pipeThrough(ds)
-      ).body;
-
-      if (!decompressedStream) {
-        throw new Error("DecompressionStream returned empty body");
-      }
-
-      const decompressedText = await new Response(decompressedStream).text();
-
-      if (looksLikeHtml(decompressedText)) {
-        throw new Error(
-          `fetchJsonStrict: Expected gzipped JSON but got HTML from ${url}. ` +
-            `Likely wrong key/path or 404.`
-        );
-      }
-
-      return JSON.parse(decompressedText);
-    } catch (e) {
-      throw new Error(`fetchJsonStrict: Gzip decode failed for ${url} (${String(e)})`);
-    }
-  }
-
-  // No DecompressionStream support
-  throw new Error(
-    `fetchJsonStrict: Response appears gzipped (${url}) but DecompressionStream is unavailable. ` +
-      `Fix by setting object metadata Content-Encoding:gzip on R2, or serve plain .json.`
+  return (
+    t.startsWith("<!doctype html") ||
+    t.startsWith("<html") ||
+    t.includes("<head")
   );
 }
 
+function normalizePart(part: string): string {
+  return String(part || "")
+    .trim()
+    .replace(/\\/g, "/")
+    .replace(/^\/+/, "")
+    .replace(/\/+$/, "");
+}
+
 /**
- * Fetch JSON from a URL. If it’s a .json.gz object (or served as gzip), it will decode.
- * If it gets HTML, it throws a useful error.
+ * Join URL parts safely without double slashes.
+ */
+export function joinUrl(base: string, ...parts: string[]): string {
+  const b = String(base || "").trim().replace(/\/+$/, "");
+  const rest = parts
+    .filter((p) => p !== undefined && p !== null)
+    .map((p) => normalizePart(String(p)))
+    .filter(Boolean)
+    .join("/");
+
+  if (!b) return `/${rest}`;
+  if (!rest) return b;
+  return `${b}/${rest}`;
+}
+
+/**
+ * Resolve the base URL to your public R2 endpoint.
+ * Priority: env var (Vite) → env var (CRA) → hard fallback.
+ */
+export function getR2BaseUrl(): string {
+  // Vite-style envs
+  const vite =
+    (import.meta as any)?.env?.VITE_R2_BASE_URL ||
+    (import.meta as any)?.env?.VITE_R2_PUBLIC_URL ||
+    (import.meta as any)?.env?.VITE_R2_URL;
+
+  // CRA-style envs
+  const cra =
+    (process as any)?.env?.REACT_APP_R2_BASE_URL ||
+    (process as any)?.env?.REACT_APP_R2_PUBLIC_URL;
+
+  const chosen = vite || cra;
+
+  // Hard fallback: your custom domain (matches your screenshots)
+  return String(chosen || "https://r2.ventari.net").replace(/\/+$/, "");
+}
+
+// Backwards-compatible constant used across the app
+export const R2_BASE = getR2BaseUrl();
+
+async function parseJsonPossiblyGzipped(res: Response, url: string) {
+  // If server says gzip explicitly, try to decompress
+  const enc = (res.headers.get("content-encoding") || "").toLowerCase();
+
+  // Some R2 objects are stored as .json.gz but may not set content-encoding,
+  // so also detect by file extension.
+  const isGzByExt = /\.gz(\?|#|$)/i.test(url);
+
+  const buf = await res.arrayBuffer();
+  const u8 = new Uint8Array(buf);
+
+  const shouldDecompress = enc.includes("gzip") || isGzByExt;
+
+  if (!shouldDecompress) {
+    // normal JSON
+    const txt = new TextDecoder("utf-8").decode(u8);
+    return JSON.parse(txt);
+  }
+
+  // Decompress gzip in-browser via DecompressionStream
+  // (supported in modern Chromium + Safari 17+)
+  try {
+    // @ts-ignore
+    const ds = new DecompressionStream("gzip");
+    const stream = new Response(
+      new Blob([u8]).stream().pipeThrough(ds)
+    );
+    const txt = await stream.text();
+    return JSON.parse(txt);
+  } catch (e) {
+    // If decompression isn't available, surface a meaningful error
+    throw new Error(
+      `Failed to decompress gzip JSON for ${url}. Your browser may not support DecompressionStream.`
+    );
+  }
+}
+
+/**
+ * STRICT JSON fetch with helpful error messages.
+ * Backwards compatible with these call styles:
+ *  - fetchJsonStrict(url)
+ *  - fetchJsonStrict(url, { allow404: true })
+ *  - fetchJsonStrict(url, "Label")
+ *  - fetchJsonStrict(url, "Label", { allow404: true })
  */
 export async function fetchJsonStrict<T = any>(
   url: string,
-  opts: FetchJsonOptions = {}
+  opts?: FetchJsonOptions
+): Promise<T | null>;
+export async function fetchJsonStrict<T = any>(
+  url: string,
+  label?: string,
+  opts?: FetchJsonOptions
+): Promise<T | null>;
+export async function fetchJsonStrict<T = any>(
+  url: string,
+  a: any = {},
+  b: any = undefined
 ): Promise<T | null> {
+  const label = typeof a === "string" ? (a as string) : undefined;
+  const opts: FetchJsonOptions =
+    typeof a === "string"
+      ? ((b || {}) as FetchJsonOptions)
+      : ((a || {}) as FetchJsonOptions);
+
   const res = await fetch(url, {
     method: "GET",
     headers: {
@@ -162,28 +164,31 @@ export async function fetchJsonStrict<T = any>(
     const hint = looksLikeHtml(body)
       ? " (returned HTML – likely wrong URL/path or blocked)"
       : "";
-    throw new Error(`fetchJsonStrict: ${res.status} ${res.statusText} for ${url}${hint}`);
+    const prefix = label ? `${label}: ` : "";
+    throw new Error(`${prefix}${res.status} ${res.statusText} for ${url}${hint}`);
   }
 
   return (await parseJsonPossiblyGzipped(res, url)) as T;
 }
 
 /**
- * Convenience: tries `<path>.json` then `<path>.json.gz`.
- * Useful when your bucket stores gzipped objects but code sometimes requests .json.
+ * Convenience fetch helper:
+ * try key.json, then key.json.gz (common for R2 stored gz JSON).
+ * `key` should be a path WITHOUT extension.
  */
 export async function fetchJsonWithGzipFallback<T = any>(
   baseUrl: string,
-  keyWithoutExt: string,
+  key: string,
   opts: FetchJsonOptions = {}
-): Promise<T> {
-  const jsonUrl = joinUrl(baseUrl, `${keyWithoutExt}.json`);
-  const gzUrl = joinUrl(baseUrl, `${keyWithoutExt}.json.gz`);
+): Promise<T | null> {
+  const jsonUrl = joinUrl(baseUrl, `${key}.json`);
+  const gzUrl = joinUrl(baseUrl, `${key}.json.gz`);
 
-  const a = await fetchJsonStrict<T>(jsonUrl, { ...opts, allow404: true });
+  const a = await fetchJsonStrict<T>(jsonUrl, "JSON fetch", { ...opts, allow404: true });
   if (a !== null) return a;
 
-  const b = await fetchJsonStrict<T>(gzUrl, { ...opts, allow404: false });
-  return b as T;
+  const b = await fetchJsonStrict<T>(gzUrl, "GZ JSON fetch", { ...opts, allow404: true });
+  return b;
 }
+
 
