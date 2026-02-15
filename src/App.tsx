@@ -6,7 +6,7 @@ import {
   useParams,
 } from "react-router-dom";
 
-import { R2_BASE, joinUrl, fetchJsonStrict } from "./config/r2";
+import { R2_BASE, joinUrl } from "./config/r2";
 
 /* ============================
    Layout Imports
@@ -14,11 +14,25 @@ import { R2_BASE, joinUrl, fetchJsonStrict } from "./config/r2";
 import MainLayout from "./layouts/MainLayout";
 import HelpLayout from "./layouts/HelpLayout";
 import ShopAllCategories from "./screens/Shop/ShopAllCategories";
-import Shop from "./screens/Shop/Shop";
-import Help from "./pages/help/HelpIndex";
-import SearchResultsPageModule from "./pages/SearchResultsPage";
+import Shop from "./screens/Shop";
 import OrdersPage from "./pages/OrdersPage";
-import OrderDetailsPage from "./pages/OrderDetailsPage";
+import OrderDetail from "./pages/OrderDetail";
+import ReturnsPage from "./pages/ReturnsPage";
+import AccountPage from "./pages/AccountPage";
+import { Terms } from "./screens/Terms";
+import { PrivacyPolicy } from "./screens/PrivacyPolicy";
+import { Disclaimer } from "./screens/Disclaimer";
+import { AccessibilityStatement } from "./screens/AccessibilityStatement";
+import HelpIndex from "./pages/help/HelpIndex";
+import ReturnsHelp from "./pages/help/ReturnsHelp";
+import OrdersHelp from "./pages/help/OrdersHelp";
+import ShippingHelp from "./pages/help/ShippingHelp";
+import PaymentsHelp from "./pages/help/PaymentsHelp";
+import NewsletterHelp from "./pages/help/NewsletterHelp";
+import CustomerServiceHelp from "./pages/help/CustomerServiceHelp";
+import { SearchResultsPage as SearchResultsPageModule } from "./screens/SearchResultsPage";
+import ProductCategory from "./pages/ProductCategory";
+import { List } from "./screens/List";
 import SignupPage from "./pages/SignupPage";
 import LoginPage from "./pages/LoginPage";
 
@@ -54,17 +68,16 @@ function lazyCompat<TProps = any>(
 
     if (!picked) {
       throw new Error(
-        `[App] Could not resolve lazy component. Tried exports: ${exportNames.join(", ") || "(default)"}`,
+        `[App] Could not resolve lazy component. Tried exports: ${
+          exportNames.join(", ") || "(default)"
+        }`,
       );
     }
 
-    return { default: picked };
+    return { default: picked as React.ComponentType<TProps> };
   });
 }
 
-/* These were causing Cloudflare build failures when rollup enforced named exports.
-   Using lazyCompat avoids compile-time “X is not exported by …” errors while still
-   letting Vite include the chunks in the build output. */
 const Home = lazyCompat(() => import("./screens/Home"), ["Home"]);
 const ShopAll = lazyCompat(() => import("./screens/Shop"), ["ShopAll"]);
 const SingleProduct = lazyCompat(() => import("./screens/SingleProduct"), ["SingleProduct"]);
@@ -76,6 +89,57 @@ const CategoryPage = lazyCompat(() => import("./screens/category/CategoryPage"),
 
 const SearchResultsPage: any =
   (SearchResultsPageModule as any).default || SearchResultsPageModule;
+
+/* ============================
+   Fetch helpers (handles .json.gz even when Content-Encoding is missing)
+   ============================ */
+
+type FetchJsonOptions = {
+  allow404?: boolean;
+};
+
+async function fetchJsonAuto<T = any>(
+  url: string,
+  label: string,
+  opts: FetchJsonOptions = {},
+): Promise<T | null> {
+  const res = await fetch(url, {
+    headers: { Accept: "application/json, */*" },
+  });
+
+  if (opts.allow404 && res.status === 404) return null;
+  if (!res.ok) {
+    throw new Error(`[${label}] HTTP ${res.status} for ${url}`);
+  }
+
+  const contentEncoding = (res.headers.get("content-encoding") || "").toLowerCase();
+  const contentType = (res.headers.get("content-type") || "").toLowerCase();
+  const looksGz =
+    url.toLowerCase().endsWith(".gz") ||
+    contentType.includes("application/gzip") ||
+    contentType.includes("application/x-gzip");
+
+  // If Content-Encoding: gzip is set, the browser transparently decompresses.
+  if (!looksGz || contentEncoding.includes("gzip")) {
+    const txt = await res.text();
+    return txt ? (JSON.parse(txt) as T) : (null as any);
+  }
+
+  // If it's a .gz but Content-Encoding is missing, we must decompress in the client.
+  const DS: any = (globalThis as any).DecompressionStream;
+  if (!DS) {
+    throw new Error(
+      `[${label}] ${url} appears gzipped but is missing Content-Encoding: gzip, and DecompressionStream is not available in this browser. ` +
+        `Fix by setting Content-Encoding: gzip on the object or uploading an uncompressed .json.`,
+    );
+  }
+
+  const ab = await res.arrayBuffer();
+  const ds = new DS("gzip");
+  const decompressedStream = new Blob([ab]).stream().pipeThrough(ds);
+  const txt = await new Response(decompressedStream).text();
+  return txt ? (JSON.parse(txt) as T) : (null as any);
+}
 
 /* ============================
    PDP Loader Helpers
@@ -109,7 +173,7 @@ async function loadIndexOnce(): Promise<any> {
 
   INDEX_PROMISE = (async () => {
     for (const u of candidates) {
-      const data = await fetchJsonStrict<any>(u, "Index fetch", { allow404: true });
+      const data = await fetchJsonAuto<any>(u, "Index fetch", { allow404: true });
       if (data !== null) {
         INDEX_CACHE = data;
         return data;
@@ -141,13 +205,19 @@ async function fetchShard(shardUrl: string): Promise<Record<string, string> | nu
   if (SHARD_CACHE[shardUrl]) return SHARD_CACHE[shardUrl];
 
   try {
-    const data = await fetchJsonStrict<Record<string, string>>(shardUrl, "Shard fetch");
+    const data = await fetchJsonAuto<Record<string, string>>(shardUrl, "Shard fetch");
     SHARD_CACHE[shardUrl] = data || {};
     return data || {};
   } catch (err) {
     console.warn(`[ProductRoute] shard failed: ${shardUrl}`, err);
     return null;
   }
+}
+
+function normalizeProductPath(productPath: string): string {
+  // Ensure "products/..." and remove leading slashes
+  const cleaned = String(productPath || "").replace(/^\/+/, "");
+  return joinUrl(R2_BASE, cleaned);
 }
 
 async function fetchProductJsonWithFallback(productUrl: string): Promise<any> {
@@ -167,7 +237,7 @@ async function fetchProductJsonWithFallback(productUrl: string): Promise<any> {
   if (productUrl.endsWith(".json")) push(`${productUrl}.gz`);
   if (productUrl.endsWith(".json.gz")) push(productUrl.replace(/\.json\.gz$/i, ".json"));
 
-  // If no json extension, try both (prefer .json first)
+  // If caller asked for non-extension path, try both
   if (!/\.json(\.gz)?$/i.test(productUrl)) {
     push(`${productUrl}.json`);
     push(`${productUrl}.json.gz`);
@@ -177,7 +247,7 @@ async function fetchProductJsonWithFallback(productUrl: string): Promise<any> {
 
   for (const u of variants) {
     try {
-      const data = await fetchJsonStrict<any>(u, "Product fetch", { allow404: true });
+      const data = await fetchJsonAuto<any>(u, "Product fetch", { allow404: true });
       if (data !== null) return data;
     } catch (e) {
       lastErr = e;
@@ -189,14 +259,9 @@ async function fetchProductJsonWithFallback(productUrl: string): Promise<any> {
   throw new Error(`Product not found. Tried: ${tried}`);
 }
 
-function normalizeProductPath(maybePath: string): string {
-  // Accept already-absolute URLs
-  if (/^https?:\/\//i.test(maybePath)) return maybePath;
-
-  // Strip leading slashes
-  const rel = maybePath.replace(/^\/+/, "");
-  return joinUrl(R2_BASE, rel);
-}
+/* ============================
+   PDP Route Wrapper
+   ============================ */
 
 function ProductRoute({ children }: { children: React.ReactNode }) {
   const { id } = useParams();
@@ -222,7 +287,7 @@ function ProductRoute({ children }: { children: React.ReactNode }) {
           const idx = await loadIndexOnce();
 
           if (idx) {
-            // Case A: direct mapping object: { "<slug>": "products/batch5/<slug>.json", ... }
+            // Case A: direct mapping object: { "<slug>": "products/batch.../<slug>.json", ... }
             if (typeof idx === "object" && idx[handle]) {
               productPath = String(idx[handle]);
             }
@@ -255,7 +320,7 @@ function ProductRoute({ children }: { children: React.ReactNode }) {
           // ignore, fall back
         }
 
-        // ── Strategy 2: last-resort fallback (may 404 if your products are not in /products/<slug>.json) ──
+        // ── Strategy 2: last-resort fallback ──
         if (!productPath) {
           productPath = `products/${handle}.json`;
         }
@@ -279,17 +344,13 @@ function ProductRoute({ children }: { children: React.ReactNode }) {
   if (error) {
     return (
       <div className="max-w-[1200px] mx-auto px-4 py-20">
-        <div className="text-red-500">{error}</div>
+        <div className="text-red-500 text-sm">{error}</div>
       </div>
     );
   }
 
   if (!product) {
-    return (
-      <div className="max-w-[1200px] mx-auto px-4 py-20 flex justify-center">
-        <div className="text-gray-500">Loading product…</div>
-      </div>
-    );
+    return <div className="max-w-[1200px] mx-auto px-4 py-20" />;
   }
 
   return <ProductPdpProvider product={product}>{children}</ProductPdpProvider>;
@@ -310,9 +371,15 @@ const router = createBrowserRouter([
       { path: "search", element: <SearchResultsPage /> },
       { path: "category/:category", element: <CategoryPage /> },
       { path: "orders", element: <OrdersPage /> },
-      { path: "orders/:id", element: <OrderDetailsPage /> },
+      { path: "orders/:id", element: <OrderDetail /> },
+      { path: "returns", element: <ReturnsPage /> },
+      { path: "account", element: <AccountPage /> },
+      { path: "terms", element: <Terms /> },
+      { path: "privacy", element: <PrivacyPolicy /> },
+      { path: "disclaimer", element: <Disclaimer /> },
+      { path: "accessibility", element: <AccessibilityStatement /> },
 
-      // PDP route wrapper
+      // PDP (wrap route content so product is loaded before rendering PDP children)
       {
         path: "p/:id",
         element: (
@@ -322,22 +389,28 @@ const router = createBrowserRouter([
         ),
       },
 
+      { path: "list", element: <List /> },
+      { path: "checkout", element: <Checkout /> },
+      { path: "cart", element: <Cart /> },
       { path: "*", element: <Navigate to="/" replace /> },
     ],
   },
 
-  // Help routes
   {
     path: "/help",
     element: <HelpLayout />,
     children: [
-      { path: "", element: <Help /> },
-      { path: "*", element: <Help /> },
+      { path: "", element: <HelpIndex /> },
+      { path: "returns", element: <ReturnsHelp /> },
+      { path: "orders", element: <OrdersHelp /> },
+      { path: "shipping", element: <ShippingHelp /> },
+      { path: "payments", element: <PaymentsHelp /> },
+      { path: "newsletter", element: <NewsletterHelp /> },
+      { path: "customerservice", element: <CustomerServiceHelp /> },
     ],
   },
 
-  { path: "/cart", element: <Cart /> },
-  { path: "/checkout", element: <Checkout /> },
+  { path: "/product-category", element: <ProductCategory /> },
   { path: "/cart-sidebar", element: <CartSidebar /> },
   { path: "/compare", element: <ProductComparison /> },
   { path: "/signup", element: <SignupPage /> },
