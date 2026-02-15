@@ -9,73 +9,59 @@ import {
 import { R2_BASE, joinUrl, fetchJsonStrict } from "./config/r2";
 
 /* ============================
-   Providers
+   Global Providers (Fixes useCart/useAssistant crashes)
    ============================ */
-import { CartProvider } from "./context/CartContext";
+import * as CartContext from "./context/CartContext";
+import * as AssistantContext from "./context/AssistantContext";
 
 /* ============================
-   Layouts
+   Layout Imports
    ============================ */
 import MainLayout from "./layouts/MainLayout";
 import HelpLayout from "./layouts/HelpLayout";
-
-/* ============================
-   Concrete pages (these exist)
-   ============================ */
 import ShopAllCategories from "./screens/Shop/ShopAllCategories";
 import Shop from "./screens/Shop/Shop";
 import Help from "./pages/help/HelpIndex";
+
+/* ============================
+   PDP Imports
+   ============================ */
+import * as PdpContext from "./pdp/ProductPdpContext";
+
+/* ============================
+   Screen / Page Imports
+   (namespace imports prevent Vite “export not found” build failures)
+   ============================ */
+import * as HomeModule from "./screens/Home";
+import * as ShopModule from "./screens/Shop";
+import * as SingleProductModule from "./screens/SingleProduct";
+import * as CartModule from "./screens/Cart";
+import * as CheckoutModule from "./screens/Checkout";
+import * as CartSidebarModule from "./screens/CartSidebar";
+import * as ProductComparisonModule from "./screens/ProductComparison";
+import SearchResultsPageModule from "./pages/SearchResultsPage";
+import * as CategoryPageModule from "./screens/category/CategoryPage";
 
 import OrdersPage from "./pages/OrdersPage";
 import OrderDetailsPage from "./pages/OrderDetailsPage";
 import SignupPage from "./pages/SignupPage";
 import LoginPage from "./pages/LoginPage";
 
-import SearchResultsPageModule from "./pages/SearchResultsPage";
-
 /* ============================
-   PDP Context
+   Provider Resolution Helpers
+   (works even if provider is named export or default export)
    ============================ */
-import * as PdpContext from "./pdp/ProductPdpContext";
-const ProductPdpProvider =
-  ((PdpContext as any).ProductPdpProvider as any) ||
-  ((props: any) => props.children);
+const CartProvider =
+  (CartContext as any).CartProvider ||
+  (CartContext as any).default ||
+  (({ children }: any) => <>{children}</>);
 
-/* ============================
-   IMPORTANT:
-   Use namespace imports to avoid Rollup export errors.
-   Do NOT assume default/named exports exist.
-   ============================ */
-import * as HomeModule from "./screens/Home";
-import * as ShopIndexModule from "./screens/Shop";
-import * as SingleProductIndexModule from "./screens/SingleProduct";
-import * as CartIndexModule from "./screens/Cart";
-import * as CheckoutIndexModule from "./screens/Checkout";
-import * as CartSidebarIndexModule from "./screens/CartSidebar";
-import * as ProductComparisonIndexModule from "./screens/ProductComparison";
-import * as CategoryPageModule from "./screens/category/CategoryPage";
+const AssistantProvider =
+  (AssistantContext as any).AssistantProvider ||
+  (AssistantContext as any).default ||
+  (({ children }: any) => <>{children}</>);
 
-/* ============================
-   Safe component picker
-   - Never causes build-time "not exported" errors.
-   - Tries default, common names, then any function export.
-   ============================ */
-function pickComponent(mod: any, preferredNames: string[] = []) {
-  if (!mod) return null;
-
-  if (mod.default) return mod.default;
-
-  for (const name of preferredNames) {
-    if (mod[name]) return mod[name];
-  }
-
-  // last resort: first function export
-  for (const v of Object.values(mod)) {
-    if (typeof v === "function") return v as any;
-  }
-
-  return null;
-}
+const ProductPdpProvider = (PdpContext as any).ProductPdpProvider as any;
 
 /* ============================
    PDP Loader Helpers
@@ -91,18 +77,21 @@ async function loadIndexOnce(): Promise<any> {
   if (INDEX_CACHE) return INDEX_CACHE;
   if (INDEX_PROMISE) return INDEX_PROMISE;
 
+  // Try multiple likely locations so deployments don’t “lose” index.json(.gz)
   const candidates = [
     "indexes/pdp2/_index.json.gz",
     "indexes/pdp2/_index.json",
+    "indexes/pdp/_index.json.gz",
+    "indexes/pdp/_index.json",
     "indexes/_index.json.gz",
     "indexes/_index.json",
+    "_index.json.gz",
+    "_index.json",
   ].map((rel) => joinUrl(R2_BASE, rel));
 
   INDEX_PROMISE = (async () => {
     for (const u of candidates) {
-      const data = await fetchJsonStrict<any>(u, "Index fetch", {
-        allow404: true,
-      });
+      const data = await fetchJsonStrict<any>(u, "Index fetch", { allow404: true });
       if (data !== null) {
         INDEX_CACHE = data;
         return data;
@@ -189,9 +178,7 @@ async function fetchProductJsonWithFallback(productUrl: string): Promise<any> {
 
   const tried = variants.join(", ");
   if (lastErr) {
-    throw new Error(
-      `${lastErr?.message || "Product fetch failed"}. Tried: ${tried}`
-    );
+    throw new Error(`${lastErr?.message || "Product fetch failed"}. Tried: ${tried}`);
   }
   throw new Error(`Product not found. Tried: ${tried}`);
 }
@@ -229,17 +216,20 @@ function ProductRoute({ children }: { children: React.ReactNode }) {
         try {
           const index = await loadIndexOnce();
 
+          // Case A: index is an array of {slug, path}
           if (Array.isArray(index)) {
             const entry = index.find((x: any) => x?.slug === handle);
             if (entry?.path) productPath = entry.path;
-          } else if (
+          }
+          // Case B: index is a manifest with shards map
+          else if (
             index &&
             typeof index === "object" &&
             index.shards &&
             !Array.isArray(index.shards)
           ) {
             const manifest = index as {
-              base: string;
+              base?: string;
               shards: Record<string, string>;
             };
 
@@ -250,10 +240,7 @@ function ProductRoute({ children }: { children: React.ReactNode }) {
                 .replace(/^\/+/, "")
                 .replace(/\/+$/, "")
                 .concat("/");
-              const filename = String(manifest.shards[shardKey] || "").replace(
-                /^\/+/,
-                ""
-              );
+              const filename = String(manifest.shards[shardKey]).replace(/^\/+/, "");
               const shardUrl = joinUrl(R2_BASE, `${base}${filename}`);
 
               const shard = await loadShardByUrl(shardUrl);
@@ -287,7 +274,6 @@ function ProductRoute({ children }: { children: React.ReactNode }) {
     }
 
     load();
-
     return () => {
       cancelled = true;
     };
@@ -319,23 +305,60 @@ function ProductRoute({ children }: { children: React.ReactNode }) {
 }
 
 /* ============================
-   Router component bindings
+   Router Component Resolution
    ============================ */
 
-const Home = pickComponent(HomeModule, ["Home", "HomePage"]);
-const ShopAll = pickComponent(ShopIndexModule, ["ShopAll", "ShopAllPage"]);
-const SingleProduct = pickComponent(SingleProductIndexModule, ["SingleProduct"]);
-const Cart = pickComponent(CartIndexModule, ["Cart", "CartPage"]);
-const Checkout = pickComponent(CheckoutIndexModule, ["Checkout", "CheckoutPage"]);
-const CartSidebar = pickComponent(CartSidebarIndexModule, ["CartSidebar"]);
-const ProductComparison = pickComponent(ProductComparisonIndexModule, [
-  "ProductComparison",
-]);
-const CategoryPage = pickComponent(CategoryPageModule, ["CategoryPage"]);
+const Home =
+  (HomeModule as any).default ||
+  (HomeModule as any).Home ||
+  (HomeModule as any).HomePage ||
+  (HomeModule as any).Index;
+
+const ShopAll =
+  (ShopModule as any).default ||
+  (ShopModule as any).ShopAll ||
+  (ShopModule as any).ShopAllPage ||
+  (ShopModule as any).Index;
+
+const SingleProduct =
+  (SingleProductModule as any).default ||
+  (SingleProductModule as any).SingleProduct ||
+  (SingleProductModule as any).Product ||
+  (SingleProductModule as any).Index;
+
+const Cart =
+  (CartModule as any).default ||
+  (CartModule as any).Cart ||
+  (CartModule as any).CartPage ||
+  (CartModule as any).Index;
+
+const Checkout =
+  (CheckoutModule as any).default ||
+  (CheckoutModule as any).Checkout ||
+  (CheckoutModule as any).CheckoutPage ||
+  (CheckoutModule as any).Index;
+
+const CartSidebar =
+  (CartSidebarModule as any).default ||
+  (CartSidebarModule as any).CartSidebar ||
+  (CartSidebarModule as any).Index;
+
+const ProductComparison =
+  (ProductComparisonModule as any).default ||
+  (ProductComparisonModule as any).ProductComparison ||
+  (ProductComparisonModule as any).Index;
 
 const SearchResultsPage =
-  (SearchResultsPageModule as any).default || (SearchResultsPageModule as any);
+  (SearchResultsPageModule as any).default || SearchResultsPageModule;
 
+const CategoryPage =
+  (CategoryPageModule as any).default ||
+  (CategoryPageModule as any).CategoryPage ||
+  (CategoryPageModule as any).Index;
+
+/* ============================
+   Router
+   ============================ */
 const router = createBrowserRouter([
   {
     path: "/",
@@ -343,11 +366,9 @@ const router = createBrowserRouter([
     children: [
       { path: "", element: Home ? <Home /> : <Navigate to="/shop" replace /> },
       { path: "shop", element: <Shop /> },
-
-      // Keep these routes (don’t drop anything)
       { path: "shopall", element: ShopAll ? <ShopAll /> : <Shop /> },
       { path: "shopallcategories", element: <ShopAllCategories /> },
-      { path: "search", element: <SearchResultsPage /> },
+      { path: "search", element: SearchResultsPage ? <SearchResultsPage /> : <Shop /> },
       { path: "category/:category", element: CategoryPage ? <CategoryPage /> : <Shop /> },
       { path: "orders", element: <OrdersPage /> },
       { path: "orders/:id", element: <OrderDetailsPage /> },
@@ -355,10 +376,12 @@ const router = createBrowserRouter([
       // PDP route wrapper
       {
         path: "p/:id",
-        element: (
+        element: SingleProduct ? (
           <ProductRoute>
-            {SingleProduct ? <SingleProduct /> : <div />}
+            <SingleProduct />
           </ProductRoute>
+        ) : (
+          <Navigate to="/shop" replace />
         ),
       },
 
@@ -366,7 +389,7 @@ const router = createBrowserRouter([
     ],
   },
 
-  // Help
+  // Help section
   {
     path: "/help",
     element: <HelpLayout />,
@@ -376,29 +399,27 @@ const router = createBrowserRouter([
     ],
   },
 
-  // Top-level routes preserved
-  { path: "/cart", element: Cart ? <Cart /> : <Navigate to="/" replace /> },
-  { path: "/checkout", element: Checkout ? <Checkout /> : <Navigate to="/" replace /> },
-  { path: "/cart-sidebar", element: CartSidebar ? <CartSidebar /> : <Navigate to="/" replace /> },
-  { path: "/compare", element: ProductComparison ? <ProductComparison /> : <Navigate to="/" replace /> },
+  // Top-level pages
+  { path: "/cart", element: Cart ? <Cart /> : <Navigate to="/shop" replace /> },
+  { path: "/checkout", element: Checkout ? <Checkout /> : <Navigate to="/cart" replace /> },
+  { path: "/cart-sidebar", element: CartSidebar ? <CartSidebar /> : <Navigate to="/cart" replace /> },
+  { path: "/compare", element: ProductComparison ? <ProductComparison /> : <Navigate to="/shop" replace /> },
   { path: "/signup", element: <SignupPage /> },
   { path: "/login", element: <LoginPage /> },
 ]);
 
 /* ============================
-   App root
+   App Root
    ============================ */
-
-// Named export (your original requirement)
-export function App() {
+function App() {
   return (
-    <CartProvider>
-      <RouterProvider router={router} />
-    </CartProvider>
+    <AssistantProvider>
+      <CartProvider>
+        <RouterProvider router={router} />
+      </CartProvider>
+    </AssistantProvider>
   );
 }
 
-// Default export (fixes your current src/index.tsx build error)
 export default App;
-
-
+export { App };
