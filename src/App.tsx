@@ -14,25 +14,24 @@ import { R2_BASE, joinUrl } from "./config/r2";
 import MainLayout from "./layouts/MainLayout";
 import HelpLayout from "./layouts/HelpLayout";
 import ShopAllCategories from "./screens/Shop/ShopAllCategories";
-import Shop from "./screens/Shop";
+import Shop from "./screens/Shop/Shop";
 import OrdersPage from "./pages/OrdersPage";
-import OrderDetail from "./pages/OrderDetail";
+import OrderDetailsPage from "./pages/OrderDetailsPage";
 import ReturnsPage from "./pages/ReturnsPage";
 import AccountPage from "./pages/AccountPage";
-import { Terms } from "./screens/Terms";
-import { PrivacyPolicy } from "./screens/PrivacyPolicy";
-import { Disclaimer } from "./screens/Disclaimer";
-import { AccessibilityStatement } from "./screens/AccessibilityStatement";
 import HelpIndex from "./pages/help/HelpIndex";
-import ReturnsHelp from "./pages/help/ReturnsHelp";
-import OrdersHelp from "./pages/help/OrdersHelp";
-import ShippingHelp from "./pages/help/ShippingHelp";
-import PaymentsHelp from "./pages/help/PaymentsHelp";
-import NewsletterHelp from "./pages/help/NewsletterHelp";
-import CustomerServiceHelp from "./pages/help/CustomerServiceHelp";
-import { SearchResultsPage as SearchResultsPageModule } from "./screens/SearchResultsPage";
-import ProductCategory from "./pages/ProductCategory";
-import { List } from "./screens/List";
+import ReturnsHelp from "./pages/help/Returns";
+import ShippingHelp from "./pages/help/Shipping";
+import PaymentsHelp from "./pages/help/Payments";
+import NewsletterHelp from "./pages/help/Newsletter";
+import CustomerServiceHelp from "./pages/help/Contact";
+import AdsPrivacy from "./pages/help/AdsPrivacy";
+import Accessibility from "./pages/help/Accessibility";
+import ConditionsOfUse from "./pages/help/ConditionsOfUse";
+import PrivacyNotice from "./pages/help/PrivacyNotice";
+import CookiePolicy from "./pages/help/cookiepolicy";
+import SearchResultsPageModule from "./pages/SearchResultsPage";
+import WishlistPage from "./pages/WishlistPage";
 import SignupPage from "./pages/SignupPage";
 import LoginPage from "./pages/LoginPage";
 
@@ -78,8 +77,10 @@ function lazyCompat<TProps = any>(
   });
 }
 
-const Home = lazyCompat(() => import("./screens/Home"), ["Home"]);
-const ShopAll = lazyCompat(() => import("./screens/Shop"), ["ShopAll"]);
+// Home screen is exported as default; keep the route component name stable.
+const Home = lazyCompat(() => import("./screens/Home"), ["Home", "default"]);
+// Older code referenced a "ShopAll" screen; in this repo the landing is Home.
+const ShopAll = lazyCompat(() => import("./screens/Home"), ["ShopAll", "Home", "default"]);
 const SingleProduct = lazyCompat(() => import("./screens/SingleProduct"), ["SingleProduct"]);
 const Cart = lazyCompat(() => import("./screens/Cart"), ["Cart"]);
 const Checkout = lazyCompat(() => import("./screens/Checkout"), ["Checkout"]);
@@ -371,13 +372,15 @@ const router = createBrowserRouter([
       { path: "search", element: <SearchResultsPage /> },
       { path: "category/:category", element: <CategoryPage /> },
       { path: "orders", element: <OrdersPage /> },
-      { path: "orders/:id", element: <OrderDetail /> },
+      { path: "orders/:id", element: <OrderDetailsPage /> },
       { path: "returns", element: <ReturnsPage /> },
       { path: "account", element: <AccountPage /> },
-      { path: "terms", element: <Terms /> },
-      { path: "privacy", element: <PrivacyPolicy /> },
-      { path: "disclaimer", element: <Disclaimer /> },
-      { path: "accessibility", element: <AccessibilityStatement /> },
+      { path: "wishlist", element: <WishlistPage /> },
+      // Legacy aliases → canonical Help routes
+      { path: "terms", element: <Navigate to="/help/conditions" replace /> },
+      { path: "privacy", element: <Navigate to="/help/privacy" replace /> },
+      { path: "disclaimer", element: <Navigate to="/help/conditions" replace /> },
+      { path: "accessibility", element: <Navigate to="/help/accessibility" replace /> },
 
       // PDP (wrap route content so product is loaded before rendering PDP children)
       {
@@ -389,7 +392,8 @@ const router = createBrowserRouter([
         ),
       },
 
-      { path: "list", element: <List /> },
+      // Legacy alias
+      { path: "list", element: <Navigate to="/wishlist" replace /> },
       { path: "checkout", element: <Checkout /> },
       { path: "cart", element: <Cart /> },
       { path: "*", element: <Navigate to="/" replace /> },
@@ -402,15 +406,21 @@ const router = createBrowserRouter([
     children: [
       { path: "", element: <HelpIndex /> },
       { path: "returns", element: <ReturnsHelp /> },
-      { path: "orders", element: <OrdersHelp /> },
+      { path: "orders", element: <HelpIndex /> },
       { path: "shipping", element: <ShippingHelp /> },
       { path: "payments", element: <PaymentsHelp /> },
       { path: "newsletter", element: <NewsletterHelp /> },
       { path: "customerservice", element: <CustomerServiceHelp /> },
+      { path: "conditions", element: <ConditionsOfUse /> },
+      { path: "privacy", element: <PrivacyNotice /> },
+      { path: "adsprivacy", element: <AdsPrivacy /> },
+      { path: "accessibility", element: <Accessibility /> },
+      { path: "cookiepolicy", element: <CookiePolicy /> },
     ],
   },
 
-  { path: "/product-category", element: <ProductCategory /> },
+  // Legacy alias → consolidated categories entrypoint
+  { path: "/product-category", element: <Navigate to="/shopallcategories" replace /> },
   { path: "/cart-sidebar", element: <CartSidebar /> },
   { path: "/compare", element: <ProductComparison /> },
   { path: "/signup", element: <SignupPage /> },
@@ -440,3 +450,4 @@ export function App() {
 }
 
 export default App;
+
