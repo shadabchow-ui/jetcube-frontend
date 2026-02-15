@@ -3,9 +3,7 @@ import { createRoot } from "react-dom/client";
 import App from "./App";
 import "./index.css";
 
-const el =
-  document.getElementById("app") ||
-  document.getElementById("root");
+const el = document.getElementById("app") || document.getElementById("root");
 
 if (!el) {
   throw new Error(
@@ -18,6 +16,7 @@ createRoot(el).render(
     <App />
   </StrictMode>,
 );
+
 
 
 
