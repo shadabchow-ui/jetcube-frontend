@@ -16,15 +16,6 @@ import HelpLayout from "./layouts/HelpLayout";
 import ShopAllCategories from "./screens/Shop/ShopAllCategories";
 import Shop from "./screens/Shop/Shop";
 import Help from "./pages/help/HelpIndex";
-
-/* ============================
-   PDP Imports
-   ============================ */
-import * as PdpContext from "./pdp/ProductPdpContext";
-
-/* ============================
-   Screen / Page Imports
-   ============================ */
 import SearchResultsPageModule from "./pages/SearchResultsPage";
 import OrdersPage from "./pages/OrdersPage";
 import OrderDetailsPage from "./pages/OrderDetailsPage";
@@ -32,52 +23,56 @@ import SignupPage from "./pages/SignupPage";
 import LoginPage from "./pages/LoginPage";
 
 /* ============================
-   Providers
+   PDP Imports
+   ============================ */
+import * as PdpContext from "./pdp/ProductPdpContext";
+
+/* ============================
+   Providers (fix runtime hook crashes)
    ============================ */
 import { CartProvider } from "./context/CartContext";
 import { AssistantProvider } from "./components/RufusAssistant/AssistantContext";
 
 /* ============================
-   Safe Lazy Resolver
-   Fixes "X is not exported by Y" errors by checking default, named, and fallback exports.
+   Lazy module resolver (Vite-safe, fixes build-time export errors)
    ============================ */
-function safeLazy(importFn: () => Promise<any>, exportNames: string[]) {
+/**
+ * Vite/Rollup require analyzable import() calls.
+ * So we use static import() functions (not variable module paths),
+ * then resolve either a named export or default export at runtime.
+ */
+function lazyCompat<TProps = any>(
+  importer: () => Promise<any>,
+  exportNames: string[] = [],
+) {
   return React.lazy(async () => {
-    try {
-      const mod: any = await importFn();
-      
-      // 1. Try Default
-      // 2. Try Specific Named Exports
-      // 3. Try finding any exported function/component as a fallback
-      const picked =
-        mod?.default ??
-        exportNames.map((k) => mod?.[k]).find((v) => v != null) ??
-        Object.values(mod).find((v) => typeof v === "function" || typeof v === "object");
+    const mod: any = await importer();
+    const picked =
+      exportNames.map((k) => mod?.[k]).find((v) => v != null) ??
+      mod?.default ??
+      mod;
 
-      if (!picked) {
-        throw new Error(
-          `[App] Could not resolve component. Tried exports: ${exportNames.join(", ")}`
-        );
-      }
-
-      return { default: picked };
-    } catch (error) {
-      console.error("[SafeLazy] Import failed:", error);
-      // Return a dummy component to prevent full app crash
-      return { default: () => <div className="p-4 text-red-500">Error loading component</div> };
+    if (!picked) {
+      throw new Error(
+        `[App] Could not resolve lazy component. Tried exports: ${exportNames.join(", ") || "(default)"}`,
+      );
     }
+
+    return { default: picked };
   });
 }
 
-// Explicit import() calls allow Vite to statically analyze dependencies
-const Home = safeLazy(() => import("./screens/Home"), ["Home"]);
-const ShopAll = safeLazy(() => import("./screens/Shop"), ["ShopAll"]);
-const SingleProduct = safeLazy(() => import("./screens/SingleProduct"), ["SingleProduct"]);
-const Cart = safeLazy(() => import("./screens/Cart"), ["Cart"]);
-const Checkout = safeLazy(() => import("./screens/Checkout"), ["Checkout"]);
-const CartSidebar = safeLazy(() => import("./screens/CartSidebar"), ["CartSidebar"]);
-const ProductComparison = safeLazy(() => import("./screens/ProductComparison"), ["ProductComparison"]);
-const CategoryPage = safeLazy(() => import("./screens/category/CategoryPage"), ["CategoryPage"]);
+/* These were causing Cloudflare build failures when rollup enforced named exports.
+   Using lazyCompat avoids compile-time “X is not exported by …” errors while still
+   letting Vite include the chunks in the build output. */
+const Home = lazyCompat(() => import("./screens/Home"), ["Home"]);
+const ShopAll = lazyCompat(() => import("./screens/Shop"), ["ShopAll"]);
+const SingleProduct = lazyCompat(() => import("./screens/SingleProduct"), ["SingleProduct"]);
+const Cart = lazyCompat(() => import("./screens/Cart"), ["Cart"]);
+const Checkout = lazyCompat(() => import("./screens/Checkout"), ["Checkout"]);
+const CartSidebar = lazyCompat(() => import("./screens/CartSidebar"), ["CartSidebar"]);
+const ProductComparison = lazyCompat(() => import("./screens/ProductComparison"), ["ProductComparison"]);
+const CategoryPage = lazyCompat(() => import("./screens/category/CategoryPage"), ["CategoryPage"]);
 
 const SearchResultsPage: any =
   (SearchResultsPageModule as any).default || SearchResultsPageModule;
@@ -85,6 +80,7 @@ const SearchResultsPage: any =
 /* ============================
    PDP Loader Helpers
    ============================ */
+
 const ProductPdpProvider = (PdpContext as any).ProductPdpProvider as any;
 
 /** Cache the global manifest/index */
@@ -93,26 +89,18 @@ let INDEX_PROMISE: Promise<any> | null = null;
 
 const SHARD_CACHE: Record<string, Record<string, string>> = {};
 
-// Robust internal fetcher to bypass "body stream already read" errors in fetchJsonStrict
-async function safeFetchIndex(url: string): Promise<any> {
-  try {
-    const res = await fetch(url);
-    if (!res.ok) return null;
-    return await res.json();
-  } catch (err) {
-    console.warn(`[Index] Failed to fetch/parse ${url}`, err);
-    return null;
-  }
-}
-
 async function loadIndexOnce(): Promise<any> {
   if (INDEX_CACHE) return INDEX_CACHE;
   if (INDEX_PROMISE) return INDEX_PROMISE;
 
-  // Swapped order: Try .json (uncompressed) first to avoid GZIP content-type issues in some browsers/proxies
+  // IMPORTANT:
+  // Your bucket shows indexes/pdp_path_map.json(.gz) exists and is the correct “slug -> real path” map.
+  // Prefer normal JSON first for reliability, then try .gz variants.
   const candidates = [
     "indexes/pdp_path_map.json",
     "indexes/pdp_path_map.json.gz",
+
+    // optional/legacy
     "indexes/pdp2/_index.json",
     "indexes/pdp2/_index.json.gz",
     "indexes/_index.json",
@@ -121,18 +109,15 @@ async function loadIndexOnce(): Promise<any> {
 
   INDEX_PROMISE = (async () => {
     for (const u of candidates) {
-      // Use local safeFetchIndex instead of fetchJsonStrict
-      const data = await safeFetchIndex(u);
+      const data = await fetchJsonStrict<any>(u, "Index fetch", { allow404: true });
       if (data !== null) {
         INDEX_CACHE = data;
         return data;
       }
     }
-    throw new Error(`Global PDP index not found. Tried: ${candidates.join(", ")}`);
-  })().catch((err) => {
-    INDEX_PROMISE = null;
-    throw err;
-  });
+    INDEX_CACHE = null;
+    return null;
+  })();
 
   return INDEX_PROMISE;
 }
@@ -143,13 +128,18 @@ function resolveShardKeyFromManifest(
 ): string | null {
   const keys = Object.keys(shardMap || {});
   if (!keys.length) return null;
+
+  // Exact match
   if (shardMap[slug]) return slug;
+
+  // Fallback: prefix match
   const hit = keys.find((k) => slug.toLowerCase().startsWith(k.toLowerCase()));
   return hit || null;
 }
 
-async function loadShardByUrl(shardUrl: string): Promise<Record<string, string> | null> {
+async function fetchShard(shardUrl: string): Promise<Record<string, string> | null> {
   if (SHARD_CACHE[shardUrl]) return SHARD_CACHE[shardUrl];
+
   try {
     const data = await fetchJsonStrict<Record<string, string>>(shardUrl, "Shard fetch");
     SHARD_CACHE[shardUrl] = data || {};
@@ -165,15 +155,19 @@ async function fetchProductJsonWithFallback(productUrl: string): Promise<any> {
   const seen = new Set<string>();
 
   const push = (u: string) => {
-    if (!u) return;
-    if (seen.has(u)) return;
-    seen.add(u);
-    variants.push(u);
+    const key = u.trim();
+    if (!key || seen.has(key)) return;
+    seen.add(key);
+    variants.push(key);
   };
 
   push(productUrl);
+
+  // If caller asked for .json, try .json.gz too
   if (productUrl.endsWith(".json")) push(`${productUrl}.gz`);
   if (productUrl.endsWith(".json.gz")) push(productUrl.replace(/\.json\.gz$/i, ".json"));
+
+  // If no json extension, try both (prefer .json first)
   if (!/\.json(\.gz)?$/i.test(productUrl)) {
     push(`${productUrl}.json`);
     push(`${productUrl}.json.gz`);
@@ -195,18 +189,18 @@ async function fetchProductJsonWithFallback(productUrl: string): Promise<any> {
   throw new Error(`Product not found. Tried: ${tried}`);
 }
 
-/* ============================
-   PDP ROUTE
-   ============================ */
+function normalizeProductPath(maybePath: string): string {
+  // Accept already-absolute URLs
+  if (/^https?:\/\//i.test(maybePath)) return maybePath;
+
+  // Strip leading slashes
+  const rel = maybePath.replace(/^\/+/, "");
+  return joinUrl(R2_BASE, rel);
+}
+
 function ProductRoute({ children }: { children: React.ReactNode }) {
-  const { id } = useParams<{ id: string }>();
-
-  const pathHandle =
-    typeof window !== "undefined" && window.location.pathname.startsWith("/p/")
-      ? window.location.pathname.replace(/^\/p\//, "").split("/")[0]
-      : null;
-
-  const handle = id || pathHandle;
+  const { id } = useParams();
+  const handle = id;
 
   const [product, setProduct] = React.useState<any | null>(null);
   const [error, setError] = React.useState<string | null>(null);
@@ -223,66 +217,60 @@ function ProductRoute({ children }: { children: React.ReactNode }) {
 
         let productPath: string | null = null;
 
-        // ── Strategy 1: Resolve via Index ──
+        // ── Strategy 1: Use pdp_path_map.json(.gz) or manifest/index to resolve ──
         try {
-          const index = await loadIndexOnce();
+          const idx = await loadIndexOnce();
 
-          // Direct map
-          if (index && typeof index === "object" && !Array.isArray(index)) {
-            if (typeof (index as any)[handle] === "string") {
-              productPath = (index as any)[handle];
+          if (idx) {
+            // Case A: direct mapping object: { "<slug>": "products/batch5/<slug>.json", ... }
+            if (typeof idx === "object" && idx[handle]) {
+              productPath = String(idx[handle]);
             }
 
-            // Manifest/Shard map
-            if (!productPath && (index as any).shards && !Array.isArray((index as any).shards)) {
-              const manifest = index as { base: string; shards: Record<string, string> };
-              const shardKey = resolveShardKeyFromManifest(handle, manifest.shards);
+            // Case B: shard manifest:
+            // { "shards": { "0-": "indexes/pdp2/0-.json.gz", ... } } or similar
+            if (!productPath && typeof idx === "object") {
+              const shardMap =
+                idx?.shards ||
+                idx?.pdp2_shards ||
+                idx?.pdp_shards ||
+                idx?.map ||
+                idx?.paths;
 
-              if (shardKey && manifest.shards[shardKey]) {
-                const base = String(manifest.base || "indexes/pdp2/")
-                  .replace(/^\/+/, "")
-                  .replace(/\/+$/, "")
-                  .concat("/");
-                const filename = String(manifest.shards[shardKey]).replace(/^\/+/, "");
-                const shardUrl = joinUrl(R2_BASE, `${base}${filename}`);
+              if (shardMap && typeof shardMap === "object") {
+                const shardKey = resolveShardKeyFromManifest(handle, shardMap);
+                if (shardKey) {
+                  const shardRel = String(shardMap[shardKey]);
+                  const shardUrl = joinUrl(R2_BASE, shardRel.replace(/^\/+/, ""));
+                  const shardObj = await fetchShard(shardUrl);
 
-                const shard = await loadShardByUrl(shardUrl);
-                if (shard && shard[handle]) productPath = shard[handle];
+                  if (shardObj && shardObj[handle]) {
+                    productPath = String(shardObj[handle]);
+                  }
+                }
               }
             }
           }
-
-          // Array map
-          if (!productPath && Array.isArray(index)) {
-            const entry = index.find((x: any) => x?.slug === handle);
-            if (entry?.path) productPath = entry.path;
-          }
         } catch (e) {
-          console.warn("[ProductRoute] index resolution failed:", e);
+          // ignore, fall back
         }
 
-        // ── Strategy 2: Fallback (Likely to fail if batch folders are used) ──
+        // ── Strategy 2: last-resort fallback (may 404 if your products are not in /products/<slug>.json) ──
         if (!productPath) {
           productPath = `products/${handle}.json`;
         }
 
-        const productUrl =
-          /^https?:\/\//i.test(productPath) || productPath.startsWith("/")
-            ? productPath
-            : joinUrl(R2_BASE, productPath);
+        const finalUrl = normalizeProductPath(productPath);
+        const data = await fetchProductJsonWithFallback(finalUrl);
 
-        const p = await fetchProductJsonWithFallback(productUrl);
-
-        if (!cancelled) setProduct(p);
-      } catch (e: any) {
-        if (!cancelled) {
-          console.error("PDP Load Error:", e);
-          setError(e?.message || "Failed to load product");
-        }
+        if (!cancelled) setProduct(data);
+      } catch (err: any) {
+        if (!cancelled) setError(err?.message || "Failed to load product");
       }
     }
 
     load();
+
     return () => {
       cancelled = true;
     };
@@ -290,14 +278,8 @@ function ProductRoute({ children }: { children: React.ReactNode }) {
 
   if (error) {
     return (
-      <div className="max-w-[1200px] mx-auto px-4 py-8">
-        <div className="border border-red-200 bg-red-50 text-red-800 rounded p-4">
-          <div className="font-semibold">Product failed to load</div>
-          <div className="text-sm mt-1">{error}</div>
-          <a href="/shop" className="inline-block mt-3 text-blue-600 hover:underline">
-            Return to Shop
-          </a>
-        </div>
+      <div className="max-w-[1200px] mx-auto px-4 py-20">
+        <div className="text-red-500">{error}</div>
       </div>
     );
   }
@@ -330,6 +312,7 @@ const router = createBrowserRouter([
       { path: "orders", element: <OrdersPage /> },
       { path: "orders/:id", element: <OrderDetailsPage /> },
 
+      // PDP route wrapper
       {
         path: "p/:id",
         element: (
@@ -342,6 +325,8 @@ const router = createBrowserRouter([
       { path: "*", element: <Navigate to="/" replace /> },
     ],
   },
+
+  // Help routes
   {
     path: "/help",
     element: <HelpLayout />,
@@ -350,6 +335,7 @@ const router = createBrowserRouter([
       { path: "*", element: <Help /> },
     ],
   },
+
   { path: "/cart", element: <Cart /> },
   { path: "/checkout", element: <Checkout /> },
   { path: "/cart-sidebar", element: <CartSidebar /> },
@@ -359,6 +345,7 @@ const router = createBrowserRouter([
 ]);
 
 function AppImpl() {
+  // Providers here fix the “useX must be used within XProvider” crashes.
   return (
     <React.Suspense fallback={<div />}>
       <AssistantProvider>
@@ -371,7 +358,9 @@ function AppImpl() {
 }
 
 /**
- * Export BOTH named and default to ensure compatibility
+ * Export BOTH:
+ * - named App (supports: import { App } from "./App")
+ * - default App (supports: import App from "./App")
  */
 export function App() {
   return <AppImpl />;
