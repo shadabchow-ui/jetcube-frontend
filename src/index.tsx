@@ -17,7 +17,7 @@ createRoot(el).render(
   <StrictMode>
     <App />
   </StrictMode>,
-);
+); 
 
 
 
