@@ -9,7 +9,7 @@ import ShopAllCategories from "./screens/Shop/ShopAllCategories";
 import CategoryPage from "./screens/category/CategoryPage";
 
 import Cart from "./screens/Cart";
-import CartSidebar from "./screens/CartSidebar";
+import CartSidebar from "./screens/CartSidebar/CartSidebar";
 import ProductComparison from "./screens/ProductComparison/ProductComparison";
 import SingleProduct from "./screens/SingleProduct/SingleProduct";
 
