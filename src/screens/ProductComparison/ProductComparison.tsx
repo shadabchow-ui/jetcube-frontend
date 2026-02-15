@@ -1,21 +1,20 @@
-import React from "react";
-import { FooterSection } from "./sections/FooterSection";
-import { HeaderSection } from "./sections/HeaderSection";
+import { ShopNavigation } from "../../screens/Shop/components/ShopNavigation";
 import { ProductComparisonSection } from "./sections/ProductComparisonSection";
-import { ProductFeaturesSection } from "./sections/ProductFeaturesSection";
-import { WarrantyInformationSection } from "./sections/WarrantyInformationSection";
+import { QualityAssuranceSection } from "./sections/QualityAssuranceSection";
+import { RelatedProductsSection } from "./sections/RelatedProductsSection";
 
 export const ProductComparison = (): JSX.Element => {
   return (
-    <main
-      className="bg-white overflow-hidden w-full min-w-[1440px] flex flex-col"
-      data-model-id="117:641"
-    >
-      <HeaderSection />
-      <ProductComparisonSection />
-      <WarrantyInformationSection />
-      <ProductFeaturesSection />
-      <FooterSection />
-    </main>
+    <div className="product-comparison">
+      <div className="div-9">
+        <ShopNavigation />
+        <ProductComparisonSection />
+        <QualityAssuranceSection />
+        <RelatedProductsSection />
+      </div>
+    </div>
   );
 };
+
+export default ProductComparison;
+
