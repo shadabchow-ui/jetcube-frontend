@@ -32,44 +32,53 @@ import SignupPage from "./pages/SignupPage";
 import LoginPage from "./pages/LoginPage";
 
 /* ============================
-   Providers (fix runtime hook crashes)
+   Providers
    ============================ */
 import { CartProvider } from "./context/CartContext";
 import { AssistantProvider } from "./components/RufusAssistant/AssistantContext";
 
 /* ============================
-   Lazy module resolver (fix build-time export errors)
+   Safe Lazy Resolver
+   Fixes "X is not exported by Y" errors by checking default, named, and fallback exports.
+   Fixes Vite build by using static import callbacks.
    ============================ */
-function lazyPick(modulePath: string, exportNames: string[]) {
+function safeLazy(importFn: () => Promise<any>, exportNames: string[]) {
   return React.lazy(async () => {
-    const mod: any = await import(/* @vite-ignore */ modulePath);
-    const picked =
-      mod?.default ??
-      exportNames.map((k) => mod?.[k]).find((v) => typeof v === "function") ??
-      exportNames.map((k) => mod?.[k]).find((v) => v != null);
+    try {
+      const mod: any = await importFn();
+      
+      // 1. Try Default
+      // 2. Try Specific Named Exports
+      // 3. Try finding any exported function/component as a fallback
+      const picked =
+        mod?.default ??
+        exportNames.map((k) => mod?.[k]).find((v) => v != null) ??
+        Object.values(mod).find((v) => typeof v === "function" || typeof v === "object");
 
-    if (!picked) {
-      throw new Error(
-        `[App] Could not resolve component from ${modulePath}. Tried exports: ${exportNames.join(
-          ", ",
-        )}`,
-      );
+      if (!picked) {
+        throw new Error(
+          `[App] Could not resolve component. Tried exports: ${exportNames.join(", ")}`
+        );
+      }
+
+      return { default: picked };
+    } catch (error) {
+      console.error("[SafeLazy] Import failed:", error);
+      // Return a dummy component to prevent full app crash on single route failure
+      return { default: () => <div className="p-4 text-red-500">Error loading component</div> };
     }
-
-    return { default: picked };
   });
 }
 
-/* These were causing Cloudflare build failures because rollup enforces named exports.
-   Using lazyPick avoids compile-time “X is not exported by …” errors. */
-const Home = lazyPick("./screens/Home", ["Home", "default"]);
-const ShopAll = lazyPick("./screens/Shop", ["ShopAll", "default"]);
-const SingleProduct = lazyPick("./screens/SingleProduct", ["SingleProduct", "default"]);
-const Cart = lazyPick("./screens/Cart", ["Cart", "default"]);
-const Checkout = lazyPick("./screens/Checkout", ["Checkout", "default"]);
-const CartSidebar = lazyPick("./screens/CartSidebar", ["CartSidebar", "default"]);
-const ProductComparison = lazyPick("./screens/ProductComparison", ["ProductComparison", "default"]);
-const CategoryPage = lazyPick("./screens/category/CategoryPage", ["CategoryPage", "default"]);
+// We use explicit import() calls here so Vite can verify the files exist at build time
+const Home = safeLazy(() => import("./screens/Home"), ["Home"]);
+const ShopAll = safeLazy(() => import("./screens/Shop"), ["ShopAll"]);
+const SingleProduct = safeLazy(() => import("./screens/SingleProduct"), ["SingleProduct"]);
+const Cart = safeLazy(() => import("./screens/Cart"), ["Cart"]);
+const Checkout = safeLazy(() => import("./screens/Checkout"), ["Checkout"]);
+const CartSidebar = safeLazy(() => import("./screens/CartSidebar"), ["CartSidebar"]);
+const ProductComparison = safeLazy(() => import("./screens/ProductComparison"), ["ProductComparison"]);
+const CategoryPage = safeLazy(() => import("./screens/category/CategoryPage"), ["CategoryPage"]);
 
 const SearchResultsPage: any =
   (SearchResultsPageModule as any).default || SearchResultsPageModule;
@@ -89,14 +98,9 @@ async function loadIndexOnce(): Promise<any> {
   if (INDEX_CACHE) return INDEX_CACHE;
   if (INDEX_PROMISE) return INDEX_PROMISE;
 
-  // IMPORTANT:
-  // Your bucket shows indexes/pdp_path_map.json(.gz) exists and is the correct “slug -> real path” map.
-  // So we try that FIRST, then fall back to other legacy candidates.
   const candidates = [
     "indexes/pdp_path_map.json.gz",
     "indexes/pdp_path_map.json",
-
-    // optional/legacy
     "indexes/pdp2/_index.json.gz",
     "indexes/pdp2/_index.json",
     "indexes/_index.json.gz",
@@ -126,18 +130,13 @@ function resolveShardKeyFromManifest(
 ): string | null {
   const keys = Object.keys(shardMap || {});
   if (!keys.length) return null;
-
-  // Exact match
   if (shardMap[slug]) return slug;
-
-  // Fallback: prefix match
   const hit = keys.find((k) => slug.toLowerCase().startsWith(k.toLowerCase()));
   return hit || null;
 }
 
 async function loadShardByUrl(shardUrl: string): Promise<Record<string, string> | null> {
   if (SHARD_CACHE[shardUrl]) return SHARD_CACHE[shardUrl];
-
   try {
     const data = await fetchJsonStrict<Record<string, string>>(shardUrl, "Shard fetch");
     SHARD_CACHE[shardUrl] = data || {};
@@ -160,12 +159,8 @@ async function fetchProductJsonWithFallback(productUrl: string): Promise<any> {
   };
 
   push(productUrl);
-
-  // If caller asked for .json, try .json.gz too
   if (productUrl.endsWith(".json")) push(`${productUrl}.gz`);
   if (productUrl.endsWith(".json.gz")) push(productUrl.replace(/\.json\.gz$/i, ".json"));
-
-  // If no json extension, try both
   if (!/\.json(\.gz)?$/i.test(productUrl)) {
     push(`${productUrl}.json`);
     push(`${productUrl}.json.gz`);
@@ -188,12 +183,11 @@ async function fetchProductJsonWithFallback(productUrl: string): Promise<any> {
 }
 
 /* ============================
-   PDP ROUTE — uses pdp_path_map.json first
+   PDP ROUTE
    ============================ */
 function ProductRoute({ children }: { children: React.ReactNode }) {
   const { id } = useParams<{ id: string }>();
 
-  // Prefer router param, but fall back to window.location.pathname for deep links
   const pathHandle =
     typeof window !== "undefined" && window.location.pathname.startsWith("/p/")
       ? window.location.pathname.replace(/^\/p\//, "").split("/")[0]
@@ -216,17 +210,14 @@ function ProductRoute({ children }: { children: React.ReactNode }) {
 
         let productPath: string | null = null;
 
-        // ── Strategy 1: Use pdp_path_map.json(.gz) or manifest/index to resolve ──
         try {
           const index = await loadIndexOnce();
 
-          // Case A: direct mapping object: { "<slug>": "products/batch5/<slug>.json", ... }
           if (index && typeof index === "object" && !Array.isArray(index)) {
             if (typeof (index as any)[handle] === "string") {
               productPath = (index as any)[handle];
             }
 
-            // Case B: manifest: { base: "indexes/pdp2/", shards: {...} }
             if (!productPath && (index as any).shards && !Array.isArray((index as any).shards)) {
               const manifest = index as { base: string; shards: Record<string, string> };
               const shardKey = resolveShardKeyFromManifest(handle, manifest.shards);
@@ -245,7 +236,6 @@ function ProductRoute({ children }: { children: React.ReactNode }) {
             }
           }
 
-          // Case C: array index: [{ slug, path }]
           if (!productPath && Array.isArray(index)) {
             const entry = index.find((x: any) => x?.slug === handle);
             if (entry?.path) productPath = entry.path;
@@ -254,7 +244,6 @@ function ProductRoute({ children }: { children: React.ReactNode }) {
           console.warn("[ProductRoute] index resolution failed:", e);
         }
 
-        // ── Strategy 2: last-resort fallback (may 404 if your products are not in /products/<slug>.json) ──
         if (!productPath) {
           productPath = `products/${handle}.json`;
         }
@@ -264,7 +253,6 @@ function ProductRoute({ children }: { children: React.ReactNode }) {
             ? productPath
             : joinUrl(R2_BASE, productPath);
 
-        console.log("[ProductRoute] Fetching product JSON:", productUrl);
         const p = await fetchProductJsonWithFallback(productUrl);
 
         if (!cancelled) setProduct(p);
@@ -324,7 +312,6 @@ const router = createBrowserRouter([
       { path: "orders", element: <OrdersPage /> },
       { path: "orders/:id", element: <OrderDetailsPage /> },
 
-      // PDP route wrapper
       {
         path: "p/:id",
         element: (
@@ -337,8 +324,6 @@ const router = createBrowserRouter([
       { path: "*", element: <Navigate to="/" replace /> },
     ],
   },
-
-  // Help routes
   {
     path: "/help",
     element: <HelpLayout />,
@@ -347,7 +332,6 @@ const router = createBrowserRouter([
       { path: "*", element: <Help /> },
     ],
   },
-
   { path: "/cart", element: <Cart /> },
   { path: "/checkout", element: <Checkout /> },
   { path: "/cart-sidebar", element: <CartSidebar /> },
@@ -357,7 +341,6 @@ const router = createBrowserRouter([
 ]);
 
 function AppImpl() {
-  // Providers here fix the “useX must be used within XProvider” crashes.
   return (
     <React.Suspense fallback={<div />}>
       <AssistantProvider>
@@ -370,13 +353,11 @@ function AppImpl() {
 }
 
 /**
- * Export BOTH:
- * - named App (supports: import { App } from "./App")
- * - default App (supports: import App from "./App")
+ * Export BOTH named and default to ensure imports work in all environments
+ * and prevent "App is not exported" build errors.
  */
 export function App() {
   return <AppImpl />;
 }
 
 export default App;
-
