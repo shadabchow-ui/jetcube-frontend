@@ -222,12 +222,12 @@ function ProductRoute({ children }: { children: React.ReactNode }) {
 
           // Case A: direct mapping object: { "<slug>": "products/batch5/<slug>.json", ... }
           if (index && typeof index === "object" && !Array.isArray(index)) {
-            if (typeof index[handle] === "string") {
-              productPath = index[handle];
+            if (typeof (index as any)[handle] === "string") {
+              productPath = (index as any)[handle];
             }
 
             // Case B: manifest: { base: "indexes/pdp2/", shards: {...} }
-            if (!productPath && index.shards && !Array.isArray(index.shards)) {
+            if (!productPath && (index as any).shards && !Array.isArray((index as any).shards)) {
               const manifest = index as { base: string; shards: Record<string, string> };
               const shardKey = resolveShardKeyFromManifest(handle, manifest.shards);
 
@@ -370,13 +370,13 @@ function AppImpl() {
 }
 
 /**
- * IMPORTANT:
- * - default export supports: import App from "./App" (your current src/index.tsx)
- * - named export supports: import { App } from "./App" (if you ever want it)
+ * Export BOTH:
+ * - named App (supports: import { App } from "./App")
+ * - default App (supports: import App from "./App")
  */
-export default function App() {
+export function App() {
   return <AppImpl />;
 }
-export function AppNamed() {
-  return <AppImpl />;
-}
+
+export default App;
+
