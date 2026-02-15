@@ -40,7 +40,6 @@ import { AssistantProvider } from "./components/RufusAssistant/AssistantContext"
 /* ============================
    Safe Lazy Resolver
    Fixes "X is not exported by Y" errors by checking default, named, and fallback exports.
-   Fixes Vite build by using static import callbacks.
    ============================ */
 function safeLazy(importFn: () => Promise<any>, exportNames: string[]) {
   return React.lazy(async () => {
@@ -64,13 +63,13 @@ function safeLazy(importFn: () => Promise<any>, exportNames: string[]) {
       return { default: picked };
     } catch (error) {
       console.error("[SafeLazy] Import failed:", error);
-      // Return a dummy component to prevent full app crash on single route failure
+      // Return a dummy component to prevent full app crash
       return { default: () => <div className="p-4 text-red-500">Error loading component</div> };
     }
   });
 }
 
-// We use explicit import() calls here so Vite can verify the files exist at build time
+// Explicit import() calls allow Vite to statically analyze dependencies
 const Home = safeLazy(() => import("./screens/Home"), ["Home"]);
 const ShopAll = safeLazy(() => import("./screens/Shop"), ["ShopAll"]);
 const SingleProduct = safeLazy(() => import("./screens/SingleProduct"), ["SingleProduct"]);
@@ -94,22 +93,36 @@ let INDEX_PROMISE: Promise<any> | null = null;
 
 const SHARD_CACHE: Record<string, Record<string, string>> = {};
 
+// Robust internal fetcher to bypass "body stream already read" errors in fetchJsonStrict
+async function safeFetchIndex(url: string): Promise<any> {
+  try {
+    const res = await fetch(url);
+    if (!res.ok) return null;
+    return await res.json();
+  } catch (err) {
+    console.warn(`[Index] Failed to fetch/parse ${url}`, err);
+    return null;
+  }
+}
+
 async function loadIndexOnce(): Promise<any> {
   if (INDEX_CACHE) return INDEX_CACHE;
   if (INDEX_PROMISE) return INDEX_PROMISE;
 
+  // Swapped order: Try .json (uncompressed) first to avoid GZIP content-type issues in some browsers/proxies
   const candidates = [
-    "indexes/pdp_path_map.json.gz",
     "indexes/pdp_path_map.json",
-    "indexes/pdp2/_index.json.gz",
+    "indexes/pdp_path_map.json.gz",
     "indexes/pdp2/_index.json",
-    "indexes/_index.json.gz",
+    "indexes/pdp2/_index.json.gz",
     "indexes/_index.json",
+    "indexes/_index.json.gz",
   ].map((rel) => joinUrl(R2_BASE, rel));
 
   INDEX_PROMISE = (async () => {
     for (const u of candidates) {
-      const data = await fetchJsonStrict<any>(u, "Index fetch", { allow404: true });
+      // Use local safeFetchIndex instead of fetchJsonStrict
+      const data = await safeFetchIndex(u);
       if (data !== null) {
         INDEX_CACHE = data;
         return data;
@@ -210,14 +223,17 @@ function ProductRoute({ children }: { children: React.ReactNode }) {
 
         let productPath: string | null = null;
 
+        // ── Strategy 1: Resolve via Index ──
         try {
           const index = await loadIndexOnce();
 
+          // Direct map
           if (index && typeof index === "object" && !Array.isArray(index)) {
             if (typeof (index as any)[handle] === "string") {
               productPath = (index as any)[handle];
             }
 
+            // Manifest/Shard map
             if (!productPath && (index as any).shards && !Array.isArray((index as any).shards)) {
               const manifest = index as { base: string; shards: Record<string, string> };
               const shardKey = resolveShardKeyFromManifest(handle, manifest.shards);
@@ -236,6 +252,7 @@ function ProductRoute({ children }: { children: React.ReactNode }) {
             }
           }
 
+          // Array map
           if (!productPath && Array.isArray(index)) {
             const entry = index.find((x: any) => x?.slug === handle);
             if (entry?.path) productPath = entry.path;
@@ -244,6 +261,7 @@ function ProductRoute({ children }: { children: React.ReactNode }) {
           console.warn("[ProductRoute] index resolution failed:", e);
         }
 
+        // ── Strategy 2: Fallback (Likely to fail if batch folders are used) ──
         if (!productPath) {
           productPath = `products/${handle}.json`;
         }
@@ -353,8 +371,7 @@ function AppImpl() {
 }
 
 /**
- * Export BOTH named and default to ensure imports work in all environments
- * and prevent "App is not exported" build errors.
+ * Export BOTH named and default to ensure compatibility
  */
 export function App() {
   return <AppImpl />;
