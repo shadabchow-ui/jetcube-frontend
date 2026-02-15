@@ -23,121 +23,129 @@ import Help from "./pages/help/HelpIndex";
 import * as PdpContext from "./pdp/ProductPdpContext";
 
 /* ============================
-   Assistant Provider (fix: useAssistant must be inside provider)
+   Screen / Page Imports
    ============================ */
-import * as AssistantContextModule from "./components/RufusAssistant/AssistantContext";
-
-/* ============================
-   Screen / Page Imports (namespace imports to avoid missing exports)
-   ============================ */
-import * as HomeModule from "./screens/Home";
-import * as ShopModule from "./screens/Shop";
-import * as SingleProductModule from "./screens/SingleProduct";
-import * as CartModule from "./screens/Cart";
-import * as CheckoutModule from "./screens/Checkout";
-import * as CartSidebarModule from "./screens/CartSidebar";
-import * as ProductComparisonModule from "./screens/ProductComparison";
 import SearchResultsPageModule from "./pages/SearchResultsPage";
-import * as CategoryPageModule from "./screens/category/CategoryPage";
-
 import OrdersPage from "./pages/OrdersPage";
 import OrderDetailsPage from "./pages/OrderDetailsPage";
 import SignupPage from "./pages/SignupPage";
 import LoginPage from "./pages/LoginPage";
 
 /* ============================
-   Safe module export picker
-   - IMPORTANT: uses bracket access with variable keys so Rollup/Vite
-     does NOT turn it into static named/default imports (which caused your build errors)
+   Providers (fix runtime hook crashes)
    ============================ */
-function pickExport<T = any>(mod: any, keys: string[]): T {
-  for (const k of keys) {
-    try {
-      const v = mod?.[k];
-      if (v) return v as T;
-    } catch {
-      // ignore
+import { CartProvider } from "./context/CartContext";
+import { AssistantProvider } from "./components/RufusAssistant/AssistantContext";
+
+/* ============================
+   Lazy module resolver (fix build-time export errors)
+   ============================ */
+function lazyPick(modulePath: string, exportNames: string[]) {
+  return React.lazy(async () => {
+    const mod: any = await import(/* @vite-ignore */ modulePath);
+    const picked =
+      mod?.default ??
+      exportNames.map((k) => mod?.[k]).find((v) => typeof v === "function") ??
+      exportNames.map((k) => mod?.[k]).find((v) => v != null);
+
+    if (!picked) {
+      throw new Error(
+        `[App] Could not resolve component from ${modulePath}. Tried exports: ${exportNames.join(
+          ", ",
+        )}`,
+      );
     }
-  }
-  return undefined as any;
+
+    return { default: picked };
+  });
 }
+
+/* These were causing Cloudflare build failures because rollup enforces named exports.
+   Using lazyPick avoids compile-time “X is not exported by …” errors. */
+const Home = lazyPick("./screens/Home", ["Home", "default"]);
+const ShopAll = lazyPick("./screens/Shop", ["ShopAll", "default"]);
+const SingleProduct = lazyPick("./screens/SingleProduct", ["SingleProduct", "default"]);
+const Cart = lazyPick("./screens/Cart", ["Cart", "default"]);
+const Checkout = lazyPick("./screens/Checkout", ["Checkout", "default"]);
+const CartSidebar = lazyPick("./screens/CartSidebar", ["CartSidebar", "default"]);
+const ProductComparison = lazyPick("./screens/ProductComparison", ["ProductComparison", "default"]);
+const CategoryPage = lazyPick("./screens/category/CategoryPage", ["CategoryPage", "default"]);
+
+const SearchResultsPage: any =
+  (SearchResultsPageModule as any).default || SearchResultsPageModule;
 
 /* ============================
    PDP Loader Helpers
    ============================ */
+const ProductPdpProvider = (PdpContext as any).ProductPdpProvider as any;
 
-const ProductPdpProvider =
-  pickExport<any>(PdpContext, ["ProductPdpProvider", "default"]) ||
-  (({ children }: any) => <>{children}</>);
+/** Cache the global manifest/index */
+let INDEX_CACHE: any | null = null;
+let INDEX_PROMISE: Promise<any> | null = null;
 
-/** Cache: pdp_path_map */
-let PDP_PATH_MAP_CACHE: Record<string, string> | null = null;
-let PDP_PATH_MAP_PROMISE: Promise<Record<string, string> | null> | null = null;
-
-/** Cache per shard url */
 const SHARD_CACHE: Record<string, Record<string, string>> = {};
 
-async function loadPdpPathMapOnce(): Promise<Record<string, string> | null> {
-  if (PDP_PATH_MAP_CACHE) return PDP_PATH_MAP_CACHE;
-  if (PDP_PATH_MAP_PROMISE) return PDP_PATH_MAP_PROMISE;
+async function loadIndexOnce(): Promise<any> {
+  if (INDEX_CACHE) return INDEX_CACHE;
+  if (INDEX_PROMISE) return INDEX_PROMISE;
 
+  // IMPORTANT:
+  // Your bucket shows indexes/pdp_path_map.json(.gz) exists and is the correct “slug -> real path” map.
+  // So we try that FIRST, then fall back to other legacy candidates.
   const candidates = [
     "indexes/pdp_path_map.json.gz",
     "indexes/pdp_path_map.json",
+
+    // optional/legacy
+    "indexes/pdp2/_index.json.gz",
+    "indexes/pdp2/_index.json",
+    "indexes/_index.json.gz",
+    "indexes/_index.json",
   ].map((rel) => joinUrl(R2_BASE, rel));
 
-  PDP_PATH_MAP_PROMISE = (async () => {
+  INDEX_PROMISE = (async () => {
     for (const u of candidates) {
-      const data = await fetchJsonStrict<Record<string, string>>(u, "pdp_path_map fetch", {
-        allow404: true,
-      });
-      if (data) {
-        PDP_PATH_MAP_CACHE = data;
+      const data = await fetchJsonStrict<any>(u, "Index fetch", { allow404: true });
+      if (data !== null) {
+        INDEX_CACHE = data;
         return data;
       }
     }
-    return null;
+    throw new Error(`Global PDP index not found. Tried: ${candidates.join(", ")}`);
   })().catch((err) => {
-    PDP_PATH_MAP_PROMISE = null;
+    INDEX_PROMISE = null;
     throw err;
   });
 
-  return PDP_PATH_MAP_PROMISE;
+  return INDEX_PROMISE;
 }
 
-function shardKey2(handle: string): string {
-  const h = String(handle || "").toLowerCase();
-  if (!h) return "--";
-  if (h.length === 1) return `${h}-`;
-  return h.slice(0, 2);
+function resolveShardKeyFromManifest(
+  slug: string,
+  shardMap: Record<string, string>,
+): string | null {
+  const keys = Object.keys(shardMap || {});
+  if (!keys.length) return null;
+
+  // Exact match
+  if (shardMap[slug]) return slug;
+
+  // Fallback: prefix match
+  const hit = keys.find((k) => slug.toLowerCase().startsWith(k.toLowerCase()));
+  return hit || null;
 }
 
-async function loadShardMap(prefix2: string): Promise<Record<string, string> | null> {
-  const key = shardKey2(prefix2);
+async function loadShardByUrl(shardUrl: string): Promise<Record<string, string> | null> {
+  if (SHARD_CACHE[shardUrl]) return SHARD_CACHE[shardUrl];
 
-  // try both folders you have in R2: indexes/pdp2/ and indexes/pdp_paths/
-  const rels = [
-    `indexes/pdp2/${key}.json.gz`,
-    `indexes/pdp2/${key}.json`,
-    `indexes/pdp_paths/${key}.json.gz`,
-    `indexes/pdp_paths/${key}.json`,
-  ];
-
-  for (const rel of rels) {
-    const shardUrl = joinUrl(R2_BASE, rel);
-    if (SHARD_CACHE[shardUrl]) return SHARD_CACHE[shardUrl];
-
-    const data = await fetchJsonStrict<Record<string, string>>(shardUrl, "pdp shard fetch", {
-      allow404: true,
-    });
-
-    if (data) {
-      SHARD_CACHE[shardUrl] = data;
-      return data;
-    }
+  try {
+    const data = await fetchJsonStrict<Record<string, string>>(shardUrl, "Shard fetch");
+    SHARD_CACHE[shardUrl] = data || {};
+    return data || {};
+  } catch (err) {
+    console.warn(`[ProductRoute] shard failed: ${shardUrl}`, err);
+    return null;
   }
-
-  return null;
 }
 
 async function fetchProductJsonWithFallback(productUrl: string): Promise<any> {
@@ -155,8 +163,7 @@ async function fetchProductJsonWithFallback(productUrl: string): Promise<any> {
 
   // If caller asked for .json, try .json.gz too
   if (productUrl.endsWith(".json")) push(`${productUrl}.gz`);
-  if (productUrl.endsWith(".json.gz"))
-    push(productUrl.replace(/\.json\.gz$/i, ".json"));
+  if (productUrl.endsWith(".json.gz")) push(productUrl.replace(/\.json\.gz$/i, ".json"));
 
   // If no json extension, try both
   if (!/\.json(\.gz)?$/i.test(productUrl)) {
@@ -168,7 +175,7 @@ async function fetchProductJsonWithFallback(productUrl: string): Promise<any> {
 
   for (const u of variants) {
     try {
-      const data = await fetchJsonStrict<any>(u, "product fetch", { allow404: true });
+      const data = await fetchJsonStrict<any>(u, "Product fetch", { allow404: true });
       if (data !== null) return data;
     } catch (e) {
       lastErr = e;
@@ -181,11 +188,12 @@ async function fetchProductJsonWithFallback(productUrl: string): Promise<any> {
 }
 
 /* ============================
-   PDP ROUTE — path-map + shard + legacy fallback
+   PDP ROUTE — uses pdp_path_map.json first
    ============================ */
 function ProductRoute({ children }: { children: React.ReactNode }) {
   const { id } = useParams<{ id: string }>();
 
+  // Prefer router param, but fall back to window.location.pathname for deep links
   const pathHandle =
     typeof window !== "undefined" && window.location.pathname.startsWith("/p/")
       ? window.location.pathname.replace(/^\/p\//, "").split("/")[0]
@@ -208,30 +216,45 @@ function ProductRoute({ children }: { children: React.ReactNode }) {
 
         let productPath: string | null = null;
 
-        // 1) Fast path: pdp_path_map (you have indexes/pdp_path_map.json.gz)
+        // ── Strategy 1: Use pdp_path_map.json(.gz) or manifest/index to resolve ──
         try {
-          const pathMap = await loadPdpPathMapOnce();
-          if (pathMap && pathMap[handle]) {
-            productPath = pathMap[handle];
+          const index = await loadIndexOnce();
+
+          // Case A: direct mapping object: { "<slug>": "products/batch5/<slug>.json", ... }
+          if (index && typeof index === "object" && !Array.isArray(index)) {
+            if (typeof index[handle] === "string") {
+              productPath = index[handle];
+            }
+
+            // Case B: manifest: { base: "indexes/pdp2/", shards: {...} }
+            if (!productPath && index.shards && !Array.isArray(index.shards)) {
+              const manifest = index as { base: string; shards: Record<string, string> };
+              const shardKey = resolveShardKeyFromManifest(handle, manifest.shards);
+
+              if (shardKey && manifest.shards[shardKey]) {
+                const base = String(manifest.base || "indexes/pdp2/")
+                  .replace(/^\/+/, "")
+                  .replace(/\/+$/, "")
+                  .concat("/");
+                const filename = String(manifest.shards[shardKey]).replace(/^\/+/, "");
+                const shardUrl = joinUrl(R2_BASE, `${base}${filename}`);
+
+                const shard = await loadShardByUrl(shardUrl);
+                if (shard && shard[handle]) productPath = shard[handle];
+              }
+            }
+          }
+
+          // Case C: array index: [{ slug, path }]
+          if (!productPath && Array.isArray(index)) {
+            const entry = index.find((x: any) => x?.slug === handle);
+            if (entry?.path) productPath = entry.path;
           }
         } catch (e) {
-          console.warn("[ProductRoute] pdp_path_map resolution failed:", e);
+          console.warn("[ProductRoute] index resolution failed:", e);
         }
 
-        // 2) Shard path: indexes/pdp2/<first2>.json(.gz) mapping slug -> productPath
-        if (!productPath) {
-          try {
-            const key = shardKey2(handle);
-            const shard = await loadShardMap(key);
-            if (shard && shard[handle]) {
-              productPath = shard[handle];
-            }
-          } catch (e) {
-            console.warn("[ProductRoute] shard resolution failed:", e);
-          }
-        }
-
-        // 3) Legacy fallback (some builds used products/<slug>.json)
+        // ── Strategy 2: last-resort fallback (may 404 if your products are not in /products/<slug>.json) ──
         if (!productPath) {
           productPath = `products/${handle}.json`;
         }
@@ -285,28 +308,6 @@ function ProductRoute({ children }: { children: React.ReactNode }) {
 }
 
 /* ============================
-   Router component resolution (NO static .default/.Home access)
-   ============================ */
-const Home = pickExport<any>(HomeModule, ["default", "Home"]) || (() => null);
-const ShopAll = pickExport<any>(ShopModule, ["default", "ShopAll"]) || (() => null);
-const SingleProduct =
-  pickExport<any>(SingleProductModule, ["default", "SingleProduct"]) || (() => null);
-const Cart = pickExport<any>(CartModule, ["default", "Cart"]) || (() => null);
-const Checkout = pickExport<any>(CheckoutModule, ["default", "Checkout"]) || (() => null);
-const CartSidebar =
-  pickExport<any>(CartSidebarModule, ["default", "CartSidebar"]) || (() => null);
-const ProductComparison =
-  pickExport<any>(ProductComparisonModule, ["default", "ProductComparison"]) || (() => null);
-
-const SearchResultsPage =
-  (typeof SearchResultsPageModule === "function"
-    ? SearchResultsPageModule
-    : pickExport<any>(SearchResultsPageModule as any, ["default"])) || (() => null);
-
-const CategoryPage =
-  pickExport<any>(CategoryPageModule, ["default", "CategoryPage"]) || (() => null);
-
-/* ============================
    Router
    ============================ */
 const router = createBrowserRouter([
@@ -355,25 +356,27 @@ const router = createBrowserRouter([
   { path: "/login", element: <LoginPage /> },
 ]);
 
-/* ============================
-   App export (fixes src/index.tsx default import)
-   ============================ */
-function AppInner() {
-  return <RouterProvider router={router} />;
-}
-
-const AssistantProvider =
-  pickExport<any>(AssistantContextModule, ["AssistantProvider", "default"]) || null;
-
-export function App() {
-  if (AssistantProvider) {
-    return (
+function AppImpl() {
+  // Providers here fix the “useX must be used within XProvider” crashes.
+  return (
+    <React.Suspense fallback={<div />}>
       <AssistantProvider>
-        <AppInner />
+        <CartProvider>
+          <RouterProvider router={router} />
+        </CartProvider>
       </AssistantProvider>
-    );
-  }
-  return <AppInner />;
+    </React.Suspense>
+  );
 }
 
-export default App;
+/**
+ * IMPORTANT:
+ * - default export supports: import App from "./App" (your current src/index.tsx)
+ * - named export supports: import { App } from "./App" (if you ever want it)
+ */
+export default function App() {
+  return <AppImpl />;
+}
+export function AppNamed() {
+  return <AppImpl />;
+}
