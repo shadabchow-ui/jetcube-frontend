@@ -1,402 +1,241 @@
-import React from "react";
-import {
-  RouterProvider,
-  createBrowserRouter,
-  Navigate,
-  useParams,
-} from "react-router-dom";
-
-import { R2_BASE, joinUrl } from "./config/r2";
-
-/* ============================
-   Layout Imports
-   ============================ */
+import React, { useEffect, useState } from "react";
+import { createBrowserRouter, Navigate, RouterProvider, useParams } from "react-router-dom";
 import MainLayout from "./layouts/MainLayout";
 import HelpLayout from "./layouts/HelpLayout";
-import ShopAllCategories from "./screens/Shop/ShopAllCategories";
+
+import Home from "./screens/Home";
 import Shop from "./screens/Shop/Shop";
+import ShopAllCategories from "./screens/Shop/ShopAllCategories";
+import CategoryPage from "./screens/category/CategoryPage";
+
+import Cart from "./screens/Cart";
+import CartSidebar from "./screens/CartSidebar";
+import ProductComparison from "./screens/ProductComparison/ProductComparison";
+import SingleProduct from "./screens/SingleProduct/SingleProduct";
+
+import SearchResultsPage from "./pages/SearchResultsPage";
+import SignupPage from "./pages/SignupPage";
+import LoginPage from "./pages/LoginPage";
 import OrdersPage from "./pages/OrdersPage";
-import OrderDetailsPage from "./pages/OrderDetailsPage";
+import OrderDetail from "./pages/OrderDetailsPage";
 import ReturnsPage from "./pages/ReturnsPage";
 import AccountPage from "./pages/AccountPage";
+
+// Help / Legal pages (case-sensitive file names)
 import HelpIndex from "./pages/help/HelpIndex";
 import ReturnsHelp from "./pages/help/Returns";
 import ShippingHelp from "./pages/help/Shipping";
 import PaymentsHelp from "./pages/help/Payments";
 import NewsletterHelp from "./pages/help/Newsletter";
-import CustomerServiceHelp from "./pages/help/Contact";
+import AboutUs from "./pages/help/AboutUs";
+import Careers from "./pages/help/Careers";
+import Sustainability from "./pages/help/Sustainability";
+import Press from "./pages/help/Press";
+import DevicesHelp from "./pages/help/Devices";
+import ProductSafetyHelp from "./pages/help/ProductSafety";
+import ConsumerDataHelp from "./pages/help/ConsumerData";
 import AdsPrivacy from "./pages/help/AdsPrivacy";
-import Accessibility from "./pages/help/Accessibility";
-import ConditionsOfUse from "./pages/help/ConditionsOfUse";
-import PrivacyNotice from "./pages/help/PrivacyNotice";
+import ContactHelp from "./pages/help/Contact";
+import Terms from "./pages/help/ConditionsOfUse";
+import PrivacyPolicy from "./pages/help/PrivacyNotice";
 import CookiePolicy from "./pages/help/cookiepolicy";
-import SearchResultsPageModule from "./pages/SearchResultsPage";
-import WishlistPage from "./pages/WishlistPage";
-import SignupPage from "./pages/SignupPage";
-import LoginPage from "./pages/LoginPage";
+import AccessibilityStatement from "./pages/help/Accessibility";
 
-/* ============================
-   PDP Imports
-   ============================ */
-import * as PdpContext from "./pdp/ProductPdpContext";
-
-/* ============================
-   Providers (fix runtime hook crashes)
-   ============================ */
 import { CartProvider } from "./context/CartContext";
 import { AssistantProvider } from "./components/RufusAssistant/AssistantContext";
 
 /* ============================
-   Lazy module resolver (Vite-safe, fixes build-time export errors)
-   ============================ */
-/**
- * Vite/Rollup require analyzable import() calls.
- * So we use static import() functions (not variable module paths),
- * then resolve either a named export or default export at runtime.
- */
-function lazyCompat<TProps = any>(
-  importer: () => Promise<any>,
-  exportNames: string[] = [],
-) {
-  return React.lazy(async () => {
-    const mod: any = await importer();
-    const picked =
-      exportNames.map((k) => mod?.[k]).find((v) => v != null) ??
-      mod?.default ??
-      mod;
+   Product fetch helpers
+============================ */
 
-    if (!picked) {
-      throw new Error(
-        `[App] Could not resolve lazy component. Tried exports: ${
-          exportNames.join(", ") || "(default)"
-        }`,
-      );
-    }
+// IMPORTANT: set this to your public R2 custom domain
+const R2_PUBLIC_BASE = "https://r2.ventari.net";
 
-    return { default: picked as React.ComponentType<TProps> };
-  });
+// Index locations (these are being served successfully in your screenshot)
+const PDP_MAP_URLS = [
+  `${R2_PUBLIC_BASE}/indexes/pdp_path_map.json`,
+  `${R2_PUBLIC_BASE}/indexes/pdp_path_map.json.gz`,
+];
+
+type PdpPathMap = Record<string, string>;
+
+async function fetchJsonMaybeGz(url: string): Promise<any> {
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(`HTTP ${res.status} for ${url}`);
+
+  // If it's .gz, we still expect the server to transparently serve decompressed JSON
+  // OR your fetch layer handles it. If not, you must only use non-gz.
+  // Your current network shows .json 404 and .json.gz 200, so we try both.
+  const text = await res.text();
+  return JSON.parse(text);
 }
 
-// Home screen is exported as default; keep the route component name stable.
-const Home = lazyCompat(() => import("./screens/Home"), ["Home", "default"]);
-// Older code referenced a "ShopAll" screen; in this repo the landing is Home.
-const ShopAll = lazyCompat(() => import("./screens/Home"), ["ShopAll", "Home", "default"]);
-const SingleProduct = lazyCompat(() => import("./screens/SingleProduct"), ["SingleProduct"]);
-const Cart = lazyCompat(() => import("./screens/Cart"), ["Cart"]);
-const Checkout = lazyCompat(() => import("./screens/Checkout"), ["Checkout"]);
-const CartSidebar = lazyCompat(() => import("./screens/CartSidebar"), ["CartSidebar"]);
-const ProductComparison = lazyCompat(() => import("./screens/ProductComparison"), ["ProductComparison"]);
-const CategoryPage = lazyCompat(() => import("./screens/category/CategoryPage"), ["CategoryPage"]);
+let _pdpMapPromise: Promise<PdpPathMap> | null = null;
+async function getPdpPathMap(): Promise<PdpPathMap> {
+  if (_pdpMapPromise) return _pdpMapPromise;
 
-const SearchResultsPage: any =
-  (SearchResultsPageModule as any).default || SearchResultsPageModule;
-
-/* ============================
-   Fetch helpers (handles .json.gz even when Content-Encoding is missing)
-   ============================ */
-
-type FetchJsonOptions = {
-  allow404?: boolean;
-};
-
-async function fetchJsonAuto<T = any>(
-  url: string,
-  label: string,
-  opts: FetchJsonOptions = {},
-): Promise<T | null> {
-  const res = await fetch(url, {
-    headers: { Accept: "application/json, */*" },
-  });
-
-  if (opts.allow404 && res.status === 404) return null;
-  if (!res.ok) {
-    throw new Error(`[${label}] HTTP ${res.status} for ${url}`);
-  }
-
-  const contentEncoding = (res.headers.get("content-encoding") || "").toLowerCase();
-  const contentType = (res.headers.get("content-type") || "").toLowerCase();
-  const looksGz =
-    url.toLowerCase().endsWith(".gz") ||
-    contentType.includes("application/gzip") ||
-    contentType.includes("application/x-gzip");
-
-  // If Content-Encoding: gzip is set, the browser transparently decompresses.
-  if (!looksGz || contentEncoding.includes("gzip")) {
-    const txt = await res.text();
-    return txt ? (JSON.parse(txt) as T) : (null as any);
-  }
-
-  // If it's a .gz but Content-Encoding is missing, we must decompress in the client.
-  const DS: any = (globalThis as any).DecompressionStream;
-  if (!DS) {
-    throw new Error(
-      `[${label}] ${url} appears gzipped but is missing Content-Encoding: gzip, and DecompressionStream is not available in this browser. ` +
-        `Fix by setting Content-Encoding: gzip on the object or uploading an uncompressed .json.`,
-    );
-  }
-
-  const ab = await res.arrayBuffer();
-  const ds = new DS("gzip");
-  const decompressedStream = new Blob([ab]).stream().pipeThrough(ds);
-  const txt = await new Response(decompressedStream).text();
-  return txt ? (JSON.parse(txt) as T) : (null as any);
-}
-
-/* ============================
-   PDP Loader Helpers
-   ============================ */
-
-const ProductPdpProvider = (PdpContext as any).ProductPdpProvider as any;
-
-/** Cache the global manifest/index */
-let INDEX_CACHE: any | null = null;
-let INDEX_PROMISE: Promise<any> | null = null;
-
-const SHARD_CACHE: Record<string, Record<string, string>> = {};
-
-async function loadIndexOnce(): Promise<any> {
-  if (INDEX_CACHE) return INDEX_CACHE;
-  if (INDEX_PROMISE) return INDEX_PROMISE;
-
-  // IMPORTANT:
-  // Your bucket shows indexes/pdp_path_map.json(.gz) exists and is the correct “slug -> real path” map.
-  // Prefer normal JSON first for reliability, then try .gz variants.
-  const candidates = [
-    "indexes/pdp_path_map.json",
-    "indexes/pdp_path_map.json.gz",
-
-    // optional/legacy
-    "indexes/pdp2/_index.json",
-    "indexes/pdp2/_index.json.gz",
-    "indexes/_index.json",
-    "indexes/_index.json.gz",
-  ].map((rel) => joinUrl(R2_BASE, rel));
-
-  INDEX_PROMISE = (async () => {
-    for (const u of candidates) {
-      const data = await fetchJsonAuto<any>(u, "Index fetch", { allow404: true });
-      if (data !== null) {
-        INDEX_CACHE = data;
-        return data;
+  _pdpMapPromise = (async () => {
+    let lastErr: any = null;
+    for (const url of PDP_MAP_URLS) {
+      try {
+        const json = await fetchJsonMaybeGz(url);
+        return json as PdpPathMap;
+      } catch (e) {
+        lastErr = e;
       }
     }
-    INDEX_CACHE = null;
-    return null;
+    throw lastErr ?? new Error("Failed to load pdp_path_map");
   })();
 
-  return INDEX_PROMISE;
+  return _pdpMapPromise;
 }
 
-function resolveShardKeyFromManifest(
-  slug: string,
-  shardMap: Record<string, string>,
-): string | null {
-  const keys = Object.keys(shardMap || {});
-  if (!keys.length) return null;
+async function fetchProductBySlug(slug: string) {
+  const map = await getPdpPathMap();
+  const relPath = map[slug];
 
-  // Exact match
-  if (shardMap[slug]) return slug;
-
-  // Fallback: prefix match
-  const hit = keys.find((k) => slug.toLowerCase().startsWith(k.toLowerCase()));
-  return hit || null;
-}
-
-async function fetchShard(shardUrl: string): Promise<Record<string, string> | null> {
-  if (SHARD_CACHE[shardUrl]) return SHARD_CACHE[shardUrl];
-
-  try {
-    const data = await fetchJsonAuto<Record<string, string>>(shardUrl, "Shard fetch");
-    SHARD_CACHE[shardUrl] = data || {};
-    return data || {};
-  } catch (err) {
-    console.warn(`[ProductRoute] shard failed: ${shardUrl}`, err);
-    return null;
-  }
-}
-
-function normalizeProductPath(productPath: string): string {
-  // Ensure "products/..." and remove leading slashes
-  const cleaned = String(productPath || "").replace(/^\/+/, "");
-  return joinUrl(R2_BASE, cleaned);
-}
-
-async function fetchProductJsonWithFallback(productUrl: string): Promise<any> {
-  const variants: string[] = [];
-  const seen = new Set<string>();
-
-  const push = (u: string) => {
-    const key = u.trim();
-    if (!key || seen.has(key)) return;
-    seen.add(key);
-    variants.push(key);
-  };
-
-  push(productUrl);
-
-  // If caller asked for .json, try .json.gz too
-  if (productUrl.endsWith(".json")) push(`${productUrl}.gz`);
-  if (productUrl.endsWith(".json.gz")) push(productUrl.replace(/\.json\.gz$/i, ".json"));
-
-  // If caller asked for non-extension path, try both
-  if (!/\.json(\.gz)?$/i.test(productUrl)) {
-    push(`${productUrl}.json`);
-    push(`${productUrl}.json.gz`);
-  }
-
-  let lastErr: any = null;
-
-  for (const u of variants) {
+  const tried: string[] = [];
+  if (relPath) {
+    const url1 = `${R2_PUBLIC_BASE}/${relPath}`;
+    tried.push(url1);
     try {
-      const data = await fetchJsonAuto<any>(u, "Product fetch", { allow404: true });
-      if (data !== null) return data;
-    } catch (e) {
-      lastErr = e;
-    }
+      const r = await fetch(url1);
+      if (r.ok) return await r.json();
+    } catch {}
+    const url2 = `${R2_PUBLIC_BASE}/${relPath}.gz`;
+    tried.push(url2);
+    try {
+      const r = await fetch(url2);
+      if (r.ok) {
+        const txt = await r.text();
+        return JSON.parse(txt);
+      }
+    } catch {}
   }
 
-  const tried = variants.join(", ");
-  if (lastErr) throw new Error(`${lastErr?.message || "Product fetch failed"}. Tried: ${tried}`);
-  throw new Error(`Product not found. Tried: ${tried}`);
+  // fallback: try direct key convention
+  const direct1 = `${R2_PUBLIC_BASE}/products/${slug}.json`;
+  tried.push(direct1);
+  try {
+    const r = await fetch(direct1);
+    if (r.ok) return await r.json();
+  } catch {}
+
+  const direct2 = `${R2_PUBLIC_BASE}/products/${slug}.json.gz`;
+  tried.push(direct2);
+  try {
+    const r = await fetch(direct2);
+    if (r.ok) {
+      const txt = await r.text();
+      return JSON.parse(txt);
+    }
+  } catch {}
+
+  throw new Error(`Product not found. Tried: ${tried.join(", ")}`);
 }
 
 /* ============================
-   PDP Route Wrapper
-   ============================ */
+   Route wrappers
+============================ */
 
-function ProductRoute({ children }: { children: React.ReactNode }) {
-  const { id } = useParams();
-  const handle = id;
+function ProductRoute() {
+  const { slug } = useParams();
 
-  const [product, setProduct] = React.useState<any | null>(null);
-  const [error, setError] = React.useState<string | null>(null);
+  const [product, setProduct] = useState<any>(null);
+  const [err, setErr] = useState<string | null>(null);
 
-  React.useEffect(() => {
-    let cancelled = false;
+  useEffect(() => {
+    let mounted = true;
+    setProduct(null);
+    setErr(null);
 
-    async function load() {
+    (async () => {
       try {
-        setError(null);
-        setProduct(null);
-
-        if (!handle) throw new Error("Missing product handle");
-
-        let productPath: string | null = null;
-
-        // ── Strategy 1: Use pdp_path_map.json(.gz) or manifest/index to resolve ──
-        try {
-          const idx = await loadIndexOnce();
-
-          if (idx) {
-            // Case A: direct mapping object: { "<slug>": "products/batch.../<slug>.json", ... }
-            if (typeof idx === "object" && idx[handle]) {
-              productPath = String(idx[handle]);
-            }
-
-            // Case B: shard manifest:
-            // { "shards": { "0-": "indexes/pdp2/0-.json.gz", ... } } or similar
-            if (!productPath && typeof idx === "object") {
-              const shardMap =
-                idx?.shards ||
-                idx?.pdp2_shards ||
-                idx?.pdp_shards ||
-                idx?.map ||
-                idx?.paths;
-
-              if (shardMap && typeof shardMap === "object") {
-                const shardKey = resolveShardKeyFromManifest(handle, shardMap);
-                if (shardKey) {
-                  const shardRel = String(shardMap[shardKey]);
-                  const shardUrl = joinUrl(R2_BASE, shardRel.replace(/^\/+/, ""));
-                  const shardObj = await fetchShard(shardUrl);
-
-                  if (shardObj && shardObj[handle]) {
-                    productPath = String(shardObj[handle]);
-                  }
-                }
-              }
-            }
-          }
-        } catch (e) {
-          // ignore, fall back
-        }
-
-        // ── Strategy 2: last-resort fallback ──
-        if (!productPath) {
-          productPath = `products/${handle}.json`;
-        }
-
-        const finalUrl = normalizeProductPath(productPath);
-        const data = await fetchProductJsonWithFallback(finalUrl);
-
-        if (!cancelled) setProduct(data);
-      } catch (err: any) {
-        if (!cancelled) setError(err?.message || "Failed to load product");
+        if (!slug) throw new Error("Missing slug");
+        const data = await fetchProductBySlug(slug);
+        if (!mounted) return;
+        setProduct(data);
+      } catch (e: any) {
+        if (!mounted) return;
+        setErr(e?.message || String(e));
       }
-    }
-
-    load();
+    })();
 
     return () => {
-      cancelled = true;
+      mounted = false;
     };
-  }, [handle]);
+  }, [slug]);
 
-  if (error) {
+  if (err) {
     return (
-      <div className="max-w-[1200px] mx-auto px-4 py-20">
-        <div className="text-red-500 text-sm">{error}</div>
+      <div style={{ padding: 24, color: "red" }}>
+        {err}
       </div>
     );
   }
 
   if (!product) {
-    return <div className="max-w-[1200px] mx-auto px-4 py-20" />;
+    return (
+      <div style={{ padding: 24 }}>
+        Loading…
+      </div>
+    );
   }
 
-  return <ProductPdpProvider product={product}>{children}</ProductPdpProvider>;
+  return <SingleProduct product={product} />;
 }
 
 /* ============================
    Router
-   ============================ */
+============================ */
+
 const router = createBrowserRouter([
   {
     path: "/",
     element: <MainLayout />,
     children: [
-      { path: "", element: <Home /> },
+      { path: "/", element: <Home /> },
       { path: "shop", element: <Shop /> },
-      { path: "shopall", element: <ShopAll /> },
+      { path: "shopall", element: <ShopAllCategories /> },
       { path: "shopallcategories", element: <ShopAllCategories /> },
+
+      { path: "p/:slug", element: <ProductRoute /> },
+
       { path: "search", element: <SearchResultsPage /> },
+      { path: "s", element: <SearchResultsPage /> },
+      { path: "list", element: <SearchResultsPage /> },
+
+      { path: "cart", element: <Cart /> },
+      { path: "checkout", element: <Cart /> },
+      { path: "cart-sidebar", element: <CartSidebar /> },
+
+      { path: "product-comparison", element: <ProductComparison /> },
+
       { path: "category/:category", element: <CategoryPage /> },
+      { path: "category/:category/:subcategory", element: <CategoryPage /> },
+      { path: "product-category", element: <CategoryPage /> },
+
+      { path: "signup", element: <SignupPage /> },
+      { path: "login", element: <LoginPage /> },
+
       { path: "orders", element: <OrdersPage /> },
-      { path: "orders/:id", element: <OrderDetailsPage /> },
+      { path: "order/:orderId", element: <OrderDetail /> },
       { path: "returns", element: <ReturnsPage /> },
       { path: "account", element: <AccountPage /> },
-      { path: "wishlist", element: <WishlistPage /> },
-      // Legacy aliases → canonical Help routes
-      { path: "terms", element: <Navigate to="/help/conditions" replace /> },
-      { path: "privacy", element: <Navigate to="/help/privacy" replace /> },
-      { path: "disclaimer", element: <Navigate to="/help/conditions" replace /> },
-      { path: "accessibility", element: <Navigate to="/help/accessibility" replace /> },
 
-      // PDP (wrap route content so product is loaded before rendering PDP children)
-      {
-        path: "p/:id",
-        element: (
-          <ProductRoute>
-            <SingleProduct />
-          </ProductRoute>
-        ),
-      },
+      // Footer top-level links
+      { path: "about", element: <AboutUs /> },
+      { path: "newsletter", element: <NewsletterHelp /> },
+      { path: "careers", element: <Careers /> },
+      { path: "sustainability", element: <Sustainability /> },
+      { path: "press", element: <Press /> },
 
-      // Legacy alias
-      { path: "list", element: <Navigate to="/wishlist" replace /> },
-      { path: "checkout", element: <Checkout /> },
-      { path: "cart", element: <Cart /> },
-      { path: "*", element: <Navigate to="/" replace /> },
+      // Optional top-level legal aliases (keep if something links here)
+      { path: "terms", element: <Terms /> },
+      { path: "privacy", element: <PrivacyPolicy /> },
+      { path: "accessibility", element: <AccessibilityStatement /> },
+      { path: "cookiepolicy", element: <CookiePolicy /> },
+      { path: "your-ads-privacy-choices", element: <AdsPrivacy /> },
     ],
   },
 
@@ -405,49 +244,39 @@ const router = createBrowserRouter([
     element: <HelpLayout />,
     children: [
       { path: "", element: <HelpIndex /> },
+
       { path: "returns", element: <ReturnsHelp /> },
-      { path: "orders", element: <HelpIndex /> },
       { path: "shipping", element: <ShippingHelp /> },
       { path: "payments", element: <PaymentsHelp /> },
       { path: "newsletter", element: <NewsletterHelp /> },
-      { path: "customerservice", element: <CustomerServiceHelp /> },
-      { path: "conditions", element: <ConditionsOfUse /> },
-      { path: "privacy", element: <PrivacyNotice /> },
-      { path: "adsprivacy", element: <AdsPrivacy /> },
-      { path: "accessibility", element: <Accessibility /> },
+
+      // No CustomerService page exists in this repo; route to HelpIndex as the hub
+      { path: "customerservice", element: <HelpIndex /> },
+      { path: "customer-service", element: <HelpIndex /> },
+
+      // Footer / legal links (these ARE in your repo)
+      { path: "contact", element: <ContactHelp /> },
+      { path: "accessibility", element: <AccessibilityStatement /> },
       { path: "cookiepolicy", element: <CookiePolicy /> },
+      { path: "conditions-of-use", element: <Terms /> },
+      { path: "privacy-notice", element: <PrivacyPolicy /> },
+      { path: "ads-privacy", element: <AdsPrivacy /> },
+      { path: "devices", element: <DevicesHelp /> },
+      { path: "product-safety", element: <ProductSafetyHelp /> },
+      { path: "consumer-data", element: <ConsumerDataHelp /> },
     ],
   },
 
-  // Legacy alias → consolidated categories entrypoint
-  { path: "/product-category", element: <Navigate to="/shopallcategories" replace /> },
-  { path: "/cart-sidebar", element: <CartSidebar /> },
-  { path: "/compare", element: <ProductComparison /> },
-  { path: "/signup", element: <SignupPage /> },
-  { path: "/login", element: <LoginPage /> },
+  // fallback
+  { path: "*", element: <Navigate to="/" replace /> },
 ]);
 
-function AppImpl() {
-  // Providers here fix the “useX must be used within XProvider” crashes.
+export default function App() {
   return (
-    <React.Suspense fallback={<div />}>
-      <AssistantProvider>
-        <CartProvider>
-          <RouterProvider router={router} />
-        </CartProvider>
-      </AssistantProvider>
-    </React.Suspense>
+    <AssistantProvider>
+      <CartProvider>
+        <RouterProvider router={router} />
+      </CartProvider>
+    </AssistantProvider>
   );
 }
-
-/**
- * Export BOTH:
- * - named App (supports: import { App } from "./App")
- * - default App (supports: import App from "./App")
- */
-export function App() {
-  return <AppImpl />;
-}
-
-export default App;
-
