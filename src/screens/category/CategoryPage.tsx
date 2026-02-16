@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { Link, useLocation, useSearchParams } from "react-router-dom";
+import { R2_BASE, joinUrl, fetchJsonAuto } from "../../config/r2";
 
 /**
  * CategoryPage (Amazon-style)
@@ -18,10 +19,11 @@ import { Link, useLocation, useSearchParams } from "react-router-dom";
  * ✅ Prices: robust extraction (no "$0" defaults; more schema candidates)
  */
 
-const INDEX_BASE = "https://ventari.net/indexes";
-const CATEGORY_INDEX_URL = `${INDEX_BASE}/_category_urls.json`;
-const CATEGORY_PRODUCTS_BASE = `${INDEX_BASE}/category_products`;
-const INDEX_CARDS_URL = `${INDEX_BASE}/_index.cards.json.gz`;
+const CATEGORY_INDEX_URL_GZ = joinUrl(R2_BASE, "indexes/_category_urls.json.gz");
+const CATEGORY_INDEX_URL = joinUrl(R2_BASE, "indexes/_category_urls.json");
+const CATEGORY_PRODUCTS_BASE = joinUrl(R2_BASE, "indexes/category_products");
+const INDEX_CARDS_URL_GZ = joinUrl(R2_BASE, "indexes/_index.cards.json.gz");
+const INDEX_CARDS_URL = joinUrl(R2_BASE, "indexes/_index.cards.json");
 
 const PAGE_SIZE = 48;
 
@@ -198,6 +200,7 @@ function extractPriceDisplay(p: any): string | null {
     if (!s) continue;
     const n = asNumber(s);
     if (n && n > 0) return s; // already formatted or at least meaningful
+    if (n && n > 0) return s; // already formatted or at least meaningful
   }
 
   // Numeric candidates (wide net)
@@ -268,9 +271,17 @@ async function loadIndexCardsOnce(): Promise<any[]> {
 
   _cardsPromise = (async () => {
     try {
-      const res = await fetch(INDEX_CARDS_URL, { cache: "force-cache" });
-      if (!res.ok) return [];
-      const json = await res.json();
+      const json =
+        (await fetchJsonAuto<any>(INDEX_CARDS_URL_GZ, "index cards gz", {
+          allow404: true,
+          init: { cache: "force-cache" },
+        })) ??
+        (await fetchJsonAuto<any>(INDEX_CARDS_URL, "index cards", {
+          allow404: true,
+          init: { cache: "force-cache" },
+        }));
+
+      if (!json) return [];
       const arr = Array.isArray(json) ? json : Array.isArray(json?.cards) ? json.cards : [];
       _cardsCache = arr;
       return arr;
@@ -283,7 +294,6 @@ async function loadIndexCardsOnce(): Promise<any[]> {
 
   return _cardsPromise;
 }
-
 
 // Lightweight per-slug hydration (for missing prices)
 const _detailPriceCache = new Map<string, string | null>();
@@ -299,11 +309,20 @@ async function loadProductDetailPriceOnce(slug: string): Promise<string | null> 
   const p = (async () => {
     try {
       // Many of your product JSONs are served under /products/<slug>.json
-      const res = await fetch(`/products/${encodeURIComponent(key)}.json`, { cache: "force-cache" });
-      if (!res.ok) return null;
-      const json = await res.json();
+      const enc = encodeURIComponent(key);
+      const json =
+        (await fetchJsonAuto<any>(joinUrl(R2_BASE, `products/${enc}.json.gz`), "product json gz", {
+          allow404: true,
+          init: { cache: "force-cache" },
+        })) ??
+        (await fetchJsonAuto<any>(joinUrl(R2_BASE, `products/${enc}.json`), "product json", {
+          allow404: true,
+          init: { cache: "force-cache" },
+        }));
+      if (!json) return null;
       // Reuse extraction against the full PDP JSON
-      const display = extractPriceDisplay(json) || extractPriceDisplay(json?.product) || extractPriceDisplay(json?.pdp);
+      const display =
+        extractPriceDisplay(json) || extractPriceDisplay(json?.product) || extractPriceDisplay(json?.pdp);
       return display;
     } catch {
       return null;
@@ -349,9 +368,16 @@ export default function CategoryPage() {
 
     async function load() {
       try {
-        const res = await fetch(CATEGORY_INDEX_URL, { cache: "force-cache" });
-        if (!res.ok) throw new Error("category index fetch failed");
-        const json = (await res.json()) as CategoryIndexShape;
+        const json =
+          (await fetchJsonAuto<CategoryIndexShape>(CATEGORY_INDEX_URL_GZ, "category urls gz", {
+            allow404: true,
+            init: { cache: "force-cache" },
+          })) ??
+          (await fetchJsonAuto<CategoryIndexShape>(CATEGORY_INDEX_URL, "category urls", {
+            allow404: false,
+            init: { cache: "force-cache" },
+          }));
+        if (!json) throw new Error("category index fetch failed");
         const paths = normalizeCategoryIndexToPaths(json);
 
         const dedup = Array.from(new Set(paths))
@@ -384,20 +410,37 @@ export default function CategoryPage() {
 
       try {
         // 1) Try category_products/<hyphen>.json
+        const urlGz = `${CATEGORY_PRODUCTS_BASE}/${filename}.gz`;
         const url = `${CATEGORY_PRODUCTS_BASE}/${filename}`;
-        const res = await fetch(url, { cache: "force-cache" });
+        const data =
+          (await fetchJsonAuto<any>(urlGz, "category products gz", {
+            allow404: true,
+            init: { cache: "force-cache" },
+          })) ??
+          (await fetchJsonAuto<any>(url, "category products", {
+            allow404: true,
+            init: { cache: "force-cache" },
+          }));
 
-        if (res.ok) {
-          const data = await res.json();
+        if (data) {
           const list = normalizeProducts(data);
           if (!cancelled) setProducts(list);
           return;
         }
 
         // 2) Legacy fallback: <__>.json
-        const legacyRes = await fetch(`${CATEGORY_PRODUCTS_BASE}/${legacyFilename}`, { cache: "force-cache" });
-        if (legacyRes.ok) {
-          const legacyData = await legacyRes.json();
+        const legacyUrlGz = `${CATEGORY_PRODUCTS_BASE}/${legacyFilename}.gz`;
+        const legacyUrl = `${CATEGORY_PRODUCTS_BASE}/${legacyFilename}`;
+        const legacyData =
+          (await fetchJsonAuto<any>(legacyUrlGz, "category products legacy gz", {
+            allow404: true,
+            init: { cache: "force-cache" },
+          })) ??
+          (await fetchJsonAuto<any>(legacyUrl, "category products legacy", {
+            allow404: true,
+            init: { cache: "force-cache" },
+          }));
+        if (legacyData) {
           const list = normalizeProducts(legacyData);
           if (!cancelled) setProducts(list);
           return;
@@ -526,7 +569,9 @@ export default function CategoryPage() {
         if (!cancelled) setHydratedPrice(v);
       }
       hydrate();
-      return () => { cancelled = true; };
+      return () => {
+        cancelled = true;
+      };
     }, [slug, basePrice]);
 
     const price = basePrice || hydratedPrice;
@@ -536,14 +581,22 @@ export default function CategoryPage() {
     const inner = (
       <div className="amz-card" role="group" aria-label={title}>
         <div className="amz-imgWrap">
-          {img ? <img className="amz-img" src={img} alt={title} loading="lazy" /> : <div className="amz-imgEmpty">No image</div>}
+          {img ? (
+            <img className="amz-img" src={img} alt={title} loading="lazy" />
+          ) : (
+            <div className="amz-imgEmpty">No image</div>
+          )}
         </div>
 
         <div className="amz-title" title={title}>
           {title}
         </div>
 
-        {price ? <div className="amz-price">{price}</div> : <div className="amz-price amz-price--muted">Price unavailable</div>}
+        {price ? (
+          <div className="amz-price">{price}</div>
+        ) : (
+          <div className="amz-price amz-price--muted">Price unavailable</div>
+        )}
       </div>
     );
 
@@ -801,28 +854,32 @@ export default function CategoryPage() {
             ))}
           </>
         ) : (
-          <span>All Departments</span>
+          <span>All</span>
         )}
       </div>
 
-      <h1 className="amz-h1">{heading}</h1>
+      {/* Heading */}
+      <h1 className="amz-h1">
+        {heading}
+        {!categoryExists && categoryIndexLoaded ? " (Not found)" : ""}
+      </h1>
 
       <div className="amz-layout">
         {/* Sidebar */}
-        <aside className="amz-sidebar">
+        <aside className="amz-sidebar" aria-label="Category navigation">
           <div className="amz-sidebarTitle">{sidebarTitle}</div>
 
           {showSidebarLoading ? (
-            <div className="amz-sideEmpty">Loading…</div>
-          ) : sidebarItems.length > 0 ? (
+            <div className="amz-sideEmpty">Loading categories…</div>
+          ) : sidebarItems.length ? (
             <ul className="amz-sidebarList">
               {sidebarItems.map((it) => {
-                const isActive = sidebarActivePath && normalizeCategoryPath(it.path) === normalizeCategoryPath(sidebarActivePath);
+                const active = sidebarActivePath && normalizeCategoryPath(it.path) === normalizeCategoryPath(sidebarActivePath);
                 return (
                   <li key={it.path}>
                     <Link
                       to={`/c/${it.path}`}
-                      className={isActive ? "amz-sideLink amz-sideLink--active" : "amz-sideLink"}
+                      className={active ? "amz-sideLink amz-sideLink--active" : "amz-sideLink"}
                     >
                       {it.label}
                     </Link>
@@ -831,71 +888,62 @@ export default function CategoryPage() {
               })}
             </ul>
           ) : (
-            <div className="amz-sideEmpty">No subcategories.</div>
+            <div className="amz-sideEmpty">No subcategories</div>
           )}
         </aside>
 
         {/* Main */}
         <main>
+          {/* Top bar */}
           <div className="amz-topbar">
-            <div className="amz-count">{products.length > 0 ? `${products.length.toLocaleString()} results` : ""}</div>
+            <div className="amz-count">
+              {loading ? "Loading…" : `${products.length.toLocaleString()} results`}
+              {error ? ` — ${error}` : ""}
+            </div>
 
-            <div className="amz-pager">
-              <button className="amz-btn" disabled={page <= 1} onClick={() => goPage(page - 1)}>
-                Prev
+            <div className="amz-pager" aria-label="Pagination controls">
+              <button className="amz-btn" onClick={() => goPage(page - 1)} disabled={page <= 1}>
+                Previous
               </button>
               <span>
-                Page {Math.min(page, totalPages)} / {totalPages}
+                Page {page} of {totalPages}
               </span>
-              <button className="amz-btn" disabled={page >= totalPages} onClick={() => goPage(page + 1)}>
+              <button className="amz-btn" onClick={() => goPage(page + 1)} disabled={page >= totalPages}>
                 Next
               </button>
             </div>
           </div>
 
-          {loading && <div className="amz-sideEmpty">Loading products…</div>}
-
-          {/* Category truly does not exist */}
-          {!loading && !categoryExists && (
-            <div className="amz-error">
-              <div style={{ fontWeight: 700, marginBottom: 4 }}>Category not found</div>
-              <div>This category does not exist.</div>
+          {/* Content */}
+          {loading ? (
+            <div className="amz-error">Loading products…</div>
+          ) : products.length ? (
+            <div className="amz-grid" role="list">
+              {pageProducts.map((p, idx) => (
+                <div key={extractSlug(p) ?? idx} role="listitem">
+                  <CategoryProductCard product={p} />
+                </div>
+              ))}
             </div>
+          ) : (
+            <div className="amz-error">{error || "No products found."}</div>
           )}
 
-          {/* Category exists but has no products yet */}
-          {!loading && categoryExists && products.length === 0 && (
-            <div className="amz-error">
-              <div style={{ fontWeight: 700, marginBottom: 4 }}>No products yet</div>
-              <div>We’re adding products to this category. Check back soon.</div>
-              {error ? <div style={{ marginTop: 6, color: "#565959" }}>{error}</div> : null}
+          {/* Bottom pager */}
+          <div className="amz-topbar" style={{ marginTop: 12 }}>
+            <div className="amz-count" />
+            <div className="amz-pager" aria-label="Pagination controls">
+              <button className="amz-btn" onClick={() => goPage(page - 1)} disabled={page <= 1}>
+                Previous
+              </button>
+              <span>
+                Page {page} of {totalPages}
+              </span>
+              <button className="amz-btn" onClick={() => goPage(page + 1)} disabled={page >= totalPages}>
+                Next
+              </button>
             </div>
-          )}
-
-          {!loading && products.length > 0 && (
-            <div className="amz-grid">
-              {pageProducts.map((p, idx) => {
-                const key = extractSlug(p) || p?.id || p?.asin || `${categoryPathKey}-${(page - 1) * PAGE_SIZE + idx}`;
-                return <CategoryProductCard key={key} product={p} />;
-              })}
-            </div>
-          )}
-
-          {!loading && products.length > 0 && (
-            <div className="amz-topbar" style={{ justifyContent: "center", marginTop: 16 }}>
-              <div className="amz-pager">
-                <button className="amz-btn" disabled={page <= 1} onClick={() => goPage(page - 1)}>
-                  Prev
-                </button>
-                <span>
-                  Page {Math.min(page, totalPages)} / {totalPages}
-                </span>
-                <button className="amz-btn" disabled={page >= totalPages} onClick={() => goPage(page + 1)}>
-                  Next
-                </button>
-              </div>
-            </div>
-          )}
+          </div>
         </main>
       </div>
     </div>
