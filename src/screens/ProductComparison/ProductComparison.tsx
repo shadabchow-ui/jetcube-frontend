@@ -1,7 +1,8 @@
-import NavigationSection from "../Shop/sections/NavigationSection/NavigationSection";
+// src/screens/ProductComparison/ProductComparison.tsx
+import NavigationSection from "../Shop/sections/NavigationSection";
 import { ProductComparisonSection } from "./sections/ProductComparisonSection";
 import { QualityAssuranceSection } from "./sections/QualityAssuranceSection";
-import { RelatedProductsSection } from "./sections/RelatedProductsSection";
+import { RelatedProductsSection } from "../SingleProduct/sections/RelatedProductsSection";
 
 export const ProductComparison = (): JSX.Element => {
   return (
@@ -17,4 +18,5 @@ export const ProductComparison = (): JSX.Element => {
 };
 
 export default ProductComparison;
+
 
