@@ -1,2 +1,2 @@
-export { default } from "./NavigationSection";
-export { default as NavigationSection } from "./NavigationSection";
+export { NavigationSection as default } from "./NavigationSection";
+export { NavigationSection } from "./NavigationSection";
