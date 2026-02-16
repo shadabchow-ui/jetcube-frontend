@@ -116,7 +116,9 @@ async function fetchJsonAuto<T = any>(
     throw new Error(`[${label}] HTTP ${res.status} for ${url}`);
   }
 
-  const contentEncoding = (res.headers.get("content-encoding") || "").toLowerCase();
+  const contentEncoding = (
+    res.headers.get("content-encoding") || ""
+  ).toLowerCase();
   const contentType = (res.headers.get("content-type") || "").toLowerCase();
   const looksGz =
     url.toLowerCase().endsWith(".gz") ||
@@ -170,7 +172,9 @@ async function loadIndexOnce(): Promise<any> {
 
   INDEX_PROMISE = (async () => {
     for (const u of candidates) {
-      const data = await fetchJsonAuto<any>(u, "Index fetch", { allow404: true });
+      const data = await fetchJsonAuto<any>(u, "Index fetch", {
+        allow404: true,
+      });
       if (data !== null) {
         INDEX_CACHE = data;
         return data;
@@ -196,11 +200,16 @@ function resolveShardKeyFromManifest(
   return hit || null;
 }
 
-async function fetchShard(shardUrl: string): Promise<Record<string, string> | null> {
+async function fetchShard(
+  shardUrl: string,
+): Promise<Record<string, string> | null> {
   if (SHARD_CACHE[shardUrl]) return SHARD_CACHE[shardUrl];
 
   try {
-    const data = await fetchJsonAuto<Record<string, string>>(shardUrl, "Shard fetch");
+    const data = await fetchJsonAuto<Record<string, string>>(
+      shardUrl,
+      "Shard fetch",
+    );
     SHARD_CACHE[shardUrl] = data || {};
     return data || {};
   } catch (err) {
@@ -228,7 +237,8 @@ async function fetchProductJsonWithFallback(productUrl: string): Promise<any> {
   push(productUrl);
 
   if (productUrl.endsWith(".json")) push(`${productUrl}.gz`);
-  if (productUrl.endsWith(".json.gz")) push(productUrl.replace(/\.json\.gz$/i, ".json"));
+  if (productUrl.endsWith(".json.gz"))
+    push(productUrl.replace(/\.json\.gz$/i, ".json"));
 
   if (!/\.json(\.gz)?$/i.test(productUrl)) {
     push(`${productUrl}.json`);
@@ -239,7 +249,9 @@ async function fetchProductJsonWithFallback(productUrl: string): Promise<any> {
 
   for (const u of variants) {
     try {
-      const data = await fetchJsonAuto<any>(u, "Product fetch", { allow404: true });
+      const data = await fetchJsonAuto<any>(u, "Product fetch", {
+        allow404: true,
+      });
       if (data !== null) return data;
     } catch (e) {
       lastErr = e;
@@ -247,7 +259,10 @@ async function fetchProductJsonWithFallback(productUrl: string): Promise<any> {
   }
 
   const tried = variants.join(", ");
-  if (lastErr) throw new Error(`${lastErr?.message || "Product fetch failed"}. Tried: ${tried}`);
+  if (lastErr)
+    throw new Error(
+      `${lastErr?.message || "Product fetch failed"}. Tried: ${tried}`,
+    );
   throw new Error(`Product not found. Tried: ${tried}`);
 }
 
@@ -256,8 +271,8 @@ async function fetchProductJsonWithFallback(productUrl: string): Promise<any> {
    ============================ */
 
 function ProductRoute({ children }: { children: React.ReactNode }) {
-  const { id } = useParams();
-  const handle = id;
+  const { slug } = useParams();
+  const handle = slug;
 
   const [product, setProduct] = React.useState<any | null>(null);
   const [error, setError] = React.useState<string | null>(null);
@@ -294,7 +309,10 @@ function ProductRoute({ children }: { children: React.ReactNode }) {
                 const shardKey = resolveShardKeyFromManifest(handle, shardMap);
                 if (shardKey) {
                   const shardRel = String(shardMap[shardKey]);
-                  const shardUrl = joinUrl(R2_BASE, shardRel.replace(/^\/+/, ""));
+                  const shardUrl = joinUrl(
+                    R2_BASE,
+                    shardRel.replace(/^\/+/, ""),
+                  );
                   const shardObj = await fetchShard(shardUrl);
 
                   if (shardObj && shardObj[handle]) {
@@ -367,7 +385,7 @@ const router = createBrowserRouter([
       { path: "accessibility", element: <Accessibility /> },
 
       {
-        path: "p/:id",
+        path: "p/:slug",
         element: (
           <ProductRoute>
             <SingleProduct />
