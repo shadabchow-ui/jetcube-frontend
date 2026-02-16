@@ -85,15 +85,16 @@ const CartSidebar = lazyCompat(() => import("./screens/CartSidebar"), [
   "CartSidebar",
 ]);
 
-// ✅ Fix: import the actual file that exists in your repo structure
+// ✅ Correct file path in your repo:
 const ProductComparison = lazyCompat(
   () => import("./screens/ProductComparison/ProductComparison"),
   ["ProductComparison"],
 );
 
-const CategoryPage = lazyCompat(() => import("./screens/category/CategoryPage"), [
-  "CategoryPage",
-]);
+const CategoryPage = lazyCompat(
+  () => import("./screens/category/CategoryPage"),
+  ["CategoryPage"],
+);
 
 const SearchResultsPage = lazyCompat(() => import("./pages/SearchResultsPage"));
 
@@ -442,5 +443,6 @@ export function App() {
 }
 
 export default App;
+
 
 
