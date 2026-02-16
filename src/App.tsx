@@ -1,3 +1,4 @@
+// src/App.tsx
 import React from "react";
 import {
   RouterProvider,
@@ -83,9 +84,13 @@ const Checkout = lazyCompat(() => import("./screens/Checkout"), ["Checkout"]);
 const CartSidebar = lazyCompat(() => import("./screens/CartSidebar"), [
   "CartSidebar",
 ]);
-const ProductComparison = lazyCompat(() => import("./screens/ProductComparison"), [
-  "ProductComparison",
-]);
+
+// ✅ Fix: import the actual file that exists in your repo structure
+const ProductComparison = lazyCompat(
+  () => import("./screens/ProductComparison/ProductComparison"),
+  ["ProductComparison"],
+);
+
 const CategoryPage = lazyCompat(() => import("./screens/category/CategoryPage"), [
   "CategoryPage",
 ]);
@@ -437,4 +442,5 @@ export function App() {
 }
 
 export default App;
+
 
