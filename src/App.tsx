@@ -38,19 +38,17 @@ import LoginPage from "./pages/LoginPage";
 import * as PdpContext from "./pdp/ProductPdpContext";
 
 /* ============================
-   Providers (fix runtime hook crashes)
+   Providers
    ============================ */
 import { CartProvider } from "./context/CartContext";
 import { AssistantProvider } from "./components/RufusAssistant/AssistantContext";
 
+// ✅ Fix runtime crash: wrap app with WishlistProvider
+import * as WishlistContextMod from "./context/WishlistContext";
+
 /* ============================
-   Lazy module resolver (Vite-safe, fixes build-time export errors)
+   Lazy module resolver (Vite-safe)
    ============================ */
-/**
- * Vite/Rollup require analyzable import() calls.
- * So we use static import() functions (not variable module paths),
- * then resolve either a named export or default export at runtime.
- */
 function lazyCompat<TProps = any>(
   importer: () => Promise<any>,
   exportNames: string[] = [],
@@ -85,16 +83,14 @@ const CartSidebar = lazyCompat(() => import("./screens/CartSidebar"), [
   "CartSidebar",
 ]);
 
-// ✅ Correct file path in your repo:
 const ProductComparison = lazyCompat(
   () => import("./screens/ProductComparison/ProductComparison"),
   ["ProductComparison"],
 );
 
-const CategoryPage = lazyCompat(
-  () => import("./screens/category/CategoryPage"),
-  ["CategoryPage"],
-);
+const CategoryPage = lazyCompat(() => import("./screens/category/CategoryPage"), [
+  "CategoryPage",
+]);
 
 const SearchResultsPage = lazyCompat(() => import("./pages/SearchResultsPage"));
 
@@ -127,13 +123,11 @@ async function fetchJsonAuto<T = any>(
     contentType.includes("application/gzip") ||
     contentType.includes("application/x-gzip");
 
-  // If Content-Encoding: gzip is set, the browser transparently decompresses.
   if (!looksGz || contentEncoding.includes("gzip")) {
     const txt = await res.text();
     return txt ? (JSON.parse(txt) as T) : (null as any);
   }
 
-  // If it's a .gz but Content-Encoding is missing, we must decompress in the client.
   const DS: any = (globalThis as any).DecompressionStream;
   if (!DS) {
     throw new Error(
@@ -165,12 +159,9 @@ async function loadIndexOnce(): Promise<any> {
   if (INDEX_CACHE) return INDEX_CACHE;
   if (INDEX_PROMISE) return INDEX_PROMISE;
 
-  // Prefer normal JSON first for reliability, then try .gz variants.
   const candidates = [
     "indexes/pdp_path_map.json",
     "indexes/pdp_path_map.json.gz",
-
-    // optional/legacy
     "indexes/pdp2/_index.json",
     "indexes/pdp2/_index.json.gz",
     "indexes/_index.json",
@@ -199,10 +190,8 @@ function resolveShardKeyFromManifest(
   const keys = Object.keys(shardMap || {});
   if (!keys.length) return null;
 
-  // Exact match
   if (shardMap[slug]) return slug;
 
-  // Fallback: prefix match
   const hit = keys.find((k) => slug.toLowerCase().startsWith(k.toLowerCase()));
   return hit || null;
 }
@@ -221,7 +210,6 @@ async function fetchShard(shardUrl: string): Promise<Record<string, string> | nu
 }
 
 function normalizeProductPath(productPath: string): string {
-  // Ensure "products/..." and remove leading slashes
   const cleaned = String(productPath || "").replace(/^\/+/, "");
   return joinUrl(R2_BASE, cleaned);
 }
@@ -239,11 +227,9 @@ async function fetchProductJsonWithFallback(productUrl: string): Promise<any> {
 
   push(productUrl);
 
-  // If caller asked for .json, try .json.gz too
   if (productUrl.endsWith(".json")) push(`${productUrl}.gz`);
   if (productUrl.endsWith(".json.gz")) push(productUrl.replace(/\.json\.gz$/i, ".json"));
 
-  // If caller asked for non-extension path, try both
   if (!/\.json(\.gz)?$/i.test(productUrl)) {
     push(`${productUrl}.json`);
     push(`${productUrl}.json.gz`);
@@ -288,17 +274,14 @@ function ProductRoute({ children }: { children: React.ReactNode }) {
 
         let productPath: string | null = null;
 
-        // ── Strategy 1: Use pdp_path_map.json(.gz) or manifest/index to resolve ──
         try {
           const idx = await loadIndexOnce();
 
           if (idx) {
-            // Case A: direct mapping object: { "<slug>": "products/batch.../<slug>.json", ... }
             if (typeof idx === "object" && idx[handle]) {
               productPath = String(idx[handle]);
             }
 
-            // Case B: shard manifest
             if (!productPath && typeof idx === "object") {
               const shardMap =
                 idx?.shards ||
@@ -325,7 +308,6 @@ function ProductRoute({ children }: { children: React.ReactNode }) {
           // ignore, fall back
         }
 
-        // ── Strategy 2: last-resort fallback ──
         if (!productPath) {
           productPath = `products/${handle}.json`;
         }
@@ -384,7 +366,6 @@ const router = createBrowserRouter([
       { path: "disclaimer", element: <ConditionsOfUse /> },
       { path: "accessibility", element: <Accessibility /> },
 
-      // PDP
       {
         path: "p/:id",
         element: (
@@ -422,27 +403,26 @@ const router = createBrowserRouter([
 ]);
 
 function AppImpl() {
+  // Support either named or default export for WishlistProvider
+  const WishlistProvider =
+    (WishlistContextMod as any).WishlistProvider ??
+    (WishlistContextMod as any).default;
+
   return (
     <React.Suspense fallback={<div />}>
       <AssistantProvider>
         <CartProvider>
-          <RouterProvider router={router} />
+          <WishlistProvider>
+            <RouterProvider router={router} />
+          </WishlistProvider>
         </CartProvider>
       </AssistantProvider>
     </React.Suspense>
   );
 }
 
-/**
- * Export BOTH:
- * - named App (supports: import { App } from "./App")
- * - default App (supports: import App from "./App")
- */
 export function App() {
   return <AppImpl />;
 }
 
 export default App;
-
-
-
