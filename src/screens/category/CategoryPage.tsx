@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { Link, useLocation, useSearchParams } from "react-router-dom";
-import { R2_BASE, joinUrl, fetchJsonAuto } from "../../config/r2";
+import { R2_BASE, joinUrl, fetchJsonStrict } from "../../config/r2";
 
 /**
  * CategoryPage (Amazon-style)
@@ -272,11 +272,11 @@ async function loadIndexCardsOnce(): Promise<any[]> {
   _cardsPromise = (async () => {
     try {
       const json =
-        (await fetchJsonAuto<any>(INDEX_CARDS_URL_GZ, "index cards gz", {
+        (await fetchJsonStrict<any>(INDEX_CARDS_URL_GZ, "index cards gz", {
           allow404: true,
           init: { cache: "force-cache" },
         })) ??
-        (await fetchJsonAuto<any>(INDEX_CARDS_URL, "index cards", {
+        (await fetchJsonStrict<any>(INDEX_CARDS_URL, "index cards", {
           allow404: true,
           init: { cache: "force-cache" },
         }));
@@ -311,11 +311,11 @@ async function loadProductDetailPriceOnce(slug: string): Promise<string | null> 
       // Many of your product JSONs are served under /products/<slug>.json
       const enc = encodeURIComponent(key);
       const json =
-        (await fetchJsonAuto<any>(joinUrl(R2_BASE, `products/${enc}.json.gz`), "product json gz", {
+        (await fetchJsonStrict<any>(joinUrl(R2_BASE, `products/${enc}.json.gz`), "product json gz", {
           allow404: true,
           init: { cache: "force-cache" },
         })) ??
-        (await fetchJsonAuto<any>(joinUrl(R2_BASE, `products/${enc}.json`), "product json", {
+        (await fetchJsonStrict<any>(joinUrl(R2_BASE, `products/${enc}.json`), "product json", {
           allow404: true,
           init: { cache: "force-cache" },
         }));
@@ -369,11 +369,11 @@ export default function CategoryPage() {
     async function load() {
       try {
         const json =
-          (await fetchJsonAuto<CategoryIndexShape>(CATEGORY_INDEX_URL_GZ, "category urls gz", {
+          (await fetchJsonStrict<CategoryIndexShape>(CATEGORY_INDEX_URL_GZ, "category urls gz", {
             allow404: true,
             init: { cache: "force-cache" },
           })) ??
-          (await fetchJsonAuto<CategoryIndexShape>(CATEGORY_INDEX_URL, "category urls", {
+          (await fetchJsonStrict<CategoryIndexShape>(CATEGORY_INDEX_URL, "category urls", {
             allow404: false,
             init: { cache: "force-cache" },
           }));
@@ -413,11 +413,11 @@ export default function CategoryPage() {
         const urlGz = `${CATEGORY_PRODUCTS_BASE}/${filename}.gz`;
         const url = `${CATEGORY_PRODUCTS_BASE}/${filename}`;
         const data =
-          (await fetchJsonAuto<any>(urlGz, "category products gz", {
+          (await fetchJsonStrict<any>(urlGz, "category products gz", {
             allow404: true,
             init: { cache: "force-cache" },
           })) ??
-          (await fetchJsonAuto<any>(url, "category products", {
+          (await fetchJsonStrict<any>(url, "category products", {
             allow404: true,
             init: { cache: "force-cache" },
           }));
@@ -432,11 +432,11 @@ export default function CategoryPage() {
         const legacyUrlGz = `${CATEGORY_PRODUCTS_BASE}/${legacyFilename}.gz`;
         const legacyUrl = `${CATEGORY_PRODUCTS_BASE}/${legacyFilename}`;
         const legacyData =
-          (await fetchJsonAuto<any>(legacyUrlGz, "category products legacy gz", {
+          (await fetchJsonStrict<any>(legacyUrlGz, "category products legacy gz", {
             allow404: true,
             init: { cache: "force-cache" },
           })) ??
-          (await fetchJsonAuto<any>(legacyUrl, "category products legacy", {
+          (await fetchJsonStrict<any>(legacyUrl, "category products legacy", {
             allow404: true,
             init: { cache: "force-cache" },
           }));
