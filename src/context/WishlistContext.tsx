@@ -1,3 +1,4 @@
+// src/context/WishlistContext.tsx
 import React, { createContext, useContext, useEffect, useMemo, useState } from "react";
 
 export type WishlistItem = {
@@ -176,4 +177,5 @@ export function useWishlist() {
   return ctx;
 }
 
-
+// Backwards-compatible default export for older imports
+export default WishlistProvider;
