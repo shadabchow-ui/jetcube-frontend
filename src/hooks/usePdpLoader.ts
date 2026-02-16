@@ -1,7 +1,22 @@
 // Fixed PDP Loader with proper R2_BASE, URL joining, and shard resolution
 
 // 1. Fix: Use the correct R2 public endpoint
-const R2_BASE = "https://pub-ef133d84c664c8aceb5e7ce3e4d665.r2.dev";
+const R2_BASE = (() => {
+  const raw = (import.meta as any)?.env?.VITE_R2_BASE;
+  const cleaned = String(raw ?? "").trim().replace(/\/+$/, "");
+  if (!cleaned || cleaned === "undefined" || cleaned === "null") {
+    throw new Error(
+      "[usePdpLoader] VITE_R2_BASE is not set. Provide import.meta.env.VITE_R2_BASE (e.g. https://pub-xxxx.r2.dev).",
+    );
+  }
+  if (/\bventari\.net\b/i.test(cleaned) || /\br2\.ventari\.net\b/i.test(cleaned)) {
+    throw new Error(`[usePdpLoader] Refusing legacy base URL: ${cleaned}`);
+  }
+  if (!/^https?:\/\//i.test(cleaned)) {
+    throw new Error(`[usePdpLoader] VITE_R2_BASE must be an absolute URL (got: ${cleaned}).`);
+  }
+  return cleaned;
+})();
 
 // 3. Fix: Safe URL joining helper to prevent double-slash issues
 function joinUrl(base: string, path: string): string {
@@ -18,29 +33,58 @@ interface PDPEntry {
   [key: string]: any;
 }
 
-// 2. Fix: Shard resolution that matches the index builder logic
-// Based on the debugging info, shards are named like: _a.json.gz, _i.json.gz, 0.json.gz, 00.json.gz, 02.json.gz, 1-.json.gz
+/*
+Shard Resolution Algorithm:
+The index builder generates shards based on:
+- If slug starts with a letter: shard key is "_<letter>"
+- If slug starts with a number: shard key is "<number>" or "0<number>"
+- Shards are named like: _a.json.gz, _i.json.gz, 0.json.gz, 00.json.gz, 02.json.gz, 1-.json.gz
 // The shard key is the filename without .json.gz extension
+*/
 function resolveShardKey(slug: string, manifest: PDPManifest): string {
-  // CRITICAL: This function must exactly match the index builder's bucketing logic
-  // For now, we need the exact algorithm from the index builder script
-  // This is a placeholder - the real implementation should mirror the generator logic
+  if (!slug || !manifest?.shards?.length) {
+    return '0';
+  }
   
-  // Based on the shard names provided, it looks like the logic might be:
-  // - Some shards are single characters (_a, _i)
-  // - Some are numeric (0, 00, 02)  
-  // - Some have special suffixes (1-)
+  const firstChar = slug[0].toLowerCase();
   
-  // Without the exact generator algorithm, we need to implement the same logic
-  // For safety, let's use a basic first-character mapping that matches common patterns
-  const firstChar = slug.charAt(0).toLowerCase();
+  // Check if it's a letter
+  if (firstChar >= 'a' && firstChar <= 'z') {
+    const letterShard = `_${firstChar}`;
+    if (manifest.shards.includes(letterShard)) {
+      return letterShard;
+    }
+  }
   
-  // Check if this character maps to any existing shard in the manifest
+  // Check if it's a number
+  if (firstChar >= '0' && firstChar <= '9') {
+    // Try direct number shard
+    if (manifest.shards.includes(firstChar)) {
+      return firstChar;
+    }
+    // Try 0-prefixed shard (00, 01, etc.)
+    const zeroPrefixed = `0${firstChar}`;
+    if (manifest.shards.includes(zeroPrefixed)) {
+      return zeroPrefixed;
+    }
+  }
+  
+  // Try to find best matching shard
   for (const shard of manifest.shards) {
-    // Try exact character match first
-    if (shard === `_${firstChar}`) {
+    // Skip letter shards if we have a number
+    if (firstChar >= '0' && firstChar <= '9' && shard.startsWith('_')) {
+      continue;
+    }
+    // Skip number shards if we have a letter
+    if (firstChar >= 'a' && firstChar <= 'z' && !shard.startsWith('_')) {
+      continue;
+    }
+    
+    // If shard is a prefix of the slug
+    if (slug.toLowerCase().startsWith(shard.replace('_', ''))) {
       return shard;
     }
+    
     // Try numeric mapping
     if (firstChar >= '0' && firstChar <= '9') {
       if (shard === firstChar || shard === `0${firstChar}`) {
@@ -64,15 +108,30 @@ export class PDPLoader {
     
     try {
       // Fixed URL joining
-      const manifestUrl = joinUrl(R2_BASE, 'indexes/_index.json');
-      const response = await fetch(manifestUrl);
-      
-      if (!response.ok) {
-        throw new Error(`Failed to load manifest: ${response.status} ${response.statusText}`);
+      const manifestPath = "indexes/_index.json";
+      const manifestUrlGz = joinUrl(R2_BASE, `${manifestPath}.gz`);
+      const manifestUrl = joinUrl(R2_BASE, manifestPath);
+
+      // Prefer .json.gz when available, fall back to plain .json
+      let response = await fetch(manifestUrlGz);
+      let manifestText: string | null = null;
+
+      if (response.ok) {
+        manifestText = await this.decompressGzip(response);
+      } else {
+        response = await fetch(manifestUrl);
+        if (!response.ok) {
+          throw new Error(
+            `Failed to load manifest: ${response.status} ${response.statusText}`,
+          );
+        }
+        manifestText = await response.text();
       }
+
+      const manifest = JSON.parse(manifestText);
       
-      this.manifestCache = await response.json();
-      return this.manifestCache;
+      this.manifestCache = manifest;
+      return manifest;
     } catch (error) {
       console.error('Error loading PDP manifest:', error);
       throw error;
@@ -86,18 +145,26 @@ export class PDPLoader {
     
     try {
       // Fixed URL joining for shard files
-      const shardFilename = `${shardKey}.json.gz`;
-      const base = 'indexes/pdp_paths/';
-      const shardUrl = joinUrl(R2_BASE, `${base}${shardFilename}`);
-      
-      const response = await fetch(shardUrl);
-      
-      if (!response.ok) {
-        throw new Error(`Failed to load shard ${shardKey}: ${response.status} ${response.statusText}`);
+      const base = "indexes/pdp_paths/";
+      const shardUrlGz = joinUrl(R2_BASE, `${base}${shardKey}.json.gz`);
+      const shardUrl = joinUrl(R2_BASE, `${base}${shardKey}.json`);
+
+      // Prefer .json.gz when available; fall back to plain .json if missing/unavailable.
+      let response = await fetch(shardUrlGz);
+      let data: string;
+
+      if (response.ok) {
+        data = await this.decompressGzip(response);
+      } else {
+        response = await fetch(shardUrl);
+        if (!response.ok) {
+          throw new Error(
+            `Failed to load shard ${shardKey}: ${response.status} ${response.statusText}`,
+          );
+        }
+        data = await response.text();
       }
-      
-      // Handle gzipped content
-      const data = await this.decompressGzip(response);
+
       const entries = JSON.parse(data);
       
       this.shardCache.set(shardKey, entries);
@@ -145,15 +212,9 @@ export class PDPLoader {
   }
 }
 
-// Usage example:
-export async function loadProductData(slug: string): Promise<PDPEntry | null> {
-  const loader = new PDPLoader();
-  return await loader.findProduct(slug);
-}
-
 /* 
 DEBUGGING NOTES:
-1. ✅ R2_BASE now points to correct public endpoint: https://pub-ef133d84c664c8aceb5e7ce3e4d665.r2.dev
+1. ✅ R2_BASE now points to correct public endpoint: VITE_R2_BASE
 2. ✅ URL joining prevents double-slash issues with joinUrl() helper
 3. ⚠️  resolveShardKey() needs exact algorithm from index builder script
 
