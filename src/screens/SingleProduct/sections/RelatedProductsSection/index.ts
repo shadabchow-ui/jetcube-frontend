@@ -1,3 +1,3 @@
-export function RelatedProductsSection() { ... }
-export function CustomersAlsoViewedSection() { ... }
+export { RelatedProductsSection, CustomersAlsoViewedSection } from "./RelatedProductsSection";
+
 
