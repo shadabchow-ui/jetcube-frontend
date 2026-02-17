@@ -1,7 +1,5 @@
-import { RelatedProductsSection } from "./RelatedProductsSection";
-
-export default RelatedProductsSection;
-export * from "./RelatedProductsSection";
+export { RelatedProductsSection, CustomersAlsoViewedSection } from "./RelatedProductsSection";
+export { RelatedProductsSection as default } from "./RelatedProductsSection";
 
 
 
