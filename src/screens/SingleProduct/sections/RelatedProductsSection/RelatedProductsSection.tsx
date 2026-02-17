@@ -41,8 +41,7 @@ function getProductKey(p: IndexProduct): string | null {
 
 function safeFirstImage(p: IndexProduct, fallback: string) {
   const imgs = Array.isArray(p.images) ? p.images : [];
-  const candidate =
-    imgs[0] || p.image || p.image_url || p.imageUrl || "";
+  const candidate = imgs[0] || p.image || p.image_url || p.imageUrl || "";
   if (
     typeof candidate === "string" &&
     candidate.length > 0 &&
@@ -89,9 +88,7 @@ function ProductGrid({
 
   return (
     <section className="w-full bg-white px-[24px] py-[18px]">
-      <h2 className="text-[20px] font-semibold text-[#0f1111] mb-3">
-        {title}
-      </h2>
+      <h2 className="text-[20px] font-semibold text-[#0f1111] mb-3">{title}</h2>
 
       <div className="grid grid-cols-4 gap-[16px]">
         {loading
@@ -265,10 +262,7 @@ export const RelatedProductsSection = (): JSX.Element => {
   const product = useProductPdp();
 
   const currentKey =
-    (product as any)?.slug ||
-    (product as any)?.handle ||
-    (product as any)?.asin ||
-    "";
+    (product as any)?.slug || (product as any)?.handle || (product as any)?.asin || "";
 
   const currentCat = (product as any)?.category_slug || "";
 
@@ -300,15 +294,7 @@ export const RelatedProductsSection = (): JSX.Element => {
           p.category_slug === currentCat
       )
       .slice(0, 8);
-  }, [
-    shardLoaded,
-    shardItems,
-    indexLoaded,
-    indexItems,
-    product,
-    currentKey,
-    currentCat,
-  ]);
+  }, [shardLoaded, shardItems, indexLoaded, indexItems, product, currentKey, currentCat]);
 
   const loading = !shardLoaded && !indexLoaded;
 
@@ -327,10 +313,7 @@ export const CustomersAlsoViewedSection = (): JSX.Element => {
     if (!loaded || !product) return [];
 
     const currentKey =
-      (product as any)?.slug ||
-      (product as any)?.handle ||
-      (product as any)?.asin ||
-      "";
+      (product as any)?.slug || (product as any)?.handle || (product as any)?.asin || "";
 
     return indexItems
       .filter((p) => {
@@ -342,3 +325,5 @@ export const CustomersAlsoViewedSection = (): JSX.Element => {
 
   return <ProductGrid title="Customers also viewed" items={alsoViewed} loading={!loaded} />;
 };
+
+export default RelatedProductsSection;
