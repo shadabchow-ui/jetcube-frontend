@@ -1,39 +1,44 @@
 export const onRequestGet: PagesFunction = async (context) => {
   try {
-    const { params, env } = context;
-    const slug = params?.slug;
+    const slug = context.params?.slug as string | undefined;
 
     if (!slug) {
       return new Response(JSON.stringify({ error: "Missing slug" }), {
         status: 400,
-        headers: { "Content-Type": "application/json" },
+        headers: { "content-type": "application/json" },
       });
     }
 
-    const key = `products/${slug}.json.gz`;
-    const obj = await env.JETCUBE_R2.get(key);
+    const url = new URL(context.request.url);
+    const r2Base = context.env?.R2_PUBLIC_BASE || "";
 
-    if (!obj) {
-      return new Response(JSON.stringify({ error: "Not found" }), {
+    const productUrl = `${r2Base}/products/${encodeURIComponent(slug)}.json.gz`;
+
+    const res = await fetch(productUrl);
+
+    if (!res.ok) {
+      return new Response(JSON.stringify({ error: "Product not found" }), {
         status: 404,
-        headers: { "Content-Type": "application/json" },
+        headers: { "content-type": "application/json" },
       });
     }
 
-    const headers = new Headers();
-    obj.writeHttpMetadata(headers);
-    headers.set("Content-Type", "application/json");
-    headers.set("Content-Encoding", "gzip");
-    headers.set("Cache-Control", "public, max-age=3600");
-
-    return new Response(obj.body, { headers });
-  } catch (err) {
-    return new Response(JSON.stringify({ error: "Server error" }), {
+    return new Response(res.body, {
+      status: 200,
+      headers: {
+        "content-type": "application/json",
+        "content-encoding": "gzip",
+        "cache-control": "public, max-age=600",
+      },
+    });
+  } catch (err: any) {
+    return new Response(JSON.stringify({ error: err?.message || "Server error" }), {
       status: 500,
-      headers: { "Content-Type": "application/json" },
+      headers: { "content-type": "application/json" },
     });
   }
 };
+
 
 
 
