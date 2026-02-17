@@ -1,5 +1,5 @@
-export { RelatedProductsSection } from "./RelatedProductsSection";
-export { RelatedProductsSection as default } from "./RelatedProductsSection";
+export { default } from "./RelatedProductsSection";
+export * from "./RelatedProductsSection";
 
 
 
