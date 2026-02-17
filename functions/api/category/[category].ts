@@ -2,10 +2,7 @@ export interface Env {
   JETCUBE_R2: R2Bucket;
 }
 
-const CATEGORY_TTL = 60 * 10; // 10 min
-
-export const onRequest: PagesFunction<Env> = async (ctx) => {
-  const { params, env, request } = ctx;
+export const onRequest: PagesFunction<Env> = async ({ params, env, request, waitUntil }) => {
   const category = params.category as string;
 
   const cache = caches.default;
@@ -36,6 +33,7 @@ export const onRequest: PagesFunction<Env> = async (ctx) => {
     },
   });
 
-  ctx.waitUntil(cache.put(cacheKey, res.clone()));
+  waitUntil(cache.put(cacheKey, res.clone()));
   return res;
 };
+
