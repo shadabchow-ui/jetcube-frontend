@@ -1,45 +1,81 @@
-export interface Env {
+export const onRequest: PagesFunction<{
   JETCUBE_R2: R2Bucket;
-}
+}> = async (context) => {
+  const { env, params } = context;
 
-export const onRequest: PagesFunction<Env> = async (ctx) => {
-  const url = new URL(ctx.request.url);
-  const slug = ctx.params.slug as string;
-
+  const slug = String(params.slug || "").trim();
   if (!slug) {
-    return new Response("Missing slug", { status: 400 });
+    return new Response(JSON.stringify({ error: "Missing slug" }), {
+      status: 400,
+      headers: { "Content-Type": "application/json" },
+    });
   }
 
-  // Serve cached JSON from R2: products/<slug>.json or products/<slug>.json.gz
+  // ---- helpers ----
+  const gunzipToText = async (buf: ArrayBuffer): Promise<string> => {
+    const DS = (globalThis as any).DecompressionStream;
+    if (!DS) {
+      // If DecompressionStream isn't available, fail loudly (better than silent garbage JSON).
+      throw new Error("DecompressionStream not available in runtime");
+    }
+    const stream = new Response(buf).body!.pipeThrough(new DS("gzip"));
+    return await new Response(stream).text();
+  };
+
+  const readJsonFromR2 = async (keyBase: string): Promise<any | null> => {
+    // Try plain JSON first, then gz
+    const candidates = [`${keyBase}.json`, `${keyBase}.json.gz`];
+
+    for (const key of candidates) {
+      const obj = await env.JETCUBE_R2.get(key);
+      if (!obj) continue;
+
+      try {
+        if (key.endsWith(".gz")) {
+          const ab = await obj.arrayBuffer();
+          const txt = await gunzipToText(ab);
+          return JSON.parse(txt);
+        }
+        return await obj.json();
+      } catch {
+        // If parse fails, keep trying other candidate
+        continue;
+      }
+    }
+    return null;
+  };
+
+  // ---- load payload ----
   const base = `products/${slug}`;
 
-  const [plain, gz] = await Promise.all([
-    ctx.env.JETCUBE_R2.get(`${base}.json`),
-    ctx.env.JETCUBE_R2.get(`${base}.json.gz`),
+  const [product, pricing, reviews, availability] = await Promise.all([
+    readJsonFromR2(base),
+    readJsonFromR2(`${base}.pricing`),
+    readJsonFromR2(`${base}.reviews`),
+    readJsonFromR2(`${base}.availability`),
   ]);
 
-  const obj = gz ?? plain;
-  if (!obj) {
-    return new Response("Not found", { status: 404 });
+  if (!product) {
+    return new Response(JSON.stringify({ error: "Not found" }), {
+      status: 404,
+      headers: { "Content-Type": "application/json" },
+    });
   }
 
-  const headers = new Headers();
-  obj.writeHttpMetadata(headers);
-  headers.set("etag", obj.httpEtag);
+  const payload = {
+    product,
+    pricing: pricing ?? null,
+    reviews: Array.isArray(reviews) ? reviews : [],
+    availability: availability ?? null,
+  };
 
-  // Make sure content-type is correct even if metadata missing
-  if (!headers.get("content-type")) {
-    headers.set("content-type", "application/json; charset=utf-8");
-  }
-
-  // If gz exists, ensure encoding header is correct
-  if (gz) {
-    headers.set("content-encoding", "gzip");
-  }
-
-  // Cache is safe for immutable product blobs
-  headers.set("cache-control", "public, max-age=31536000, immutable");
-
-  return new Response(obj.body, { headers });
+  return new Response(JSON.stringify(payload), {
+    headers: {
+      "Content-Type": "application/json",
+      // tweak if you want; this is safe and keeps Workers costs down
+      "Cache-Control": "public, max-age=300",
+    },
+  });
 };
+
 
