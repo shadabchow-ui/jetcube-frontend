@@ -46,7 +46,3 @@ export const onRequest: PagesFunction<Env> = async (context) => {
   return res;
 };
 
-
-  ctx.waitUntil(cache.put(cacheKey, res.clone()));
-  return res;
-};
