@@ -327,29 +327,3 @@ export const CustomersAlsoViewedSection = (): JSX.Element => {
 };
 
 export default RelatedProductsSection;
-export const CustomersAlsoViewedSection = (): JSX.Element => {
-  const product = useProductPdp();
-  const { items: indexItems, loaded } = useIndexProducts();
-
-  const alsoViewed = useMemo(() => {
-    if (!loaded || !product) return [];
-
-    const currentKey =
-      (product as any)?.slug ||
-      (product as any)?.handle ||
-      (product as any)?.asin ||
-      "";
-
-    return indexItems
-      .filter((p) => {
-        const key = getProductKey(p);
-        return key && key !== currentKey;
-      })
-      .slice(0, 8);
-  }, [loaded, indexItems, product]);
-
-  return <ProductGrid title="Customers also viewed" items={alsoViewed} loading={!loaded} />;
-};
-
-// ✅ ADD THIS LINE (this is what fixes the build)
-export default RelatedProductsSection;
