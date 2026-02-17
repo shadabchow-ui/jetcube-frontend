@@ -2,11 +2,12 @@ export interface Env {
   JETCUBE_R2: R2Bucket;
 }
 
-export const onRequest: PagesFunction<Env> = async ({ params, env, request, waitUntil }) => {
+export const onRequest: PagesFunction<Env> = async (context) => {
+  const { params, env, request } = context;
   const slug = params.slug as string;
 
   const cache = caches.default;
-  const cacheKey = new Request(request.url, request);
+  const cacheKey = new Request(request.url);
 
   const cached = await cache.match(cacheKey);
   if (cached) return cached;
@@ -21,7 +22,10 @@ export const onRequest: PagesFunction<Env> = async ({ params, env, request, wait
   ]);
 
   if (!product) {
-    return new Response(JSON.stringify({ error: "Not found" }), { status: 404 });
+    return new Response(JSON.stringify({ error: "Not found" }), {
+      status: 404,
+      headers: { "Content-Type": "application/json" },
+    });
   }
 
   const payload = {
@@ -38,7 +42,7 @@ export const onRequest: PagesFunction<Env> = async ({ params, env, request, wait
     },
   });
 
-  waitUntil(cache.put(cacheKey, res.clone()));
+  context.waitUntil(cache.put(cacheKey, res.clone()));
   return res;
 };
 
