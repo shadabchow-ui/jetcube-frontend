@@ -2,10 +2,7 @@ export interface Env {
   JETCUBE_R2: R2Bucket;
 }
 
-const PDP_TTL = 60 * 60; // 1 hour
-
-export const onRequest: PagesFunction<Env> = async (ctx) => {
-  const { params, env, request } = ctx;
+export const onRequest: PagesFunction<Env> = async ({ params, env, request, waitUntil }) => {
   const slug = params.slug as string;
 
   const cache = caches.default;
@@ -40,6 +37,11 @@ export const onRequest: PagesFunction<Env> = async (ctx) => {
       "Cache-Control": "public, max-age=3600, stale-while-revalidate=86400",
     },
   });
+
+  waitUntil(cache.put(cacheKey, res.clone()));
+  return res;
+};
+
 
   ctx.waitUntil(cache.put(cacheKey, res.clone()));
   return res;
