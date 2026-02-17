@@ -1,81 +1,72 @@
-export const onRequest: PagesFunction<{
+export interface Env {
   JETCUBE_R2: R2Bucket;
-}> = async (context) => {
-  const { env, params } = context;
+}
 
-  const slug = String(params.slug || "").trim();
-  if (!slug) {
-    return new Response(JSON.stringify({ error: "Missing slug" }), {
-      status: 400,
-      headers: { "Content-Type": "application/json" },
-    });
+async function gunzipToText(buffer: ArrayBuffer): Promise<string> {
+  // Cloudflare Workers supports DecompressionStream.
+  const stream = new Response(buffer).body;
+  if (!stream) return "";
+  const decompressed = stream.pipeThrough(new DecompressionStream("gzip"));
+  return await new Response(decompressed).text();
+}
+
+async function readJsonMaybeGz(env: Env, keyBase: string): Promise<any | null> {
+  // Prefer .json.gz if present, otherwise fall back to .json
+  const gzKey = `${keyBase}.json.gz`;
+  const jsonKey = `${keyBase}.json`;
+
+  const gzObj = await env.JETCUBE_R2.get(gzKey);
+  if (gzObj) {
+    const ab = await gzObj.arrayBuffer();
+    const text = await gunzipToText(ab);
+    return JSON.parse(text);
   }
 
-  // ---- helpers ----
-  const gunzipToText = async (buf: ArrayBuffer): Promise<string> => {
-    const DS = (globalThis as any).DecompressionStream;
-    if (!DS) {
-      // If DecompressionStream isn't available, fail loudly (better than silent garbage JSON).
-      throw new Error("DecompressionStream not available in runtime");
-    }
-    const stream = new Response(buf).body!.pipeThrough(new DS("gzip"));
-    return await new Response(stream).text();
-  };
+  const obj = await env.JETCUBE_R2.get(jsonKey);
+  if (!obj) return null;
+  return await obj.json();
+}
 
-  const readJsonFromR2 = async (keyBase: string): Promise<any | null> => {
-    // Try plain JSON first, then gz
-    const candidates = [`${keyBase}.json`, `${keyBase}.json.gz`];
+export const onRequest: PagesFunction<Env> = async (context) => {
+  const { params, env, request } = context;
+  const slug = params.slug as string;
 
-    for (const key of candidates) {
-      const obj = await env.JETCUBE_R2.get(key);
-      if (!obj) continue;
+  const cache = caches.default;
+  const cacheKey = new Request(request.url);
+  const cached = await cache.match(cacheKey);
+  if (cached) return cached;
 
-      try {
-        if (key.endsWith(".gz")) {
-          const ab = await obj.arrayBuffer();
-          const txt = await gunzipToText(ab);
-          return JSON.parse(txt);
-        }
-        return await obj.json();
-      } catch {
-        // If parse fails, keep trying other candidate
-        continue;
-      }
-    }
-    return null;
-  };
-
-  // ---- load payload ----
   const base = `products/${slug}`;
 
+  // Keep response shape identical to what the frontend expects.
   const [product, pricing, reviews, availability] = await Promise.all([
-    readJsonFromR2(base),
-    readJsonFromR2(`${base}.pricing`),
-    readJsonFromR2(`${base}.reviews`),
-    readJsonFromR2(`${base}.availability`),
+    readJsonMaybeGz(env, base),
+    readJsonMaybeGz(env, `${base}.pricing`),
+    readJsonMaybeGz(env, `${base}.reviews`),
+    readJsonMaybeGz(env, `${base}.availability`),
   ]);
 
   if (!product) {
     return new Response(JSON.stringify({ error: "Not found" }), {
       status: 404,
-      headers: { "Content-Type": "application/json" },
+      headers: { "content-type": "application/json; charset=utf-8" },
     });
   }
 
-  const payload = {
-    product,
-    pricing: pricing ?? null,
-    reviews: Array.isArray(reviews) ? reviews : [],
-    availability: availability ?? null,
-  };
+  const body = JSON.stringify({ product, pricing, reviews, availability });
 
-  return new Response(JSON.stringify(payload), {
+  const res = new Response(body, {
     headers: {
-      "Content-Type": "application/json",
-      // tweak if you want; this is safe and keeps Workers costs down
-      "Cache-Control": "public, max-age=300",
+      "content-type": "application/json; charset=utf-8",
+      // Safe default; reduces repeated R2 reads.
+      "cache-control": "public, max-age=300, s-maxage=300",
     },
   });
+
+  // Cache the response at the edge
+  context.waitUntil(cache.put(cacheKey, res.clone()));
+  return res;
 };
+
 
 
