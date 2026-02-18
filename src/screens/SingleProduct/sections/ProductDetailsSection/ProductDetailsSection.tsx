@@ -5,37 +5,32 @@ import { useProductPdp } from "../../../../pdp/ProductPdpContext";
 import { AssistantInline } from "../../../../components/RufusAssistant";
 
 /**
- * Removes Amazon sizing suffixes so we can dedupe variants of the same image.
+ * ProductDetailsSection
+ * - category-neutral, deterministic render helpers
+ * - strict separation of gallery media vs description/A+ media
+ * - safe review rendering (no injection into SEO fields; this is UI only)
+ *
+ * NOTE: This file intentionally avoids importing additional components
+ * to prevent case/path issues in Cloudflare Linux builds.
  */
+
+/** Strip Amazon-style sizing suffixes so we can dedupe variants of the same image. */
 function normalizeAmazonImageUrl(url: string): string {
   if (!url) return "";
-  return url.replace(/\._[^.]+(?=\.[a-zA-Z0-9]+$)/, "");
+  return String(url).replace(/\._[^.]+(?=\.[a-zA-Z0-9]+$)/, "");
 }
 
-function pickProductImage(p: any): string | null {
-  const candidates: any[] = [
-    p?.thumbnail,
-    p?.image,
-    p?.image_url,
-    p?.imageUrl,
-    p?.img,
-    p?.primary_image,
-    Array.isArray(p?.images) ? p.images[0] : null,
-    Array.isArray(p?.gallery_images) ? p.gallery_images[0] : null,
-  ];
-
-  for (const c of candidates) {
-    if (typeof c === "string" && c.trim()) return c.trim();
-
-    // sometimes image is an object like { src: "..."} or { url: "..."}
-    if (c && typeof c === "object") {
-      const s = c?.src || c?.url || c?.href;
-      if (typeof s === "string" && s.trim()) return s.trim();
-    }
-  }
-  return null;
+/** Create a stable key for dedupe and allow/deny lists. */
+function urlKey(url: string): string {
+  if (!url) return "";
+  const u = normalizeAmazonImageUrl(String(url)).trim();
+  if (!u) return "";
+  // Ignore query params when present (rare)
+  const q = u.indexOf("?");
+  return (q >= 0 ? u.slice(0, q) : u).trim();
 }
 
+/** Try to rank Amazon image variants (bigger is usually better). */
 function scoreAmazonVariant(url: string): number {
   if (!url) return 0;
   const m =
@@ -47,13 +42,14 @@ function scoreAmazonVariant(url: string): number {
   return Number.isFinite(n) ? n : 0;
 }
 
+/** Dedupe images by normalized key, picking the "best" (largest) variant per key. */
 function dedupeImages(images: any): string[] {
-  const arr: string[] = Array.isArray(images) ? images.filter(Boolean) : [];
+  const arr: string[] = Array.isArray(images) ? images.filter(Boolean).map(String) : [];
   if (!arr.length) return [];
 
   const groups = new Map<string, string[]>();
   for (const url of arr) {
-    const key = normalizeAmazonImageUrl(String(url));
+    const key = urlKey(url);
     if (!key) continue;
     if (!groups.has(key)) groups.set(key, []);
     groups.get(key)!.push(String(url));
@@ -72,36 +68,147 @@ function dedupeImages(images: any): string[] {
   return unique;
 }
 
+/** Remove Amazon mentions and obvious boilerplate without inventing anything. */
 function stripAmazonMentions(s: string): string {
   if (!s) return "";
   return String(s)
     .replace(/\bamazon customer\b/gi, "Verified buyer")
     .replace(/\bamazon\b/gi, "")
-    .replace(/\basin\b/gi, "")
-    .replace(/\bprime\b/gi, "")
-    .replace(/\s{2,}/g, " ")
-    .trim();
-}
-
-function sanitizeCustomersSay(s: string): string {
-  // IMPORTANT: do not invent text; only remove disallowed phrases/noise.
-  if (!s) return "";
-  return String(s)
-    .replace(/AI Generated.*$/gim, "")
-    .replace(/Generated from.*$/gim, "")
     .replace(/\s{2,}/g, " ")
     .trim();
 }
 
 function asNumber(v: any): number {
-  const n = Number(v);
+  const n = typeof v === "string" ? Number(v) : typeof v === "number" ? v : 0;
   return Number.isFinite(n) ? n : 0;
 }
 
-/** ⭐ STAR COLOR CONTROL IS HERE (#ffbb00) */
+/** Basic semver compare for "v1.2.0" style strings. */
+function semverGte(version: string, target: string): boolean {
+  const parse = (v: string) =>
+    String(v || "v0.0.0")
+      .replace(/^v/i, "")
+      .split(".")
+      .map((x) => Number(String(x).replace(/[^\d]/g, "")) || 0);
+
+  const a = parse(version);
+  const b = parse(target);
+
+  for (let i = 0; i < 3; i++) {
+    const ai = a[i] ?? 0;
+    const bi = b[i] ?? 0;
+    if (ai > bi) return true;
+    if (ai < bi) return false;
+  }
+  return true;
+}
+
+/** Detect and remove review/spec contamination if legacy SEO fields are present. */
+const CONTAMINATION_PATTERNS: RegExp[] = [
+  /customer\s+(rating|review|feedback|find)/i,
+  /\d+(\.\d+)?\/5/i,
+  /\d+(\.\d+)?\s+out\s+of\s+\d+\s+stars?/i,
+  /^key\s+details:/i,
+  /based\s+on\s+\d+\s+reviews?/i,
+  /\bcustomer\s+reviews\b/i,
+  /\bbest\s+sellers\s+rank\b/i,
+  /\bverified\s+purchase\b/i,
+];
+
+function isContaminatedText(s: string): boolean {
+  const t = String(s || "").trim();
+  if (!t) return false;
+  return CONTAMINATION_PATTERNS.some((re) => re.test(t));
+}
+
+/** Review sanitizers */
+function cleanReviewTitle(title: string): string {
+  if (!title) return "";
+  return String(title)
+    .replace(/^\d+(\.\d+)?\s+out\s+of\s+\d+\s+stars?\s*/i, "")
+    .trim();
+}
+function cleanReviewBody(body: string): string {
+  if (!body) return "";
+  return String(body).replace(/\s*Read more\s*$/i, "").trim();
+}
+
+/** Video sanitizer: dedupe triplets, reject malformed, prefer productVideoOptimized.mp4 */
+type CleanVideo = { src: string; type: string };
+function guessVideoMime(src: string): string {
+  const s = (src || "").toLowerCase();
+  if (s.includes(".m3u8")) return "application/x-mpegURL";
+  if (s.includes(".webm")) return "video/webm";
+  return "video/mp4";
+}
+function sanitizeVideos(raw: any): CleanVideo[] {
+  const arr = Array.isArray(raw) ? raw : [];
+  if (!arr.length) return [];
+
+  const seen = new Set<string>();
+  const results: Array<CleanVideo & { _id: string }> = [];
+
+  const extractId = (url: string) => {
+    const m = url.match(/\/([a-f0-9-]{36})\.mp4/i);
+    return m ? m[1] : url;
+  };
+
+  const getCandidateUrls = (entry: any): string[] => {
+    const out: string[] = [];
+    const direct = entry?.src ? String(entry.src) : "";
+    if (direct) out.push(direct);
+
+    const sources = Array.isArray(entry?.sources) ? entry.sources : [];
+    for (const s of sources) {
+      const u = s?.src ? String(s.src) : "";
+      if (u) out.push(u);
+    }
+    return out.filter(Boolean);
+  };
+
+  for (const entry of arr) {
+    const candidates = getCandidateUrls(entry);
+
+    for (let url of candidates) {
+      // reject obvious malformed entries
+      if (!url) continue;
+
+      // Handle HTML-escaped JSON fragments that include videoSrc
+      if (url.includes("&quot;") || url.includes("THUMBNAIL")) {
+        const m = url.match(/videoSrc&quot;:&quot;([^&]+)/);
+        if (m && m[1]) {
+          url = m[1];
+        } else {
+          continue;
+        }
+      }
+
+      // must look like playable media
+      if (!url.match(/\.(mp4|webm|m3u8)($|\?)/i)) continue;
+
+      const id = extractId(url);
+      const type = guessVideoMime(url);
+
+      if (seen.has(id)) {
+        // Prefer optimized variant if we already saw this id
+        if (url.includes("productVideoOptimized")) {
+          const idx = results.findIndex((r) => r._id === id);
+          if (idx >= 0) results[idx] = { src: url, type, _id: id };
+        }
+        continue;
+      }
+
+      seen.add(id);
+      results.push({ src: url, type, _id: id });
+    }
+  }
+
+  return results.map(({ src, type }) => ({ src, type }));
+}
+
+/** Star rating: UI only */
 function Stars({ value }: { value: number }) {
-  const r = Math.max(0, Math.min(5, value || 0));
-  const rounded = Math.round(r * 2) / 2;
+  const rounded = Math.round((asNumber(value) || 0) * 2) / 2;
   const full = Math.floor(rounded);
   const half = rounded - full >= 0.5;
   const empty = 5 - full - (half ? 1 : 0);
@@ -117,25 +224,49 @@ function Stars({ value }: { value: number }) {
       strokeLinejoin="round"
       aria-hidden="true"
     >
-      <path d="M12 2l3.09 6.26L22 9.27l-5 4.87L18.18 22 12 18.56 5.82 22 7 14.14l-5-4.87 6.91-1.01z" />
+      <path d="M12 17.27l5.18 3.04-1.64-5.81L20 9.24l-5.9-.5L12 3.5 9.9 8.74 4 9.24l4.46 5.26-1.64 5.81L12 17.27z" />
+    </svg>
+  );
+
+  const HalfStar = () => (
+    <svg viewBox="0 0 24 24" className="h-4 w-4 text-[#ffbb00]" fill="currentColor" aria-hidden="true">
+      <defs>
+        <linearGradient id="half">
+          <stop offset="50%" stopColor="currentColor" />
+          <stop offset="50%" stopColor="transparent" stopOpacity="1" />
+        </linearGradient>
+      </defs>
+      <path
+        fill="url(#half)"
+        d="M12 17.27l5.18 3.04-1.64-5.81L20 9.24l-5.9-.5L12 3.5 9.9 8.74 4 9.24l4.46 5.26-1.64 5.81L12 17.27z"
+      />
+      <path
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        d="M12 17.27l5.18 3.04-1.64-5.81L20 9.24l-5.9-.5L12 3.5 9.9 8.74 4 9.24l4.46 5.26-1.64 5.81L12 17.27z"
+      />
     </svg>
   );
 
   return (
-    <span className="inline-flex items-center gap-1">
+    <div className="inline-flex items-center gap-1" aria-label={`Rating ${rounded} out of 5`}>
       {Array.from({ length: full }).map((_, i) => (
         <Star key={`f-${i}`} filled />
       ))}
-      {half ? <Star filled /> : null}
+      {half ? <HalfStar /> : null}
       {Array.from({ length: empty }).map((_, i) => (
         <Star key={`e-${i}`} filled={false} />
       ))}
-    </span>
+    </div>
   );
 }
 
 /**
- * Local CardGrid so we DO NOT import a missing file.
+ * Simple product card grid for related/also-viewed.
+ * Keeps everything local so we DO NOT import a missing file.
  */
 function CardGrid({ items }: { items: any[] }) {
   const safe = Array.isArray(items) ? items : [];
@@ -149,9 +280,9 @@ function CardGrid({ items }: { items: any[] }) {
   return (
     <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3 sm:gap-4">
       {filtered.slice(0, 8).map((p, idx) => {
-        const id = (p?.id || p?.slug || "").toString();
+        const id = (p?.id || p?.slug || p?.handle || "").toString();
         const href = id ? `/p/${id}` : "#";
-        const title = stripAmazonMentions((p?.title || p?.name || "").toString());
+        const title = stripAmazonMentions((p?.title_seo || p?.title || p?.name || "").toString());
         const price = p?.price;
         const imgs = dedupeImages(p?.images || p?.gallery_images);
         const img = imgs[0];
@@ -169,6 +300,7 @@ function CardGrid({ items }: { items: any[] }) {
                   alt={title}
                   className="w-full h-full object-cover"
                   loading="lazy"
+                  decoding="async"
                 />
               ) : (
                 <div className="text-xs text-gray-400">No image</div>
@@ -176,9 +308,7 @@ function CardGrid({ items }: { items: any[] }) {
             </div>
 
             <div className="mt-2 text-sm font-medium line-clamp-2">{title}</div>
-            {price ? (
-              <div className="mt-1 text-sm font-semibold">${price}</div>
-            ) : null}
+            {price ? <div className="mt-1 text-sm font-semibold">${price}</div> : null}
           </a>
         );
       })}
@@ -186,134 +316,124 @@ function CardGrid({ items }: { items: any[] }) {
   );
 }
 
-type LongBlock =
-  | { type: "p"; text: string }
-  | { type: "img"; src: string; alt?: string };
+type LongBlock = { type: "p"; text: string } | { type: "img"; src: string; alt?: string };
 
-function splitParagraphs(text: string): string[] {
-  const raw = String(text || "").replace(/\r/g, "").trim();
-  if (!raw) return [];
-  const parts = raw.includes("\n\n") ? raw.split("\n\n") : raw.split("\n");
-  return parts.map((p) => p.trim()).filter(Boolean);
-}
-
-function urlKey(u: string): string {
-  // normalize for comparisons (strip size suffix + query/hash)
-  const s = String(u || "").trim();
-  if (!s) return "";
-  const noQuery = s.split("?")[0].split("#")[0];
-  return normalizeAmazonImageUrl(noQuery);
-}
-
-function normalizeLongBlocks(product: any): LongBlock[] {
+/**
+ * Normalize description blocks:
+ * - prefer clean SEO description when available (v1.2.0+)
+ * - otherwise use long_description_blocks if present
+ * - finally fall back to long_description / description / short_description
+ *
+ * Additionally:
+ * - drop contaminated paragraphs (review/rating/spec dumps)
+ * - keep images but only allow those from description_images/aplus_images allowlist,
+ *   and explicitly exclude gallery images.
+ */
+function normalizeLongBlocks(product: any, seoClean: boolean): LongBlock[] {
   if (!product) return [];
 
-  const blocksRaw = product?.long_description_blocks;
+  const out: LongBlock[] = [];
 
-  // ✅ If blocks exist, FORCE order: all text first, then images
-  if (Array.isArray(blocksRaw) && blocksRaw.length) {
-    const paragraphs: LongBlock[] = [];
-    const images: LongBlock[] = [];
+  // 1) Prefer clean SEO description if present
+  const seoDescRaw = seoClean ? String(product?.description_seo || "").trim() : "";
+  const seoDesc = seoDescRaw && !isContaminatedText(seoDescRaw) ? seoDescRaw : "";
 
-    for (const b of blocksRaw) {
-      if (!b || typeof b !== "object") continue;
-      const t = String((b as any).type || "").toLowerCase().trim();
+  if (seoDesc) {
+    // Keep deterministic paragraph splitting without inventing content
+    const paras = seoDesc
+      .split(/\n{2,}|\r\n{2,}/)
+      .map((p) => stripAmazonMentions(p).trim())
+      .filter(Boolean)
+      .filter((p) => !isContaminatedText(p));
+    for (const p of paras) out.push({ type: "p", text: p });
+  } else {
+    // 2) Use structured blocks if present, but filter contaminated p-blocks
+    const blocksRaw = product?.long_description_blocks;
 
-      if (t === "img") {
-        const src = String((b as any).src || "").trim();
-        if (!src) continue;
-        const alt = String((b as any).alt || "").trim();
-        images.push({ type: "img", src, alt });
-      } else {
-        const text = String((b as any).text || "").trim();
-        if (!text) continue;
-        paragraphs.push({ type: "p", text });
+    if (Array.isArray(blocksRaw) && blocksRaw.length) {
+      const paragraphs: LongBlock[] = [];
+      const images: LongBlock[] = [];
+
+      for (const b of blocksRaw) {
+        if (!b || typeof b !== "object") continue;
+        const t = String((b as any).type || "").toLowerCase().trim();
+
+        if (t === "img") {
+          const src = String((b as any).src || "").trim();
+          if (!src) continue;
+          const alt = String((b as any).alt || "").trim();
+          images.push({ type: "img", src, alt });
+        } else {
+          const text = stripAmazonMentions(String((b as any).text || "").trim());
+          if (!text) continue;
+          if (isContaminatedText(text)) continue;
+          paragraphs.push({ type: "p", text });
+        }
       }
+
+      // Keep a stable order: text first, then images.
+      return [...paragraphs, ...images];
     }
 
-    return [...paragraphs, ...images];
+    // 3) Fallback: build blocks from text fields
+    const fallbackTextRaw = String(
+      product?.long_description || product?.description || product?.short_description || ""
+    ).trim();
+    const fallbackText = stripAmazonMentions(fallbackTextRaw);
+
+    const paras = fallbackText
+      .split(/\n{2,}|\r\n{2,}/)
+      .map((p) => p.trim())
+      .filter(Boolean)
+      .filter((p) => !isContaminatedText(p));
+
+    for (const p of paras) out.push({ type: "p", text: p });
   }
 
-  // Fallback: build blocks from paragraphs + description/A+ images
-  const longDesc = stripAmazonMentions(
-    (product?.long_description || product?.description || "").toString()
-  );
-  const paras = splitParagraphs(longDesc);
-
-  const descImgs = [
+  // Add images at the end (if no blocks path already returned with imgs)
+  const extraImgs = [
     ...(Array.isArray(product?.description_images) ? product.description_images : []),
     ...(Array.isArray(product?.aplus_images) ? product.aplus_images : []),
-  ].filter(Boolean);
+  ]
+    .filter(Boolean)
+    .map(String);
 
-  if (!descImgs.length) {
-    return paras.map((p) => ({ type: "p", text: p } as LongBlock));
-  }
+  for (const src of dedupeImages(extraImgs)) out.push({ type: "img", src });
 
-  const imgList = dedupeImages(descImgs);
-  const blocks: LongBlock[] = [];
-
-  // ✅ ALL paragraphs first
-  for (const p of paras) {
-    blocks.push({ type: "p", text: p });
-  }
-
-  // ✅ ALL description / A+ images AFTER text
-  for (const src of imgList) {
-    blocks.push({ type: "img", src, alt: "" });
-  }
-
-  return blocks;
+  return out;
 }
 
-function guessVideoMime(src: string) {
-  const s = String(src || "").toLowerCase();
-  if (s.includes(".m3u8")) return "application/x-mpegURL";
-  if (s.includes(".mp4")) return "video/mp4";
-  if (s.includes(".webm")) return "video/webm";
-  return "video/mp4";
-}
-
-function pickPlayableVideoSource(v: any): { src: string; type: string } | null {
-  // Prefer MP4
-  const direct = v?.src ? String(v.src) : "";
-  const sources = Array.isArray(v?.sources) ? v.sources : [];
-
-  const srcs: Array<{ src: string; type?: string }> = [];
-
-  if (direct) srcs.push({ src: direct, type: v?.type ? String(v.type) : undefined });
-
-  for (const s of sources) {
-    if (!s) continue;
-    const ss = String(s?.src || "").trim();
-    if (!ss) continue;
-    srcs.push({ src: ss, type: s?.type ? String(s.type) : undefined });
-  }
-
-  if (!srcs.length) return null;
-
-  const mp4 = srcs.find((x) => x.type?.toLowerCase().includes("mp4") || x.src.toLowerCase().includes(".mp4"));
-  if (mp4) return { src: mp4.src, type: mp4.type || "video/mp4" };
-
-  const hls = srcs.find((x) => x.type?.toLowerCase().includes("mpegurl") || x.src.toLowerCase().includes(".m3u8"));
-  if (hls) return { src: hls.src, type: hls.type || "application/x-mpegURL" };
-
-  const first = srcs[0];
-  return { src: first.src, type: first.type || guessVideoMime(first.src) };
+function sanitizeCustomersSay(s: string): string {
+  const t = stripAmazonMentions(s || "");
+  // Keep it short and safe; do not generate.
+  if (t.length < 20) return "";
+  if (t.length > 600) return t.slice(0, 600).trim();
+  return t;
 }
 
 export const ProductDetailsSection = (): JSX.Element => {
   const product: any = useProductPdp();
+
+  // Version-gate SEO fields
+  const seoVersion = String(product?.seo_rewrite_version || "v0.0.0");
+  const seoClean = semverGte(seoVersion, "v1.2.0");
 
   // Build a strict allow-list for description/A+ images ONLY
   const allowedDescriptionImageKeys = useMemo(() => {
     const merged = [
       ...(Array.isArray(product?.description_images) ? product.description_images : []),
       ...(Array.isArray(product?.aplus_images) ? product.aplus_images : []),
+      // include long_description_blocks img sources when present (but still subject to gallery exclusion below)
+      ...(Array.isArray(product?.long_description_blocks)
+        ? product.long_description_blocks
+            .filter((b: any) => String(b?.type || "").toLowerCase() === "img" && b?.src)
+            .map((b: any) => b.src)
+        : []),
     ].filter(Boolean);
 
     const keys = new Set<string>();
     for (const u of merged) {
-      const k = urlKey(u);
+      const k = urlKey(String(u));
       if (k) keys.add(k);
     }
     return keys;
@@ -324,22 +444,32 @@ export const ProductDetailsSection = (): JSX.Element => {
     const gal = [
       ...(Array.isArray(product?.gallery_images) ? product.gallery_images : []),
       ...(Array.isArray(product?.images) ? product.images : []),
+      ...(Array.isArray(product?.color_images)
+        ? Object.values(product.color_images).flatMap((v: any) => (Array.isArray(v) ? v : []))
+        : []),
     ].filter(Boolean);
 
     const keys = new Set<string>();
     for (const u of gal) {
-      const k = urlKey(u);
+      const k = urlKey(String(u));
       if (k) keys.add(k);
     }
     return keys;
   }, [product]);
 
-  const reviewsObj: any = product?.reviews || {};
-  const reviews: any[] = Array.isArray(reviewsObj?.items)
-    ? reviewsObj.items
-    : Array.isArray(product?.customer_reviews)
-      ? product.customer_reviews
-      : [];
+  const longBlocks = useMemo(() => normalizeLongBlocks(product, seoClean), [product, seoClean]);
+
+  const videos = useMemo(() => sanitizeVideos(product?.videos), [product?.videos]);
+
+  const reviewsObj = product?.reviews || product?.customer_reviews || product?.review_data || {};
+  const reviews = useMemo(() => {
+    const arr = Array.isArray(reviewsObj?.items)
+      ? reviewsObj.items
+      : Array.isArray(product?.customer_reviews)
+        ? product.customer_reviews
+        : [];
+    return Array.isArray(arr) ? arr : [];
+  }, [reviewsObj, product]);
 
   const customersSay = useMemo(() => {
     const v =
@@ -348,7 +478,6 @@ export const ProductDetailsSection = (): JSX.Element => {
       reviewsObj?.customers_say_summary ??
       "";
     const s = typeof v === "string" ? sanitizeCustomersSay(v.trim()) : "";
-    // IMPORTANT: do not generate or invent; only show if present
     return s;
   }, [reviewsObj]);
 
@@ -362,12 +491,8 @@ export const ProductDetailsSection = (): JSX.Element => {
     return asNumber(v);
   }, [reviewsObj, product]);
 
-  const longBlocks = useMemo(() => normalizeLongBlocks(product), [product]);
-
   const related = Array.isArray(product?.related) ? product.related : [];
-  const alsoViewed = Array.isArray(product?.customer_also_viewed)
-    ? product.customer_also_viewed
-    : [];
+  const alsoViewed = Array.isArray(product?.customer_also_viewed) ? product.customer_also_viewed : [];
 
   return (
     <section className="max-w-[1200px] mx-auto px-4 sm:px-6 py-10 sm:py-16 space-y-10 sm:space-y-14">
@@ -378,17 +503,17 @@ export const ProductDetailsSection = (): JSX.Element => {
       {/* Product description */}
       <div>
         <h2 className="text-lg sm:text-xl font-semibold mb-4">Product description</h2>
+
         <div className="space-y-3 text-gray-700 text-sm w-full max-w-none break-words">
           {longBlocks.map((b, i) => {
             if (b.type === "img") {
               const k = urlKey(b.src);
 
               // STRICT SEPARATION:
-              // - allow ONLY A+ / description_images
+              // - allow ONLY A+ / description_images allowlist
               // - explicitly block gallery images (even if injected)
               const allowed =
-                (!!k && allowedDescriptionImageKeys.has(k)) &&
-                (!k || !galleryImageKeys.has(k));
+                (!!k && allowedDescriptionImageKeys.has(k)) && (!k || !galleryImageKeys.has(k));
 
               if (!allowed) return null;
 
@@ -404,31 +529,25 @@ export const ProductDetailsSection = (): JSX.Element => {
               );
             }
 
-            return <p key={`p-${i}`}>{b.text}</p>;
+            const txt = stripAmazonMentions(b.text || "");
+            if (!txt) return null;
+            if (isContaminatedText(txt)) return null;
+
+            return <p key={`p-${i}`}>{txt}</p>;
           })}
         </div>
       </div>
 
       {/* Videos */}
-      {Array.isArray(product?.videos) && product.videos.length ? (
+      {videos.length ? (
         <div>
           <h2 className="text-lg sm:text-xl font-semibold mb-4">Videos</h2>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 max-w-[900px]">
-            {product.videos.map((v: any, i: number) => {
-              const picked = pickPlayableVideoSource(v);
-              if (!picked?.src) return null;
-
-              return (
-                <video
-                  key={i}
-                  controls
-                  preload="metadata"
-                  className="w-full rounded-md border bg-black"
-                >
-                  <source src={picked.src} type={picked.type} />
-                </video>
-              );
-            })}
+            {videos.slice(0, 4).map((v, i) => (
+              <video key={i} controls preload="metadata" className="w-full rounded-md border bg-black">
+                <source src={v.src} type={v.type || guessVideoMime(v.src)} />
+              </video>
+            ))}
           </div>
         </div>
       ) : null}
@@ -447,44 +566,55 @@ export const ProductDetailsSection = (): JSX.Element => {
 
         <div className="flex items-center gap-2 text-sm">
           <Stars value={avgRating} />
-          <span className="text-gray-700">
-            {avgRating ? avgRating.toFixed(1) : "0.0"}
-          </span>
-          {/* IMPORTANT: Hide review count numbers (do not render counts here) */}
+          <span className="text-gray-700">{avgRating ? avgRating.toFixed(1) : "0.0"}</span>
+          {/* IMPORTANT: Hide review count numbers here (avoid clutter, can be added elsewhere) */}
         </div>
 
         <div className="mt-5 space-y-6">
           {reviews.length ? (
-            reviews.slice(0, 12).map((r: any, idx: number) => (
-              <div key={idx} className="border-b border-gray-200 pb-6">
-                <div className="text-sm font-medium">
-                  {stripAmazonMentions(r?.author || "Verified buyer")}
+            reviews.slice(0, 12).map((r: any, idx: number) => {
+              const author = stripAmazonMentions(r?.author || "Verified buyer");
+              const title = cleanReviewTitle(String(r?.title || "").trim());
+              const date = stripAmazonMentions(String(r?.date || "").trim());
+              const body = stripAmazonMentions(cleanReviewBody(String(r?.body || "").trim()));
+              const rating = asNumber(r?.rating);
+
+              return (
+                <div key={idx} className="border-b border-gray-200 pb-6">
+                  <div className="text-sm font-medium">{author || "Verified buyer"}</div>
+
+                  <div className="mt-1 flex items-center gap-2">
+                    <Stars value={rating} />
+                    {date ? <span className="text-xs text-gray-500">{date}</span> : null}
+                  </div>
+
+                  {title ? <div className="mt-2 text-sm font-semibold text-[#0F1111]">{title}</div> : null}
+
+                  {body ? (
+                    <div className="mt-2 text-sm text-gray-700 whitespace-pre-line">{body}</div>
+                  ) : null}
+
+                  {/* Review images ONLY inside their review */}
+                  {Array.isArray(r?.images) && r.images.length ? (
+                    <div className="mt-3 grid grid-cols-3 sm:grid-cols-5 gap-2">
+                      {r.images
+                        .filter(Boolean)
+                        .slice(0, 10)
+                        .map((img: string, i: number) => (
+                          <img
+                            key={i}
+                            src={img}
+                            alt="Customer review"
+                            className="aspect-square object-cover border rounded"
+                            loading="lazy"
+                            decoding="async"
+                          />
+                        ))}
+                    </div>
+                  ) : null}
                 </div>
-
-                <Stars value={asNumber(r?.rating)} />
-
-                {r?.body ? (
-                  <div className="mt-2 text-sm text-gray-700 whitespace-pre-line">
-                    {stripAmazonMentions(r.body)}
-                  </div>
-                ) : null}
-
-                {/* Review images ONLY inside their review */}
-                {Array.isArray(r?.images) && r.images.length ? (
-                  <div className="mt-3 grid grid-cols-3 sm:grid-cols-5 gap-2">
-                    {r.images.map((img: string, i: number) => (
-                      <img
-                        key={i}
-                        src={img}
-                        alt="Customer review"
-                        className="aspect-square object-cover border rounded"
-                        loading="lazy"
-                      />
-                    ))}
-                  </div>
-                ) : null}
-              </div>
-            ))
+              );
+            })
           ) : (
             <div className="text-sm text-gray-600">No reviews yet.</div>
           )}
