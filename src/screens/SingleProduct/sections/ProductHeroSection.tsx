@@ -7,7 +7,6 @@ import { useWishlist } from "../../../context/WishlistContext";
 
 function stripAmazonSizeModifiers(url: string) {
   if (!url) return url;
-  // remove common amazon sizing tokens like ._SX679_ ._SY450_ ._AC_SX679_
   const out = url
     .replace(/\._AC_[A-Z0-9,]+_\./g, ".")
     .replace(/\._S[XY]\d+_\./g, ".")
@@ -35,23 +34,19 @@ function uniqKeepOrder(arr: string[]) {
 }
 
 function selectBestImageVariant(urls: string[]) {
-  // if amazon gives multiple variants, try stripping modifiers for HD
   const cleaned = urls.map((u) => stripAmazonSizeModifiers(u)).filter(Boolean);
-  // keep order and return
   return uniqKeepOrder(cleaned);
 }
 
 function splitParas(text: string) {
   const t = String(text || "").trim();
   if (!t) return [];
-  // split on blank lines first, then fall back to sentence-ish chunks
   const byBlank = t
     .split(/\n\s*\n+/)
     .map((s) => s.trim())
     .filter(Boolean);
   if (byBlank.length > 1) return byBlank;
 
-  // fallback: split long text into smaller paragraphs
   const parts = t
     .split(/(?<=[.!?])\s+(?=[A-Z0-9])/)
     .map((s) => s.trim())
@@ -128,7 +123,6 @@ function extractOptions(product: any) {
   const colors: string[] = [];
   const sizes: string[] = [];
 
-  // v10/v11 schemas might store variations differently, handle robustly
   if (variations && typeof variations === "object") {
     if (Array.isArray(variations.colors)) {
       for (const c of variations.colors) {
@@ -156,7 +150,6 @@ function extractOptions(product: any) {
     }
   }
 
-  // newer explicit fields
   const colorOptions = (product as any)?.color_options;
   if (Array.isArray(colorOptions))
     colorOptions.forEach((c: any) => {
@@ -177,123 +170,173 @@ function extractOptions(product: any) {
   };
 }
 
+function semverGte(version: string, target: string) {
+  const parse = (v: string) =>
+    String(v || "")
+      .replace(/^v/i, "")
+      .split(".")
+      .map((x) => Number(x || 0));
+  const a = parse(version);
+  const b = parse(target);
+  for (let i = 0; i < 3; i++) {
+    const ai = a[i] || 0;
+    const bi = b[i] || 0;
+    if (ai > bi) return true;
+    if (ai < bi) return false;
+  }
+  return true;
+}
+
+const SEO_CLEAN_VERSION = "v1.2.0";
+
+function pickSafeTitle(product: any) {
+  const v = String((product as any)?.seo_rewrite_version || "v0.0.0");
+  const titleSeo = String((product as any)?.title_seo || "").trim();
+  const title = String((product as any)?.title || "").trim();
+  if (titleSeo && semverGte(v, SEO_CLEAN_VERSION)) return titleSeo;
+  return titleSeo || title || "Product";
+}
+
+function pickSafeDescription(product: any) {
+  const v = String((product as any)?.seo_rewrite_version || "v0.0.0");
+  const dSeo = String((product as any)?.description_seo || "").trim();
+  const about = String((product as any)?.about_this_item || "").trim();
+  const shortD = String((product as any)?.short_description || "").trim();
+  if (dSeo && semverGte(v, SEO_CLEAN_VERSION)) return dSeo;
+  return about || shortD || "";
+}
+
 function BoughtBadge({ text }: { text: string }) {
   return <div className="text-[13px] text-[#565959]">{text}</div>;
 }
 
 function detectBoughtLine(product: any) {
-  // Prefer JSON field if present (supports multiple schema shapes)
+  const n = Number((product as any)?.social_proof?.bought_past_month || 0);
+  if (Number.isFinite(n) && n >= 50) return `${n}+ bought in the past month`;
   const spText = String((product as any)?.social_proof?.text || "").trim();
+  // Only allow explicit, source-provided text (still deterministic)
   if (spText) return spText;
-
-  const fromJson = String((product as any)?.bought_past_month || "").trim();
-  if (fromJson) return fromJson;
-
-  // fallback: randomized 50–2000 weighted lower end
-  const r = Math.random();
-  let n = 0;
-  if (r < 0.65) n = 50 + Math.floor(Math.random() * 351); // 50–400 common
-  else if (r < 0.9) n = 401 + Math.floor(Math.random() * 600); // 401–1000
-  else n = 1001 + Math.floor(Math.random() * 1000); // 1001–2000
-  return `${n}+ bought in the past month`;
+  return "";
 }
 
 function imageBaseKey(url: string) {
   const u = String(url || "");
-  // strip query + amazon modifiers to compare variants
   const noQ = u.split("?")[0];
   return stripAmazonSizeModifiers(noQ);
 }
 
-function normalizeSkuForDisplay(product: any) {
-  // prefer explicit sku
-  const sku = String((product as any)?.sku || "").trim();
-  if (sku) return sku;
-  // fallback to ASIN (but UI will label as SKU)
-  const asin = String((product as any)?.asin || "").trim();
-  if (asin) return asin;
-  return "";
+/**
+ * Parse size chart HTML into structured data and render our own table.
+ * No dangerouslySetInnerHTML.
+ */
+function parseSizeChartHtml(rawHtml: string) {
+  if (!rawHtml || typeof rawHtml !== "string") return null;
+  try {
+    const parser = new DOMParser();
+    const doc = parser.parseFromString(rawHtml, "text/html");
+    const table = doc.querySelector("table");
+    if (!table) return null;
+
+    const rows = Array.from(table.querySelectorAll("tr"));
+    if (rows.length < 2) return null;
+
+    const headers = Array.from(rows[0].querySelectorAll("th")).map((th) =>
+      String(th.textContent || "").trim()
+    );
+
+    const dataRows = rows.slice(1).map((tr) => {
+      const cells = Array.from(tr.querySelectorAll("th, td"));
+      return cells.map((c) => String(c.textContent || "").trim());
+    });
+
+    if (!headers.length || !dataRows.length) return null;
+    return { headers, rows: dataRows };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Category-neutral size resolver:
+ * If chart exists, it wins (use first column).
+ * Else fall back to scraped sizes.
+ */
+function resolveCanonicalSizes(product: any, scrapedSizes: string[]) {
+  const chart =
+    (product as any)?.size_chart ||
+    (product as any)?.variations?.size_chart ||
+    null;
+
+  const rawHtml =
+    chart && typeof chart === "object" && typeof (chart as any).html === "string"
+      ? String((chart as any).html || "").trim()
+      : "";
+
+  if (rawHtml) {
+    const parsed = parseSizeChartHtml(rawHtml);
+    if (parsed?.rows?.length) {
+      const fromChart = parsed.rows
+        .map((r: string[]) => String(r?.[0] || "").trim())
+        .filter(Boolean);
+      if (fromChart.length) return uniqKeepOrder(fromChart);
+    }
+  }
+
+  return uniqKeepOrder((scrapedSizes || []).map((x) => String(x || "").trim()).filter(Boolean));
 }
 
 export const ProductHeroSection = (): JSX.Element => {
   const product = useProductPdp();
   const { addToCart, openCart } = useCart();
-  const { toggle, has } = useWishlist();
+  const { addToWishlist } = useWishlist();
 
-  const wishlistId = useMemo(() => {
-    return String((product as any)?.id || (product as any)?.handle || "").trim();
-  }, [product]);
+  const navigate = useNavigate();
 
-  const inWishlist = wishlistId ? has(wishlistId) : false;
-
+  // Images
   const rawImages = useMemo(() => {
-    // ✅ Use strict gallery_images[] when present (never description/review images).
-    // Fallback to legacy images[] for older JSONs.
-    const imgs = Array.isArray((product as any)?.gallery_images)
-      ? ((product as any).gallery_images as string[])
-      : Array.isArray((product as any)?.images)
-        ? ((product as any).images as string[])
-        : [];
-    const cleaned = imgs.map((u) => String(u || "").trim()).filter(Boolean);
-    return selectBestImageVariant(uniqKeepOrder(cleaned));
+    const imgs = (product as any)?.images;
+    if (Array.isArray(imgs)) return imgs.map(String).filter(Boolean);
+    const single = (product as any)?.image;
+    return single ? [String(single)] : [];
   }, [product]);
 
-  const images = rawImages;
+  const images = useMemo(() => selectBestImageVariant(rawImages), [rawImages]);
+  const [activeImage, setActiveImage] = useState<string>("");
 
-  const [activeImage, setActiveImage] = useState<string>(images[0] ?? "");
   useEffect(() => {
-    setActiveImage(images[0] ?? "");
+    setActiveImage(images[0] || "");
   }, [images.join("|")]);
 
-  const reviewsItems = Array.isArray((product as any)?.reviews?.items)
-    ? ((product as any).reviews.items as any[])
-    : [];
-  const avg = averageRating(reviewsItems);
+  // Reviews
+  const reviews = (product as any)?.reviews?.items || [];
+  const avg = useMemo(() => averageRating(reviews), [reviews]);
+  const reviewCount = Number((product as any)?.reviews?.review_count || (product as any)?.reviews?.count || reviews?.length || 0);
 
-  const reviewCount = useMemo(() => {
-    const cand =
-      (product as any)?.reviews?.count ??
-      (product as any)?.reviews?.total ??
-      (product as any)?.review_count ??
-      (product as any)?.reviews_count ??
-      reviewsItems.length;
+  // Variants
+  const { colors, sizes: scrapedSizes } = useMemo(() => extractOptions(product), [product]);
 
-    const n = Number(cand);
-    return Number.isFinite(n) && n > 0 ? Math.floor(n) : 0;
-  }, [product, reviewsItems.length]);
+  const colorImagesMap = (product as any)?.color_images;
+  const colorImageKey = (product as any)?.color_image_key;
+  const colorSwatches = (product as any)?.color_swatches;
 
-  const { sizes, colors } = useMemo(() => extractOptions(product), [product]);
+  const [selectedColor, setSelectedColor] = useState<string>("");
+  const [selectedSize, setSelectedSize] = useState<string>("");
 
-  const colorSwatches = useMemo(() => {
-    const m = (product as any)?.color_swatches;
-    return m && typeof m === "object" ? (m as Record<string, string>) : {};
-  }, [product]);
-
-  const colorImageKey = useMemo(() => {
-    const m = (product as any)?.color_image_key;
-    return m && typeof m === "object" ? (m as Record<string, string>) : {};
-  }, [product]);
-
-  const colorImagesMap = useMemo(() => {
-    const m = (product as any)?.color_images;
-    return m && typeof m === "object" ? (m as Record<string, string[]>) : {};
-  }, [product]);
-
-  const [selectedColor, setSelectedColor] = useState<string>(colors[0] ?? "");
   useEffect(() => {
-    if (colors.length && !selectedColor) setSelectedColor(colors[0]);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    setSelectedColor(colors[0] || "");
   }, [colors.join("|")]);
 
-  const [selectedSize, setSelectedSize] = useState<string>(sizes[0] ?? "");
+  // Canonical sizes (fix shoe-size pollution when chart exists)
+  const sizes = useMemo(() => resolveCanonicalSizes(product, scrapedSizes), [product, scrapedSizes.join("|")]);
+
   useEffect(() => {
-    if (sizes.length && !selectedSize) setSelectedSize(sizes[0]);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    setSelectedSize(sizes[0] || "");
   }, [sizes.join("|")]);
 
-  // keep existing behavior: color selection updates activeImage using color_image_key mapping
   useEffect(() => {
     if (!selectedColor) return;
+    if (!colorImageKey || !images.length) return;
+
     const key = colorImageKey?.[selectedColor];
     if (!key) return;
 
@@ -305,13 +348,11 @@ export const ProductHeroSection = (): JSX.Element => {
   }, [selectedColor, colorImageKey, images]);
 
   const getColorThumb = (color: string) => {
-    // 1) best: explicit HD color images extracted from HTML
     const fromMap = Array.isArray(colorImagesMap?.[color])
       ? colorImagesMap[color][0]
       : "";
     if (fromMap) return stripAmazonSizeModifiers(String(fromMap));
 
-    // 2) next: derive from color_image_key -> match a gallery image
     const key = colorImageKey?.[color];
     if (key) {
       const match = images.find(
@@ -320,28 +361,22 @@ export const ProductHeroSection = (): JSX.Element => {
       if (match) return match;
     }
 
-    // 3) fallback: first gallery image (keeps UI from breaking)
     return images[0] || "";
   };
 
-  const navigate = useNavigate();
+  const displayTitle = useMemo(() => pickSafeTitle(product), [product]);
 
   const displayPrice = useMemo(() => {
     const p = (product as any)?.price;
     if (typeof p === "string" && p.trim()) return p.trim();
-    if (typeof p === "number" && Number.isFinite(p)) return `$${p.toFixed(2)}`;
-    return "$49.99"; // fallback UI-only
+    if (typeof p === "number" && Number.isFinite(p) && p > 0) return `$${p.toFixed(2)}`;
+    return "Price unavailable";
   }, [product]);
-
-  const displayedSku = useMemo(() => normalizeSkuForDisplay(product), [product]);
 
   const boughtInPastMonth = useMemo(() => detectBoughtLine(product), [product]);
 
-  // About this item: prefer about_this_item; fallback to short_description
-  const aboutThisItem = String(
-    (product as any)?.about_this_item || (product as any)?.short_description || ""
-  ).trim();
-  const aboutParas = useMemo(() => splitParas(aboutThisItem), [aboutThisItem]);
+  const aboutThisItemRaw = useMemo(() => pickSafeDescription(product), [product]);
+  const aboutParas = useMemo(() => splitParas(aboutThisItemRaw), [aboutThisItemRaw]);
 
   // Size chart (ONLY if present in JSON)
   const sizeChart =
@@ -349,18 +384,22 @@ export const ProductHeroSection = (): JSX.Element => {
   const [sizeChartOpen, setSizeChartOpen] = useState(false);
   useEffect(() => {
     setSizeChartOpen(false);
-  }, [String(displayedSku)]);
+  }, [displayTitle]);
 
   const sizeChartHtml =
     sizeChart &&
-      typeof sizeChart === "object" &&
-      typeof (sizeChart as any).html === "string"
+    typeof sizeChart === "object" &&
+    typeof (sizeChart as any).html === "string"
       ? String((sizeChart as any).html || "").trim()
       : "";
   const sizeChartImg = typeof sizeChart === "string" ? String(sizeChart).trim() : "";
   const hasSizeChart = Boolean(sizeChartImg || sizeChartHtml);
 
-  // Amazon-y Qty selector
+  const parsedSizeChart = useMemo(() => {
+    if (!sizeChartHtml) return null;
+    return parseSizeChartHtml(sizeChartHtml);
+  }, [sizeChartHtml]);
+
   const [qty, setQty] = useState(1);
 
   const handleAddToCart = () => {
@@ -369,20 +408,20 @@ export const ProductHeroSection = (): JSX.Element => {
       typeof p === "number"
         ? p
         : typeof p === "string"
-          ? Number(String(p).replace(/[^0-9.]/g, ""))
-          : NaN;
+        ? Number(String(p).replace(/[^0-9.]/g, ""))
+        : NaN;
 
     addToCart(
       {
         id: String((product as any)?.id || (product as any)?.handle),
-        name: String((product as any)?.title || "Product"),
-        price: Number.isFinite(priceNum) && priceNum > 0 ? priceNum : 49.99,
+        name: displayTitle,
+        price: Number.isFinite(priceNum) && priceNum > 0 ? priceNum : 0,
         image: String((product as any)?.image || activeImage || images[0] || ""),
       },
       qty
     );
 
-    openCart(); // ✅ open sidebar
+    openCart();
 
     window.dispatchEvent(
       new CustomEvent("cart:toast", {
@@ -390,7 +429,6 @@ export const ProductHeroSection = (): JSX.Element => {
       })
     );
   };
-
 
   // ✅ Buy Now -> Square checkout (ONLY CHANGE)
   const buyNow = async () => {
@@ -400,11 +438,11 @@ export const ProductHeroSection = (): JSX.Element => {
         typeof p === "number"
           ? p
           : typeof p === "string"
-            ? Number(String(p).replace(/[^0-9.]/g, ""))
-            : NaN;
+          ? Number(String(p).replace(/[^0-9.]/g, ""))
+          : NaN;
 
       const priceCents =
-        Number.isFinite(priceNum) && priceNum > 0 ? Math.round(priceNum * 100) : 4999;
+        Number.isFinite(priceNum) && priceNum > 0 ? Math.round(priceNum * 100) : 0;
 
       const apiBase = (import.meta.env.VITE_SQUARE_API_BASE || "https://square-api.shadabchow.workers.dev").replace(/\/+$/, "");
 
@@ -414,7 +452,7 @@ export const ProductHeroSection = (): JSX.Element => {
         body: JSON.stringify({
           cart: [
             {
-              title: String((product as any)?.title || "Product"),
+              title: displayTitle,
               price_cents: priceCents,
               quantity: qty,
             },
@@ -449,15 +487,16 @@ export const ProductHeroSection = (): JSX.Element => {
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-10">
         {/* Gallery */}
         <div className="grid gap-4 grid-cols-1 lg:grid-cols-[72px_1fr]">
-          {/* Thumbs (vertical + vertically scrollable only) */}
+          {/* Thumbs */}
           <div className="flex flex-row lg:flex-col flex-none w-full lg:w-[72px] gap-3 lg:max-h-[640px] overflow-x-auto lg:overflow-y-auto overflow-y-hidden lg:overflow-x-hidden pr-0 lg:pr-1 order-2 lg:order-1">
             {images.map((u, i) => (
               <button
                 key={`${u}-${i}`}
                 type="button"
                 onClick={() => setActiveImage(u)}
-                className={`border rounded overflow-hidden flex items-center justify-center ${activeImage === u ? "border-black" : "border-gray-200 hover:border-black"
-                  }`}
+                className={`border rounded overflow-hidden flex items-center justify-center ${
+                  activeImage === u ? "border-black" : "border-gray-200 hover:border-black"
+                }`}
                 style={{ width: 72, height: 72 }}
                 aria-label="Select image"
               >
@@ -477,12 +516,11 @@ export const ProductHeroSection = (): JSX.Element => {
             {activeImage ? (
               <img
                 src={activeImage}
-                alt={String((product as any)?.title || "Product")}
+                alt={displayTitle}
                 className="w-full h-full object-contain block"
                 loading="eager"
                 decoding="sync"
               />
-
             ) : (
               <div className="text-sm text-gray-500">No image</div>
             )}
@@ -495,23 +533,19 @@ export const ProductHeroSection = (): JSX.Element => {
             {/* Info column */}
             <div className="space-y-6">
               <div className="space-y-2">
-                {/* Amazon title color */}
                 <h1 className="text-2xl font-semibold text-[#0F1111]">
-                  {String((product as any)?.title || "Product")}
+                  {displayTitle}
                 </h1>
 
                 {boughtInPastMonth ? <BoughtBadge text={boughtInPastMonth} /> : null}
 
-                {/* Stars + rating + review count (Amazon-style row) */}
                 {avg || reviewCount ? (
                   <div className="flex items-center gap-2 text-sm">
                     {avg ? <Stars value={avg} /> : null}
-
                     {avg ? <span className="text-[#0F1111]">{avg.toFixed(1)}</span> : null}
-
                     {reviewCount ? (
                       <span className="text-[#007185]">
-                        ({reviewCount.toLocaleString()})
+                        ({Number(reviewCount).toLocaleString()})
                       </span>
                     ) : null}
                   </div>
@@ -541,8 +575,9 @@ export const ProductHeroSection = (): JSX.Element => {
                             key={c}
                             type="button"
                             onClick={() => setSelectedColor(c)}
-                            className={`flex items-center gap-2 border rounded px-2 py-2 text-sm ${isActive ? "border-black" : "border-gray-300 hover:border-black"
-                              }`}
+                            className={`flex items-center gap-2 border rounded px-2 py-2 text-sm ${
+                              isActive ? "border-black" : "border-gray-300 hover:border-black"
+                            }`}
                             aria-pressed={isActive}
                           >
                             {thumb ? (
@@ -580,8 +615,9 @@ export const ProductHeroSection = (): JSX.Element => {
                             key={s}
                             type="button"
                             onClick={() => setSelectedSize(s)}
-                            className={`border rounded px-3 py-2 text-sm ${isActive ? "border-black" : "border-gray-300 hover:border-black"
-                              }`}
+                            className={`border rounded px-3 py-2 text-sm ${
+                              isActive ? "border-black" : "border-gray-300 hover:border-black"
+                            }`}
                             aria-pressed={isActive}
                           >
                             {s}
@@ -592,7 +628,7 @@ export const ProductHeroSection = (): JSX.Element => {
                   </div>
                 ) : null}
 
-                {/* ✅ Size chart link (render even if sizes are empty) */}
+                {/* ✅ Size chart link */}
                 {hasSizeChart ? (
                   <div className="space-y-2">
                     <button
@@ -607,11 +643,40 @@ export const ProductHeroSection = (): JSX.Element => {
                       <div className="border rounded p-3 bg-white overflow-x-auto">
                         {sizeChartImg ? (
                           <img src={sizeChartImg} alt="Size chart" className="max-w-full h-auto" />
+                        ) : parsedSizeChart ? (
+                          <table className="min-w-[520px] w-full text-sm">
+                            <thead>
+                              <tr>
+                                {parsedSizeChart.headers.map((h: string, i: number) => (
+                                  <th
+                                    key={i}
+                                    className="text-left border-b p-2 font-semibold text-[#0F1111]"
+                                  >
+                                    {h}
+                                  </th>
+                                ))}
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {parsedSizeChart.rows.map((row: string[], ri: number) => (
+                                <tr key={ri}>
+                                  {row.map((cell: string, ci: number) =>
+                                    ci === 0 ? (
+                                      <th key={ci} className="text-left border-b p-2 font-semibold">
+                                        {cell}
+                                      </th>
+                                    ) : (
+                                      <td key={ci} className="border-b p-2 text-[#0F1111]">
+                                        {cell}
+                                      </td>
+                                    )
+                                  )}
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
                         ) : (
-                          <div
-                            className="text-sm text-[#0F1111]"
-                            dangerouslySetInnerHTML={{ __html: sizeChartHtml }}
-                          />
+                          <div className="text-sm text-[#565959]">Size chart unavailable.</div>
                         )}
                       </div>
                     ) : null}
@@ -643,7 +708,7 @@ export const ProductHeroSection = (): JSX.Element => {
 
               <div className="text-[#007600] font-semibold">Available now</div>
 
-              {/* Qty selector (Amazon-y) */}
+              {/* Qty selector */}
               <div className="flex items-center gap-2 text-sm text-[#0F1111]">
                 <span className="text-[#565959]">Units:</span>
                 <select
@@ -663,7 +728,6 @@ export const ProductHeroSection = (): JSX.Element => {
                 </select>
               </div>
 
-              {/* Amazon-style buttons (black text) */}
               <button
                 type="button"
                 className="w-full bg-[#0061c9] hover:bg-[#0061c9] text-[#FFFFFF] font-semibold py-2 rounded-full border border-[#0061c9]"
@@ -694,7 +758,6 @@ export const ProductHeroSection = (): JSX.Element => {
                 </div>
               </div>
 
-              {/* RETURNS: stacked lines (layout fix) */}
               <div className="flex justify-between">
                 <span className="text-[#565959]">Returns</span>
                 <div className="text-right text-[#2162a1] leading-snug">
@@ -717,36 +780,33 @@ export const ProductHeroSection = (): JSX.Element => {
                     typeof p === "number"
                       ? p
                       : typeof p === "string"
-                        ? Number(String(p).replace(/[^0-9.]/g, ""))
-                        : NaN;
+                      ? Number(String(p).replace(/[^0-9.]/g, ""))
+                      : NaN;
 
-                  const id = String((product as any)?.id || (product as any)?.handle || "").trim();
-                  if (!id) return;
-
-                  toggle({
-                    id,
-                    name: String((product as any)?.title || "Product"),
-                    price: Number.isFinite(priceNum) && priceNum > 0 ? priceNum : 49.99,
+                  addToWishlist({
+                    id: String((product as any)?.id || (product as any)?.handle),
+                    name: displayTitle,
+                    price: Number.isFinite(priceNum) && priceNum > 0 ? priceNum : 0,
                     image: String((product as any)?.image || activeImage || images[0] || ""),
                   });
 
                   window.dispatchEvent(
                     new CustomEvent("wishlist:toast", {
-                      detail: { message: inWishlist ? "Removed from wishlist" : "Saved to wishlist" },
+                      detail: { message: "Added to wishlist" },
                     })
                   );
                 }}
               >
                 <Heart className="w-4 h-4" />
-                {inWishlist ? "Saved" : "Add to List"}
+                Add to Wishlist
               </button>
 
               <button
                 type="button"
                 className="w-full border rounded py-2 text-sm"
-                onClick={() => navigate("/")}
+                onClick={() => navigate("/shop")}
               >
-                Back to shop
+                Continue Shopping
               </button>
             </div>
           </div>
@@ -755,10 +815,3 @@ export const ProductHeroSection = (): JSX.Element => {
     </section>
   );
 };
-
-export default ProductHeroSection;
-
-
-
-
-
