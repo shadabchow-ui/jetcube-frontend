@@ -1,7 +1,7 @@
 import { useProductPdp } from "../../../pdp/ProductPdpContext";
 
 export function CustomerReviewsSection() {
-  const { product } = useProductPdp();
+  const product = useProductPdp();
   const reviews = product?.reviews;
 
   if (!reviews || (!reviews.items?.length && !reviews.average_rating)) {
@@ -24,11 +24,13 @@ export function CustomerReviewsSection() {
 
       {reviews.items?.length ? (
         <ul className="review-list">
-          {reviews.items.slice(0, 5).map((r, idx) => (
+          {reviews.items.slice(0, 5).map((r: any, idx: number) => (
             <li key={idx} className="review-item">
-              <div className="review-rating">
-                {"★".repeat(Math.round(r.rating || 0))}
-              </div>
+              {r.rating ? (
+                <div className="review-rating">
+                  {"★".repeat(Math.round(r.rating))}
+                </div>
+              ) : null}
               {r.title ? <div className="review-title">{r.title}</div> : null}
               {r.body ? <div className="review-body">{r.body}</div> : null}
               {r.date ? <div className="review-date">{r.date}</div> : null}
@@ -39,3 +41,4 @@ export function CustomerReviewsSection() {
     </section>
   );
 }
+
