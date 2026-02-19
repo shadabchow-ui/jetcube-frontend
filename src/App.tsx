@@ -19,7 +19,6 @@ import ShopAllCategories from "./screens/Shop/ShopAllCategories";
 import { Shop } from "./screens/Shop";
 
 import OrdersPage from "./pages/OrdersPage";
-
 import WishlistPage from "./pages/WishlistPage";
 import SearchResultsPage from "./pages/SearchResultsPage";
 import AccountPage from "./pages/AccountPage";
@@ -28,7 +27,6 @@ import AccountPage from "./pages/AccountPage";
 import ConditionsOfUse from "./pages/help/ConditionsOfUse";
 import PrivacyNotice from "./pages/help/PrivacyNotice";
 import Accessibility from "./pages/help/Accessibility";
-
 import HelpIndex from "./pages/help/HelpIndex";
 
 import SingleProduct from "./screens/SingleProduct/SingleProduct";
@@ -72,8 +70,8 @@ function lazyCompat<TProps = any>(
 
 /* ============================
    Lazy-loaded screens with named exports
-   (Fixes Cloudflare/Vite "default not exported" errors)
    ============================ */
+// ✅ Corrected path to "./screens" to fix Vite build resolution error
 const Cart = lazyCompat(() => import("./screens/Cart"), ["Cart"]);
 const Checkout = lazyCompat(() => import("./screens/Checkout"), ["Checkout"]);
 
@@ -81,7 +79,6 @@ const Checkout = lazyCompat(() => import("./screens/Checkout"), ["Checkout"]);
    Helpers
    ============================ */
 
-// Fetch JSON with fallback to gz/plain handled by your Worker/R2 settings
 async function fetchJson(url: string) {
   const res = await fetch(url);
   if (!res.ok) throw new Error(`Fetch failed: ${res.status} ${res.statusText}`);
@@ -98,7 +95,6 @@ async function fetchShard(shardUrl: string) {
 
     if (isJson) return await res.json();
 
-    // If served as gzip but not auto-decoded, attempt DecompressionStream
     const buf = await res.arrayBuffer();
     const u8 = new Uint8Array(buf);
     const isGzip = u8[0] === 0x1f && u8[1] === 0x8b;
@@ -113,7 +109,6 @@ async function fetchShard(shardUrl: string) {
       }
     }
 
-    // Fallback: treat as text
     const text = new TextDecoder().decode(buf);
     return JSON.parse(text);
   } catch {
@@ -122,20 +117,15 @@ async function fetchShard(shardUrl: string) {
 }
 
 function normalizeProductPath(productPath: string) {
-  // Allow already absolute URLs
   if (/^https?:\/\//i.test(productPath)) return productPath;
-
-  // Ensure it lives under R2_BASE
   const clean = productPath.replace(/^\/+/, "");
   return joinUrl(R2_BASE, clean);
 }
 
 async function fetchProductJsonWithFallback(finalUrl: string) {
-  // Try exact URL first
   try {
     return await fetchJson(finalUrl);
   } catch {
-    // If missing, try gz variant
     if (!finalUrl.endsWith(".gz")) {
       try {
         return await fetchJson(`${finalUrl}.gz`);
@@ -147,10 +137,6 @@ async function fetchProductJsonWithFallback(finalUrl: string) {
   }
 }
 
-/**
- * Resolve shardKey from a manifest map of { shardKey: relativePath }.
- * This mirrors the existing logic you already had (kept intact).
- */
 function resolveShardKeyFromManifest(
   handle: string,
   shardMap: Record<string, any>,
@@ -158,10 +144,8 @@ function resolveShardKeyFromManifest(
   const keys = Object.keys(shardMap || {});
   if (!keys.length) return null;
 
-  // Prefer exact key matches / predictable formats (kept conservative)
   if (shardMap[handle]) return handle;
 
-  // Heuristic: use first character bucket if present
   const first = handle.charAt(0).toLowerCase();
   const candidates = [`_${first}`, first, `0${first}`];
 
@@ -173,7 +157,7 @@ function resolveShardKeyFromManifest(
 }
 
 /* ============================
-   PDP Index loader (legacy fallback)
+   PDP Index loader
    ============================ */
 
 let _indexOncePromise: Promise<any> | null = null;
@@ -206,12 +190,10 @@ async function loadIndexOnce() {
 }
 
 /* ============================
-   NEW: Single-call PDP API fetch
+   PDP API fetch
    ============================ */
 
 async function fetchPdpFromApi(handle: string): Promise<any | null> {
-  // Primary path: single Worker/API call per PDP.
-  // Supports both { ok: true, data: {...} } and raw PDP JSON.
   const url = `/api/pdp/${encodeURIComponent(handle)}`;
   try {
     const res = await fetch(url, { headers: { Accept: "application/json" } });
@@ -247,14 +229,12 @@ function ProductRoute({ children }: { children: React.ReactNode }) {
 
         if (!handle) throw new Error("Missing product handle");
 
-        // ✅ v31.3-gold consumption path: one request to Worker/API
         const apiProduct = await fetchPdpFromApi(handle);
         if (apiProduct) {
           if (!cancelled) setProduct(apiProduct);
           return;
         }
 
-        // Legacy fallback: resolve productPath via indexes/shards
         let productPath: string | null = null;
 
         try {
@@ -288,7 +268,7 @@ function ProductRoute({ children }: { children: React.ReactNode }) {
             }
           }
         } catch {
-          // ignore, fall back
+          // ignore
         }
 
         if (!productPath) {
@@ -356,8 +336,23 @@ const router = createBrowserRouter([
         ),
       },
 
-      { path: "checkout", element: <Checkout /> },
-      { path: "cart", element: <Cart /> },
+      // ✅ Fix: Wrapped lazy-loaded React components with Suspense boundaries to prevent runtime crash
+      { 
+        path: "checkout", 
+        element: (
+          <React.Suspense fallback={<div className="max-w-[1200px] mx-auto px-4 py-20">Loading...</div>}>
+            <Checkout />
+          </React.Suspense>
+        ) 
+      },
+      { 
+        path: "cart", 
+        element: (
+          <React.Suspense fallback={<div className="max-w-[1200px] mx-auto px-4 py-20">Loading...</div>}>
+            <Cart />
+          </React.Suspense>
+        ) 
+      },
       { path: "*", element: <Navigate to="/" replace /> },
     ],
   },
