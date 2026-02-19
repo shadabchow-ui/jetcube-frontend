@@ -19,14 +19,21 @@ import ShopAllCategories from "./screens/Shop/ShopAllCategories";
 import { Shop } from "./screens/Shop";
 
 import OrdersPage from "./pages/OrdersPage";
-import Checkout from "./pages/Checkout";
-import Cart from "./pages/Cart";
+
+// ✅ FIX: Checkout is in /screens, not /pages
+import Checkout from "./screens/Checkout";
+
+// ✅ FIX: Cart is in /screens, not /pages
+import Cart from "./screens/Cart";
+
 import WishlistPage from "./pages/WishlistPage";
 import SearchResultsPage from "./pages/SearchResultsPage";
 import AccountPage from "./pages/AccountPage";
-import ConditionsOfUse from "./pages/help/conditionsofuse";
-import PrivacyNotice from "./pages/help/privacynotice";
-import Accessibility from "./pages/help/accessibility";
+
+// ✅ FIX: help imports must match file casing exactly on Linux
+import ConditionsOfUse from "./pages/help/ConditionsOfUse";
+import PrivacyNotice from "./pages/help/PrivacyNotice";
+import Accessibility from "./pages/help/Accessibility";
 
 import HelpIndex from "./pages/help/HelpIndex";
 
@@ -354,9 +361,7 @@ const router = createBrowserRouter([
   {
     path: "/help",
     element: <HelpLayout />,
-    children: [
-      { path: "", element: <HelpIndex /> },
-    ],
+    children: [{ path: "", element: <HelpIndex /> }],
   },
 ]);
 
