@@ -20,11 +20,6 @@ import { Shop } from "./screens/Shop";
 
 import OrdersPage from "./pages/OrdersPage";
 
-
-
-// ✅ FIX: Cart is in /screens, not /pages
-import Cart from "./screens/Cart";
-
 import WishlistPage from "./pages/WishlistPage";
 import SearchResultsPage from "./pages/SearchResultsPage";
 import AccountPage from "./pages/AccountPage";
@@ -74,6 +69,13 @@ function lazyCompat<TProps = any>(
     return { default: picked };
   });
 }
+
+/* ============================
+   Lazy-loaded screens with named exports
+   (Fixes Cloudflare/Vite "default not exported" errors)
+   ============================ */
+const Cart = lazyCompat(() => import("./screens/Cart"), ["Cart"]);
+const Checkout = lazyCompat(() => import("./screens/Checkout"), ["Checkout"]);
 
 /* ============================
    Helpers
@@ -149,7 +151,10 @@ async function fetchProductJsonWithFallback(finalUrl: string) {
  * Resolve shardKey from a manifest map of { shardKey: relativePath }.
  * This mirrors the existing logic you already had (kept intact).
  */
-function resolveShardKeyFromManifest(handle: string, shardMap: Record<string, any>) {
+function resolveShardKeyFromManifest(
+  handle: string,
+  shardMap: Record<string, any>,
+) {
   const keys = Object.keys(shardMap || {});
   if (!keys.length) return null;
 
