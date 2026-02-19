@@ -20,8 +20,7 @@ import { Shop } from "./screens/Shop";
 
 import OrdersPage from "./pages/OrdersPage";
 
-// ✅ FIX: Checkout is in /screens, not /pages
-import Checkout from "./screens/Checkout";
+
 
 // ✅ FIX: Cart is in /screens, not /pages
 import Cart from "./screens/Cart";
