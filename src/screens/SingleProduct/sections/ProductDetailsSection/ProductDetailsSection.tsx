@@ -1,6 +1,5 @@
 import React, { useMemo } from "react";
 import { useProductPdp } from "../../../../pdp/ProductPdpContext";
-import { CardGrid } from "../../../../components/CardGrid";
 import { AssistantInline } from "../../../../components/RufusAssistant";
 
 function semverGte(version: string, target: string) {
