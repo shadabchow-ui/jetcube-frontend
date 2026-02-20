@@ -87,7 +87,9 @@ function normalizeLongBlocks(product: any): LongBlock[] {
     if (!t) return blocks;
 
     // extract image URLs if present
-    const imgUrls = Array.from(t.matchAll(/https?:\/\/[^\s"'<>]+/gi)).map((m) => safeUrl(m[0]));
+    const imgUrls = Array.from(t.matchAll(/https?:\/\/[^\s"'<>]+/gi)).map((m) =>
+      safeUrl(m[0])
+    );
     const paragraphs = splitParagraphs(
       t
         .replace(/<[^>]*>/g, " ")
@@ -170,17 +172,17 @@ type SpecRow = { label: string; value: string };
 
 function normalizeSpecRows(product: any): SpecRow[] {
   const out: SpecRow[] = [];
-const push = (label: any, value: any) => {
-  const l = String(label || "").trim();
-  const v = String(value ?? "").trim();
-  if (!l || !v) return;
+  const push = (label: any, value: any) => {
+    const l = String(label || "").trim();
+    const v = String(value ?? "").trim();
+    if (!l || !v) return;
 
-  // ✅ hide ASIN row on PDP (do not display in Product details)
-  const ll = l.toLowerCase().replace(/\s+/g, " ").trim();
-  if (ll === "asin" || ll.includes("asin")) return;
+    // ✅ hide ASIN row on PDP (do not display in Product details)
+    const ll = l.toLowerCase().replace(/\s+/g, " ").trim();
+    if (ll === "asin" || ll.includes("asin")) return;
 
-  out.push({ label: l, value: v });
-};
+    out.push({ label: l, value: v });
+  };
 
   const candidates = [
     product?.specs,
@@ -309,7 +311,7 @@ function normalizeReviewCount(v: any): number | null {
 function StarsInline({ value }: { value: number }) {
   const full = Math.max(0, Math.min(5, Math.round(value)));
   const stars = Array.from({ length: 5 }).map((_, i) => (i < full ? "★" : "☆"));
-  return <span className="text-orange-600">{stars.join("")}</span>;
+  return <span className="text-[#FFA41C]">{stars.join("")}</span>;
 }
 
 /* =========================
@@ -324,7 +326,7 @@ export const AboutThisItemSection = (): JSX.Element | null => {
 
   return (
     <section id="about" className="scroll-mt-24 px-4 sm:px-6 py-8 sm:py-10">
-      <div className="max-w-[1200px]">
+      <div className="max-w-[900px]">
         <div className="mb-6">
           <AssistantInline product={product} />
         </div>
@@ -417,9 +419,9 @@ export const FromTheBrandSection = (): JSX.Element | null => {
 
   return (
     <section id="aplus" className="scroll-mt-24 px-4 sm:px-6 py-8 sm:py-10">
-      <div className="max-w-[900px]">
+      <div className="max-w-[1200px] mx-auto">
         <h2 className="text-lg sm:text-xl font-semibold mb-4">From the brand</h2>
-        <div className="space-y-4 text-gray-700 text-sm w-full max-w-none break-words">
+        <div className="space-y-3 text-gray-700 text-sm w-full max-w-none break-words">
           {descriptionParas.map((p, i) => (
             <p key={`d-${i}`}>{p}</p>
           ))}
@@ -429,7 +431,7 @@ export const FromTheBrandSection = (): JSX.Element | null => {
               key={`exp-img-${i}`}
               src={src}
               alt={String(product?.title || "Product image")}
-              className="w-full max-w-none rounded-md border bg-white"
+              className="w-full rounded-md border bg-gray-50"
               loading="lazy"
               decoding="async"
             />
@@ -474,12 +476,7 @@ export const VideosSection = (): JSX.Element | null => {
         <h2 className="text-lg sm:text-xl font-semibold mb-4">Videos</h2>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           {videos.map((v, i) => (
-            <video
-              key={i}
-              controls
-              preload="metadata"
-              className="w-full rounded-md border bg-black"
-            >
+            <video key={i} controls preload="metadata" className="w-full rounded-md border bg-black">
               <source src={v.src} type={v.type} />
             </video>
           ))}
@@ -495,17 +492,29 @@ export const CustomerReviewsSection = (): JSX.Element => {
   const avg = useMemo(
     () =>
       formatAvgRating(
-        product?.reviews?.average_rating ?? product?.reviews?.avg_rating ?? product?.reviews?.rating
+        product?.reviews?.average_rating ??
+          product?.reviews?.avg_rating ??
+          product?.reviews?.rating
       ),
-    [product?.reviews?.average_rating, product?.reviews?.avg_rating, product?.reviews?.rating]
+    [
+      product?.reviews?.average_rating,
+      product?.reviews?.avg_rating,
+      product?.reviews?.rating,
+    ]
   );
 
   const count = useMemo(
     () =>
       normalizeReviewCount(
-        product?.reviews?.review_count ?? product?.reviews?.count ?? product?.reviews?.total
+        product?.reviews?.review_count ??
+          product?.reviews?.count ??
+          product?.reviews?.total
       ),
-    [product?.reviews?.review_count, product?.reviews?.count, product?.reviews?.total]
+    [
+      product?.reviews?.review_count,
+      product?.reviews?.count,
+      product?.reviews?.total,
+    ]
   );
 
   const dist = useMemo(() => normalizeRatingDistribution(product), [product]);
@@ -515,88 +524,297 @@ export const CustomerReviewsSection = (): JSX.Element => {
   );
 
   const items = Array.isArray(product?.reviews?.items) ? product.reviews.items : [];
-  const customersSay = product?.reviews?.customers_say ? String(product.reviews.customers_say) : "";
+  const customersSay = product?.reviews?.customers_say
+    ? String(product.reviews.customers_say)
+    : "";
+
+  // Optional “select to learn more” tags (supports a few possible shapes)
+  const learnMoreTags = useMemo(() => {
+    const raw =
+      product?.reviews?.learn_more_tags ||
+      product?.reviews?.tags ||
+      product?.reviews?.highlights ||
+      [];
+    if (!raw) return [];
+    if (Array.isArray(raw)) {
+      return raw
+        .map((t: any) => {
+          if (!t) return null;
+          if (typeof t === "string") return { label: t, count: null };
+          const label = String(t.label || t.text || t.name || "").trim();
+          const count = Number.isFinite(Number(t.count)) ? Number(t.count) : null;
+          if (!label) return null;
+          return { label, count };
+        })
+        .filter(Boolean) as { label: string; count: number | null }[];
+    }
+    return [];
+  }, [product?.reviews?.learn_more_tags, product?.reviews?.tags, product?.reviews?.highlights]);
+
+  // Optional review images (supports several shapes)
+  const reviewImages = useMemo(() => {
+    const raw =
+      product?.reviews?.images ||
+      product?.reviews?.review_images ||
+      product?.reviews?.media ||
+      [];
+    const arr = Array.isArray(raw) ? raw : [];
+    const urls = arr
+      .map((x: any) => safeUrl(typeof x === "string" ? x : x?.src || x?.url))
+      .filter(Boolean);
+
+    const seen = new Set<string>();
+    return urls.filter((u) => {
+      const k = u.toLowerCase();
+      if (seen.has(k)) return false;
+      seen.add(k);
+      return true;
+    });
+  }, [product?.reviews?.images, product?.reviews?.review_images, product?.reviews?.media]);
 
   return (
     <section id="reviews" className="scroll-mt-24 px-4 sm:px-6 py-8 sm:py-10">
-      <div className="max-w-[900px]">
-        <h2 className="text-lg sm:text-xl font-semibold mb-4">Customer reviews</h2>
+      <div className="max-w-[1200px] mx-auto">
+        <h2 className="text-[20px] font-bold text-[#0F1111] mb-4">Customer reviews</h2>
 
-        {(avg != null || count != null) && (
-          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-4">
-            <div className="flex items-center gap-2 text-sm">
+        <div className="grid grid-cols-1 lg:grid-cols-[340px_1fr] gap-8">
+          {/* LEFT: Rating Summary */}
+          <aside>
+            <div className="space-y-3">
               {avg != null ? (
-                <>
+                <div className="flex items-center gap-2">
                   <StarsInline value={avg} />
-                  <span className="text-gray-900 font-medium">{avg.toFixed(1)} out of 5</span>
-                </>
-              ) : null}
-              {count != null ? (
-                <span className="text-gray-500">({count.toLocaleString()})</span>
-              ) : null}
-            </div>
-          </div>
-        )}
-
-        {customersSay ? <p className="text-sm text-gray-700 mb-6">{customersSay}</p> : null}
-
-        {/* Histogram (optional, hide gracefully if missing) */}
-        {dist.length && distTotal > 0 ? (
-          <div className="mb-8">
-            <div className="space-y-2">
-              {dist.map((r) => {
-                const pct = Math.round((r.count / distTotal) * 100);
-                return (
-                  <div key={r.stars} className="flex items-center gap-3 text-sm">
-                    <div className="w-[64px] text-gray-700">{r.stars} star</div>
-                    <div className="flex-1 h-2 rounded bg-gray-200 overflow-hidden">
-                      <div className="h-2 bg-orange-500" style={{ width: `${pct}%` }} />
-                    </div>
-                    <div className="w-[56px] text-right text-gray-500">
-                      {pct}%
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-        ) : null}
-
-        {/* Review list (structured; do not rewrite) */}
-        {items.length ? (
-          <div className="space-y-4">
-            {items.slice(0, 12).map((r: any, i: number) => {
-              const rAvg = formatAvgRating(r?.rating ?? r?.stars);
-              return (
-                <div key={i} className="rounded-md border bg-white p-4 space-y-2">
-                  <div className="flex items-center justify-between gap-3">
-                    <div className="text-sm font-medium text-gray-900">
-                      {String(r?.author || "Customer")}
-                    </div>
-                    <div className="text-xs text-gray-500">{String(r?.date || "")}</div>
-                  </div>
-
-                  {(rAvg != null || r?.title) && (
-                    <div className="text-sm flex items-center gap-2">
-                      {rAvg != null ? <StarsInline value={rAvg} /> : null}
-                      {r?.title ? (
-                        <span className="font-semibold text-gray-900">{String(r.title)}</span>
-                      ) : null}
-                    </div>
-                  )}
-
-                  {r?.body ? (
-                    <div className="text-sm text-gray-700 whitespace-pre-wrap">
-                      {String(r.body)}
-                    </div>
-                  ) : null}
+                  <span className="text-[18px] font-medium text-[#0F1111]">
+                    {avg.toFixed(1)} out of 5
+                  </span>
                 </div>
-              );
-            })}
+              ) : null}
+
+              {count != null ? (
+                <div className="text-[14px] text-[#565959]">
+                  {count.toLocaleString()} global ratings
+                </div>
+              ) : null}
+
+              {/* Histogram */}
+              {dist.length && distTotal > 0 ? (
+                <div className="space-y-2 pt-2">
+                  {dist.map((r) => {
+                    const pct = Math.round((r.count / distTotal) * 100);
+                    return (
+                      <div key={r.stars} className="flex items-center gap-3 text-[14px]">
+                        <button
+                          type="button"
+                          className="w-[64px] text-left text-[#007185] hover:underline"
+                        >
+                          {r.stars} star
+                        </button>
+
+                        <div className="flex-1">
+                          <div className="h-[14px] rounded-[4px] border border-[#D5D9D9] bg-[#F0F2F2] overflow-hidden">
+                            <div
+                              className="h-[14px]"
+                              style={{ width: `${pct}%`, backgroundColor: "#FFA41C" }}
+                            />
+                          </div>
+                        </div>
+
+                        <button
+                          type="button"
+                          className="w-[44px] text-right text-[#007185] hover:underline"
+                        >
+                          {pct}%
+                        </button>
+                      </div>
+                    );
+                  })}
+                </div>
+              ) : null}
+
+              <button type="button" className="text-[14px] text-[#007185] hover:underline pt-2">
+                How customer reviews and ratings work
+              </button>
+            </div>
+          </aside>
+
+          {/* RIGHT: Customers say + tags + images + review list */}
+          <div className="space-y-6">
+            {/* Customers say */}
+            {customersSay ? (
+              <div>
+                <div className="text-[18px] font-bold text-[#0F1111] mb-2">Customers say</div>
+                <p className="text-[14px] text-[#0F1111] leading-[1.5]">{customersSay}</p>
+
+                <div className="mt-2 text-[12px] text-[#565959] italic flex items-center gap-2">
+                  <span aria-hidden="true" className="inline-block w-3 h-3 rounded-full bg-[#D5D9D9]" />
+                  <span>Generated from the text of customer reviews</span>
+                </div>
+
+                {learnMoreTags.length ? (
+                  <div className="mt-4">
+                    <div className="text-[12px] text-[#565959] mb-2">Select to learn more</div>
+                    <div className="flex flex-wrap gap-[10px]">
+                      {learnMoreTags.slice(0, 12).map((t, i) => (
+                        <button
+                          key={i}
+                          type="button"
+                          className="inline-flex items-center gap-2 rounded-full border border-[#D5D9D9] bg-white px-3 py-1 text-[14px] text-[#007185] hover:bg-[#F7FAFA]"
+                        >
+                          <span aria-hidden="true" className="text-green-600">
+                            ✓
+                          </span>
+                          <span>
+                            {t.label}
+                            {t.count != null ? ` (${t.count})` : ""}
+                          </span>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                ) : null}
+              </div>
+            ) : null}
+
+            {/* Reviews with images */}
+            {reviewImages.length ? (
+              <div>
+                <div className="flex items-center justify-between">
+                  <div className="text-[18px] font-bold text-[#0F1111]">Reviews with images</div>
+                  <button type="button" className="text-[14px] text-[#007185] hover:underline">
+                    See all photos
+                  </button>
+                </div>
+
+                <div className="mt-3 flex gap-[10px] overflow-x-auto pb-2">
+                  {reviewImages.slice(0, 10).map((src, i) => (
+                    <div
+                      key={i}
+                      className="shrink-0 w-[120px] h-[120px] rounded-[4px] overflow-hidden border border-[#D5D9D9] bg-white"
+                    >
+                      <img
+                        src={src}
+                        alt="Review image"
+                        className="w-full h-full object-cover"
+                        loading="lazy"
+                        decoding="async"
+                      />
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ) : null}
+
+            {/* Review List */}
+            <div>
+              <div className="text-[18px] font-bold text-[#0F1111] mb-4">
+                Top reviews from the United States
+              </div>
+
+              {items.length ? (
+                <div className="space-y-6">
+                  {items.slice(0, 12).map((r: any, i: number) => {
+                    const rAvg = formatAvgRating(r?.rating ?? r?.stars);
+
+                    const author = String(r?.author || "Customer");
+                    const title = r?.title ? String(r.title) : "";
+                    const date = r?.date ? String(r.date) : "";
+                    const body = r?.body ? String(r.body) : "";
+
+                    const location = r?.location ? String(r.location) : "United States";
+
+                    const attributes = r?.attributes
+                      ? String(r.attributes)
+                      : r?.variant
+                      ? String(r.variant)
+                      : "";
+
+                    const verified =
+                      r?.verified_purchase === true ||
+                      r?.verified === true ||
+                      String(r?.verified_purchase || "").toLowerCase() === "true" ||
+                      String(r?.badge || "").toLowerCase().includes("verified");
+
+                    const helpfulCount =
+                      Number.isFinite(Number(r?.helpful_count)) && Number(r.helpful_count) > 0
+                        ? Math.floor(Number(r.helpful_count))
+                        : null;
+
+                    return (
+                      <div key={i} className="pb-6 border-b border-[#D5D9D9] last:border-b-0">
+                        {/* User Profile Row */}
+                        <div className="flex items-center gap-2 mb-2">
+                          <div className="w-8 h-8 rounded-full bg-[#E7E9EC] flex items-center justify-center text-white">
+                            <span aria-hidden="true" className="text-[10px] leading-none">
+                              ●
+                            </span>
+                          </div>
+                          <div className="text-[14px] text-[#0F1111]">{author}</div>
+                        </div>
+
+                        {/* Rating & Title Row */}
+                        {(rAvg != null || title) && (
+                          <div className="flex items-center gap-2">
+                            {rAvg != null ? <StarsInline value={rAvg} /> : null}
+                            {title ? (
+                              <div className="text-[14px] font-bold text-[#0F1111]">{title}</div>
+                            ) : null}
+                          </div>
+                        )}
+
+                        {/* Metadata Row */}
+                        {(date || location) && (
+                          <div className="mt-1 text-[12px] text-[#565959]">
+                            Reviewed in {location}
+                            {date ? ` on ${date}` : ""}
+                          </div>
+                        )}
+
+                        {/* Attributes */}
+                        {attributes ? (
+                          <div className="mt-1 text-[12px] text-[#565959]">{attributes}</div>
+                        ) : null}
+
+                        {/* Verified Purchase */}
+                        {verified ? (
+                          <div className="mt-1 text-[12px] font-bold text-[#C45500]">
+                            Verified Purchase
+                          </div>
+                        ) : null}
+
+                        {/* Review Body */}
+                        {body ? (
+                          <p className="mt-2 text-[14px] text-[#0F1111] leading-[1.5]">{body}</p>
+                        ) : null}
+
+                        {/* Helpful Count */}
+                        {helpfulCount != null ? (
+                          <div className="mt-3 text-[12px] text-[#565959]">
+                            {helpfulCount} people found this helpful
+                          </div>
+                        ) : null}
+
+                        {/* Action Row */}
+                        <div className="mt-2 flex items-center gap-3">
+                          <button
+                            type="button"
+                            className="rounded-[8px] border border-[#D5D9D9] bg-white px-4 py-1 text-[14px] text-[#0F1111] hover:bg-[#F7FAFA]"
+                          >
+                            Helpful
+                          </button>
+                          <button type="button" className="text-[14px] text-[#565959] hover:underline">
+                            Report
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              ) : (
+                <p className="text-[14px] text-[#565959]">No reviews available.</p>
+              )}
+            </div>
           </div>
-        ) : (
-          <p className="text-sm text-gray-600">No reviews available.</p>
-        )}
+        </div>
       </div>
     </section>
   );
