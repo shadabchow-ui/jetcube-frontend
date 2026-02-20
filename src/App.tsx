@@ -76,7 +76,7 @@ function lazyCompat<TProps = any>(
 /* ============================
    Lazy-loaded screens (Vite-safe)
    ============================ */
-const Checkout = lazyCompat(() => import("./pages/Checkout"), [
+const Checkout = lazyCompat(() => import("./screens/Checkout"), [
   "default",
   "Checkout",
 ]);
