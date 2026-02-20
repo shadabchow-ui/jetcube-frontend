@@ -62,6 +62,19 @@ function stripAmazonSizeModifiers(url: string) {
     .replace(/\._SL\d+_\./g, ".");
 }
 
+function safeUrl(u: any): string {
+  const s = String(u || "").trim();
+  if (!s) return "";
+  if (!/^https?:\/\//i.test(s)) return "";
+  return stripAmazonSizeModifiers(s);
+}
+
+function urlKey(u: any): string {
+  const s = safeUrl(u);
+  if (!s) return "";
+  return s.split("#")[0].split("?")[0].toLowerCase();
+}
+
 function pickDescription(product: any) {
   const v = String(product?.seo_rewrite_version || "v0.0.0");
   const dSeo = stripPrefix(String(product?.description_seo || ""));
@@ -71,27 +84,57 @@ function pickDescription(product: any) {
   return shortD || longD || "";
 }
 
-function pickTwoAplusImages(product: any): string[] {
+/**
+ * Deterministic: only render real A+ / description images.
+ * Strict separation:
+ * - DO NOT use gallery images
+ * - Only allow-list images explicitly present in product.aplus_images or product.description_images
+ * - Long description blocks may include img URLs, but we only keep them if they match the allow-list
+ */
+function pickTwoDetailImages(product: any): string[] {
   const aplus: string[] = Array.isArray(product?.aplus_images)
-    ? product.aplus_images.map(String).filter(Boolean)
+    ? product.aplus_images.map(safeUrl).filter(Boolean)
+    : [];
+  const descImgs: string[] = Array.isArray(product?.description_images)
+    ? product.description_images.map(safeUrl).filter(Boolean)
     : [];
 
-  if (aplus.length >= 2) return aplus.slice(0, 2).map(stripAmazonSizeModifiers);
+  const allowKeys = new Set<string>();
+  for (const u of [...aplus, ...descImgs]) {
+    const k = urlKey(u);
+    if (k) allowKeys.add(k);
+  }
 
+  // Optionally include long_description_blocks images, but only if allow-listed
   const blocks = Array.isArray(product?.long_description_blocks)
     ? product.long_description_blocks
     : [];
-
   const imgsFromBlocks = blocks
     .filter((b: any) => b?.type === "img" && b?.src)
-    .map((b: any) => String(b.src))
+    .map((b: any) => safeUrl(b.src))
+    .filter(Boolean)
+    .filter((u: string) => {
+      const k = urlKey(u);
+      return !!k && allowKeys.has(k);
+    });
+
+  const merged = [...aplus, ...descImgs, ...imgsFromBlocks]
+    .map((u) => stripAmazonSizeModifiers(u))
     .filter(Boolean);
 
-  const merged = [...aplus, ...imgsFromBlocks]
-    .map(stripAmazonSizeModifiers)
-    .filter(Boolean);
+  // Stable de-dupe in order
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const u of merged) {
+    const k = urlKey(u);
+    if (!k) continue;
+    if (seen.has(k)) continue;
+    seen.add(k);
+    out.push(u);
+    if (out.length >= 2) break;
+  }
 
-  return merged.slice(0, 2);
+  return out;
 }
 
 const DescriptionSection: React.FC = () => {
@@ -100,15 +143,9 @@ const DescriptionSection: React.FC = () => {
   const description = useMemo(() => pickDescription(product), [product]);
   const paragraphs = useMemo(() => splitTextIntoParagraphs(description), [description]);
 
-  const aplusImgs = useMemo(() => pickTwoAplusImages(product), [product]);
-
-  // Keep existing layout: 2 images, 1 text block
-  const img1 =
-    aplusImgs[0] ||
-    "https://images.unsplash.com/photo-1512436991641-6745cdb1723f?auto=format&fit=crop&w=1200&q=80";
-  const img2 =
-    aplusImgs[1] ||
-    "https://images.unsplash.com/photo-1523381210434-271e8be1f52b?auto=format&fit=crop&w=1200&q=80";
+  const detailImgs = useMemo(() => pickTwoDetailImages(product), [product]);
+  const img1 = detailImgs[0] || "";
+  const img2 = detailImgs[1] || "";
 
   return (
     <section className="w-full bg-white">
@@ -126,21 +163,31 @@ const DescriptionSection: React.FC = () => {
             </div>
           </div>
 
+          {/* Keep layout structure, but remove all placeholder imagery */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <img
-              src={img1}
-              alt="Product detail"
-              className="w-full h-[260px] object-cover rounded-lg border"
-              loading="lazy"
-              decoding="async"
-            />
-            <img
-              src={img2}
-              alt="Product detail"
-              className="w-full h-[260px] object-cover rounded-lg border"
-              loading="lazy"
-              decoding="async"
-            />
+            {img1 ? (
+              <img
+                src={img1}
+                alt="Product detail"
+                className="w-full h-[260px] object-cover rounded-lg border"
+                loading="lazy"
+                decoding="async"
+              />
+            ) : (
+              <div className="sm:col-span-2 text-sm text-gray-500 border rounded-lg p-4">
+                No additional images.
+              </div>
+            )}
+
+            {img2 ? (
+              <img
+                src={img2}
+                alt="Product detail"
+                className="w-full h-[260px] object-cover rounded-lg border"
+                loading="lazy"
+                decoding="async"
+              />
+            ) : null}
           </div>
         </div>
       </div>
