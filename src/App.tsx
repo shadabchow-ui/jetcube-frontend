@@ -17,6 +17,7 @@ import HelpLayout from "./layouts/HelpLayout";
 
 import ShopAllCategories from "./screens/Shop/ShopAllCategories";
 import { Shop } from "./screens/Shop";
+import Home from "./screens/Home";
 
 import OrdersPage from "./pages/OrdersPage";
 import WishlistPage from "./pages/WishlistPage";
@@ -52,7 +53,7 @@ import * as WishlistContextMod from "./context/WishlistContext";
    ============================ */
 function lazyCompat<TProps = any>(
   importer: () => Promise<any>,
-  exportNames: string[] = [],
+  exportNames: string[] = []
 ) {
   return React.lazy(async () => {
     const mod: any = await importer();
@@ -64,8 +65,8 @@ function lazyCompat<TProps = any>(
     if (!picked) {
       throw new Error(
         `lazyCompat: could not resolve any export from module. Tried: ${exportNames.join(
-          ", ",
-        )}`,
+          ", "
+        )}`
       );
     }
 
@@ -76,11 +77,11 @@ function lazyCompat<TProps = any>(
 /* ============================
    Lazy-loaded screens (Vite-safe)
    ============================ */
-const Checkout = lazyCompat(() => import("./screens/Checkout"), [
+const Checkout = lazyCompat(() => import("./screens/Checkout/Checkout"), [
   "default",
   "Checkout",
 ]);
-const Cart = lazyCompat(() => import("./screens/Cart"), ["default", "Cart"]);
+const Cart = lazyCompat(() => import("./screens/Cart/Cart"), ["default", "Cart"]);
 
 /* ============================
    Product Fetch Wrapper
@@ -268,7 +269,7 @@ const router = createBrowserRouter([
     element: <MainLayout />,
     children: [
       // ✅ FIX: homepage should not be the category directory
-      { index: true, element: <Shop /> },
+      { index: true, element: <Home /> },
 
       // ✅ Category directory lives here
       { path: "departments", element: <ShopAllCategories /> },
