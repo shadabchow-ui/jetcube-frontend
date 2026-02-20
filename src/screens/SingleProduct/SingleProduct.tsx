@@ -7,7 +7,7 @@ import { ProductHeroSection } from "./sections/ProductHeroSection";
 // If any export names differ, keep the structure below and align the names in that module (not here).
 import {
   AboutThisItemSection,
-  ProductDetailsSection as ProductDetailsSectionInner,
+  ProductDetailsSectionInner,
   FromTheBrandSection,
   VideosSection,
   CustomerReviewsSection,
