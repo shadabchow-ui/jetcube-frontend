@@ -339,11 +339,16 @@ export const ProductHeroSection = (): JSX.Element => {
 
   const [selectedColor, setSelectedColor] = useState<string>("");
   const [selectedSize, setSelectedSize] = useState<string>("");
+  // Strict gallery isolation:
+  // - Default gallery uses ONLY base product images.
+  // - Only switch to color_images when user explicitly selects a color.
+  const [colorUserSelected, setColorUserSelected] = useState(false);
 
   useEffect(() => {
     // Initialize selected color deterministically
     const first = (colors[0] || swatchKeys[0] || "").trim();
     setSelectedColor(first);
+    setColorUserSelected(false);
   }, [colors.join("|"), swatchKeys.join("|")]);
 
   // Canonical sizes (fix shoe-size pollution when chart exists)
@@ -360,13 +365,19 @@ export const ProductHeroSection = (): JSX.Element => {
 
   // If color_images[selectedColor] exists, use it as the gallery source
   const displayedImages = useMemo(() => {
-    if (selectedColor && colorImagesMap && Array.isArray(colorImagesMap?.[selectedColor])) {
+    // STRICT: only use color images if a color is selected by the user AND data exists
+    if (
+      colorUserSelected &&
+      selectedColor &&
+      colorImagesMap &&
+      Array.isArray(colorImagesMap?.[selectedColor])
+    ) {
       const arr = (colorImagesMap[selectedColor] || []).map(String).filter(Boolean);
       const picked = selectBestImageVariant(arr);
       if (picked.length) return picked;
     }
     return baseImages;
-  }, [baseImages, colorImagesMap, selectedColor]);
+  }, [baseImages, colorImagesMap, selectedColor, colorUserSelected]);
 
   const [activeImage, setActiveImage] = useState<string>("");
 
@@ -603,7 +614,16 @@ export const ProductHeroSection = (): JSX.Element => {
                 {boughtInPastMonth ? <BoughtBadge text={boughtInPastMonth} /> : null}
 
                 {avg || reviewCount ? (
-                  <div className="flex items-center gap-2 text-sm">
+                  <button
+                    type="button"
+                    className="flex items-center gap-2 text-sm"
+                    onClick={() => {
+                      document
+                        .getElementById("reviews")
+                        ?.scrollIntoView({ behavior: "smooth" });
+                    }}
+                    aria-label="Jump to reviews"
+                  >
                     {avg ? <Stars value={avg} /> : null}
                     {avg ? <span className="text-[#0F1111]">{avg.toFixed(1)}</span> : null}
                     {reviewCount ? (
@@ -611,7 +631,7 @@ export const ProductHeroSection = (): JSX.Element => {
                         ({Number(reviewCount).toLocaleString()})
                       </span>
                     ) : null}
-                  </div>
+                  </button>
                 ) : null}
 
                 <div className="text-2xl font-bold text-[#0F1111]">{displayPrice}</div>
@@ -638,7 +658,10 @@ export const ProductHeroSection = (): JSX.Element => {
                           <button
                             key={c}
                             type="button"
-                            onClick={() => setSelectedColor(c)}
+                            onClick={() => {
+                              setColorUserSelected(true);
+                              setSelectedColor(c);
+                            }}
                             className={`flex items-center gap-2 border rounded px-2 py-2 text-sm ${
                               isActive ? "border-black" : "border-gray-300 hover:border-black"
                             }`}
@@ -787,7 +810,7 @@ export const ProductHeroSection = (): JSX.Element => {
             </div>
 
             {/* Buy box (DO NOT MOVE / DO NOT CHANGE LAYOUT) */}
-            <div className="border rounded-lg p-5 bg-white space-y-4">
+            <div className="border rounded-lg p-5 bg-white space-y-4 lg:sticky lg:top-3 lg:self-start">
               <div className="text-2xl font-bold text-[#0F1111]">{displayPrice}</div>
 
               <div className="text-[13px] text-[#0F1111]">
