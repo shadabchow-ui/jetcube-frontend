@@ -6,6 +6,7 @@ import {
   Navigate,
   useParams,
 } from "react-router-dom";
+
 import { R2_BASE, joinUrl } from "./config/r2";
 
 /* ============================
@@ -30,19 +31,60 @@ import HelpIndex from "./pages/help/HelpIndex";
 
 import SingleProduct from "./screens/SingleProduct/SingleProduct";
 
+// PDP Context
+import * as PdpContext from "./pdp/ProductPdpContext";
+
+/* ============================
+   Providers
+   ============================ */
 import { CartProvider } from "./context/CartContext";
-import { useCart } from "./context/CartContext";
+import {
+  AssistantContextProvider,
+  AssistantLauncher,
+  AssistantDrawer,
+} from "./components/RufusAssistant";
+
+// ✅ Fix runtime crash: wrap app with WishlistProvider
 import * as WishlistContextMod from "./context/WishlistContext";
 
-import AssistantProvider from "./assistant/AssistantProvider";
+/* ============================
+   Lazy module resolver (Vite-safe)
+   ============================ */
+function lazyCompat<TProps = any>(
+  importer: () => Promise<any>,
+  exportNames: string[] = [],
+) {
+  return React.lazy(async () => {
+    const mod: any = await importer();
+    const picked =
+      exportNames.map((k) => mod?.[k]).find((v) => v != null) ??
+      mod?.default ??
+      mod;
 
-const Checkout = React.lazy(() => import("./pages/Checkout"));
-const Cart = React.lazy(() => import("./pages/Cart"));
+    if (!picked) {
+      throw new Error(
+        `lazyCompat: could not resolve any export from module. Tried: ${exportNames.join(
+          ", ",
+        )}`,
+      );
+    }
+
+    return { default: picked };
+  }) as any;
+}
+
+/* ============================
+   Lazy-loaded screens (Vite-safe)
+   ============================ */
+const Checkout = lazyCompat(() => import("./pages/Checkout"), [
+  "default",
+  "Checkout",
+]);
+const Cart = lazyCompat(() => import("./pages/Cart"), ["default", "Cart"]);
 
 /* ============================
    Product Fetch Wrapper
    ============================ */
-
 function useSlugParam() {
   const { slug } = useParams();
   return slug || "";
@@ -51,9 +93,7 @@ function useSlugParam() {
 function normalizeProductPath(p: string) {
   const s = String(p || "").trim();
   if (!s) return s;
-  // If it's already a full URL, keep it.
   if (/^https?:\/\//i.test(s)) return s;
-  // Normalize leading slashes so joinUrl behaves.
   return s.replace(/^\/+/, "");
 }
 
@@ -71,8 +111,6 @@ async function fetchProductJsonWithFallback(productRelOrUrl: string) {
 }
 
 async function fetchIndexManifest() {
-  // These are the common manifest locations we’ve used across builds.
-  // Keep deterministic, no extra endpoints beyond R2_BASE.
   const candidates = [
     joinUrl(R2_BASE, "_index.json"),
     joinUrl(R2_BASE, "indexes/_index.json"),
@@ -98,23 +136,17 @@ async function fetchShard(url: string) {
   }
 }
 
-// Simple deterministic shard key resolver.
-// Different manifests may encode shard naming differently; we handle common patterns.
 function resolveShardKeyFromManifest(handle: string, shardMap: Record<string, any>) {
   if (!handle) return null;
 
-  // 1) Direct key match (rare but exists)
   if (Object.prototype.hasOwnProperty.call(shardMap, handle)) return handle;
 
-  // 2) If keys are like "a", "b", "c" or "00", "01", etc, hash by first char / suffix.
   const keys = Object.keys(shardMap);
   if (!keys.length) return null;
 
-  // Common: alphabetical buckets (a..z)
   const first = handle[0]?.toLowerCase();
   if (first && keys.includes(first)) return first;
 
-  // Common: numeric shards like "00".."99" based on simple hash/mod
   const numericKeys = keys.filter((k) => /^\d+$/.test(k));
   if (numericKeys.length) {
     let h = 0;
@@ -124,7 +156,6 @@ function resolveShardKeyFromManifest(handle: string, shardMap: Record<string, an
     return sorted[idx];
   }
 
-  // Fallback: try first 2 chars bucket if present
   const first2 = handle.slice(0, 2).toLowerCase();
   if (first2 && keys.includes(first2)) return first2;
 
@@ -132,7 +163,6 @@ function resolveShardKeyFromManifest(handle: string, shardMap: Record<string, an
 }
 
 async function fetchProductJson(slug: string) {
-  // Default fallback path if manifests aren’t available.
   const defaultRel = `p/${slug}.json`;
   const defaultUrl = joinUrl(R2_BASE, defaultRel);
 
@@ -142,7 +172,6 @@ async function fetchProductJson(slug: string) {
     // fall through to manifest-based resolution
   }
 
-  // Try to resolve via manifest shards.
   const idx = await fetchIndexManifest();
   if (!idx) return null;
 
@@ -155,7 +184,6 @@ async function fetchProductJson(slug: string) {
     idx?.map?.[handle] ||
     null;
 
-  // If not a direct lookup, attempt shard resolution.
   if (!productPath) {
     try {
       const shardMap =
@@ -194,9 +222,6 @@ function ProductRoute({ children }: { children: React.ReactNode }) {
   const handle = useSlugParam();
   const [product, setProduct] = React.useState<any>(null);
   const [error, setError] = React.useState<string | null>(null);
-
-  // eslint-disable-next-line @typescript-eslint/no-var-requires
-  const PdpContext = require("./pdp/ProductPdpContext");
 
   React.useEffect(() => {
     let cancelled = false;
@@ -237,7 +262,6 @@ function ProductRoute({ children }: { children: React.ReactNode }) {
 /* ============================
    Router
    ============================ */
-
 const router = createBrowserRouter([
   {
     path: "/",
@@ -317,13 +341,24 @@ export default function App() {
   return (
     <CartProvider>
       <WishlistProvider>
-        <AssistantProvider>
+        <AssistantContextProvider>
           <RouterProvider router={router} />
-        </AssistantProvider>
+          <AssistantLauncher />
+          <AssistantDrawer />
+        </AssistantContextProvider>
       </WishlistProvider>
     </CartProvider>
   );
 }
+
+/* ============================
+   PDP wiring: keep backward compatibility
+   ============================ */
+
+// If you previously relied on these exports being present in this file, keep them.
+// Otherwise, they can be removed safely.
+export const ProductPdpProvider = (PdpContext as any).ProductPdpProvider as any;
+export const useProductPdp = (PdpContext as any).useProductPdp as any;
 
 /* ============================
    Notes / Helpers (Existing)
@@ -332,17 +367,10 @@ export default function App() {
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
 function CartIcon() {
   // This is kept in case you wire the cart icon into a header in the future.
-  const cart = useCart();
-  const count = cart?.items?.length ?? 0;
-
+  // If CartContext changes shape, adjust accordingly.
   return (
     <div className="relative inline-flex items-center">
       <span>Cart</span>
-      {count > 0 && (
-        <span className="ml-2 inline-flex h-5 min-w-[20px] items-center justify-center rounded-full bg-red-600 px-2 text-xs font-bold text-white">
-          {count}
-        </span>
-      )}
     </div>
   );
 }
