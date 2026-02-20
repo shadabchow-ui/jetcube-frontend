@@ -119,18 +119,6 @@ function pickSafeDescriptionText(product: any): string {
   return "";
 }
 
-function semverGte(a: string, b: string) {
-  const pa = a.split(".").map((x) => parseInt(x, 10));
-  const pb = b.split(".").map((x) => parseInt(x, 10));
-  for (let i = 0; i < 3; i++) {
-    const da = pa[i] || 0;
-    const db = pb[i] || 0;
-    if (da > db) return true;
-    if (da < db) return false;
-  }
-  return true;
-}
-
 function sanitizeVideos(rawVideos: any[]): { src: string; type: string }[] {
   if (!Array.isArray(rawVideos)) return [];
   const out: { src: string; type: string }[] = [];
@@ -327,7 +315,7 @@ export const AboutThisItemSection = (): JSX.Element | null => {
   if (!bullets.length) return null;
 
   return (
-    <section className="px-4 sm:px-6 py-8 sm:py-10">
+    <section id="about" className="scroll-mt-24 px-4 sm:px-6 py-8 sm:py-10">
       <div className="max-w-[900px]">
         <div className="mb-6">
           <AssistantInline product={product} />
@@ -349,7 +337,7 @@ export const ProductDetailsSectionInner = (): JSX.Element | null => {
   if (!rows.length) return null;
 
   return (
-    <section className="px-4 sm:px-6 py-8 sm:py-10">
+    <section id="details" className="scroll-mt-24 px-4 sm:px-6 py-8 sm:py-10">
       <div className="max-w-[900px]">
         <h2 className="text-lg sm:text-xl font-semibold mb-4">Product details</h2>
         <div className="overflow-x-auto rounded-md border bg-white">
@@ -401,7 +389,7 @@ export const FromTheBrandSection = (): JSX.Element | null => {
   if (!hasAny) return null;
 
   return (
-    <section className="px-4 sm:px-6 py-8 sm:py-10">
+    <section id="aplus" className="scroll-mt-24 px-4 sm:px-6 py-8 sm:py-10">
       <div className="max-w-[900px]">
         <h2 className="text-lg sm:text-xl font-semibold mb-4">From the brand</h2>
         <div className="space-y-3 text-gray-700 text-sm w-full max-w-none break-words">
@@ -443,7 +431,7 @@ export const VideosSection = (): JSX.Element | null => {
   if (!videos.length) return null;
 
   return (
-    <section className="px-4 sm:px-6 py-8 sm:py-10">
+    <section id="videos" className="scroll-mt-24 px-4 sm:px-6 py-8 sm:py-10">
       <div className="max-w-[900px]">
         <h2 className="text-lg sm:text-xl font-semibold mb-4">Videos</h2>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -487,7 +475,7 @@ export const CustomerReviewsSection = (): JSX.Element => {
   const customersSay = product?.reviews?.customers_say ? String(product.reviews.customers_say) : "";
 
   return (
-    <section className="px-4 sm:px-6 py-8 sm:py-10">
+    <section id="reviews" className="scroll-mt-24 px-4 sm:px-6 py-8 sm:py-10">
       <div className="max-w-[900px]">
         <h2 className="text-lg sm:text-xl font-semibold mb-4">Customer reviews</h2>
 
