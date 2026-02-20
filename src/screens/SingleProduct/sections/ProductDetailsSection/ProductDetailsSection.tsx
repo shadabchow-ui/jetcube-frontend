@@ -170,12 +170,17 @@ type SpecRow = { label: string; value: string };
 
 function normalizeSpecRows(product: any): SpecRow[] {
   const out: SpecRow[] = [];
-  const push = (label: any, value: any) => {
-    const l = String(label || "").trim();
-    const v = String(value ?? "").trim();
-    if (!l || !v) return;
-    out.push({ label: l, value: v });
-  };
+const push = (label: any, value: any) => {
+  const l = String(label || "").trim();
+  const v = String(value ?? "").trim();
+  if (!l || !v) return;
+
+  // ✅ hide ASIN row on PDP (do not display in Product details)
+  const ll = l.toLowerCase().replace(/\s+/g, " ").trim();
+  if (ll === "asin" || ll.includes("asin")) return;
+
+  out.push({ label: l, value: v });
+};
 
   const candidates = [
     product?.specs,
