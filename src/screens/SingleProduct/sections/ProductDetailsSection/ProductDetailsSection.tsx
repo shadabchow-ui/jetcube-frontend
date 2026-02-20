@@ -76,9 +76,7 @@ function urlKey(u: string) {
   return normalizeAmazonImageUrl(noQuery);
 }
 
-type LongBlock =
-  | { type: "p"; text: string }
-  | { type: "img"; src: string };
+type LongBlock = { type: "p"; text: string } | { type: "img"; src: string };
 
 function pickSafeDescriptionText(product: any): string {
   if (!product) return "";
@@ -223,7 +221,8 @@ function sanitizeVideos(rawVideos: any[]): { src: string; type: string }[] {
 export const ProductDetailsSection = (): JSX.Element => {
   const product: any = useProductPdp();
 
-  // Build a strict allow-list for description/A+ images ONLY
+  // Strict allow-list for description/A+ images ONLY
+  // (This prevents gallery/variant images from ever leaking into the description area.)
   const allowedDescriptionImageKeys = useMemo(() => {
     const merged = [
       ...(Array.isArray(product?.description_images) ? product.description_images : []),
@@ -238,24 +237,10 @@ export const ProductDetailsSection = (): JSX.Element => {
     return keys;
   }, [product?.description_images, product?.aplus_images]);
 
-  // Build a strict disallow list for gallery images (never render in description)
-  const galleryImageKeys = useMemo(() => {
-    const imgs = Array.isArray(product?.images) ? product.images : [];
-    const keys = new Set<string>();
-    for (const u of imgs) {
-      const k = urlKey(u);
-      if (k) keys.add(k);
-    }
-    return keys;
-  }, [product?.images]);
-
   const longBlocks = useMemo(() => normalizeLongBlocks(product), [product]);
   const videos = useMemo(() => sanitizeVideos(product?.videos), [product?.videos]);
   const descriptionText = useMemo(() => pickSafeDescriptionText(product), [product]);
-  const descriptionParas = useMemo(
-    () => splitParagraphs(descriptionText),
-    [descriptionText]
-  );
+  const descriptionParas = useMemo(() => splitParagraphs(descriptionText), [descriptionText]);
 
   const related = Array.isArray(product?.related) ? product.related : [];
   const alsoViewed = Array.isArray(product?.customer_also_viewed)
@@ -280,13 +265,10 @@ export const ProductDetailsSection = (): JSX.Element => {
 
             const k = urlKey(b.src);
 
-            // STRICT SEPARATION:
-            // - allow ONLY A+ / description_images
-            // - explicitly block gallery images (even if injected)
-            const allowed =
-              (!!k && allowedDescriptionImageKeys.has(k)) &&
-              (!k || !galleryImageKeys.has(k));
-
+            // STRICT:
+            // - render ONLY if the image is explicitly present in description_images/aplus_images
+            // - this remains stable even if PDP gallery swaps images due to variant selection
+            const allowed = !!k && allowedDescriptionImageKeys.has(k);
             if (!allowed) return null;
 
             return (
@@ -309,12 +291,7 @@ export const ProductDetailsSection = (): JSX.Element => {
           <h2 className="text-lg sm:text-xl font-semibold mb-4">Videos</h2>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 max-w-[900px]">
             {videos.map((v, i) => (
-              <video
-                key={i}
-                controls
-                preload="metadata"
-                className="w-full rounded-md border bg-black"
-              >
+              <video key={i} controls preload="metadata" className="w-full rounded-md border bg-black">
                 <source src={v.src} type={v.type} />
               </video>
             ))}
@@ -327,31 +304,22 @@ export const ProductDetailsSection = (): JSX.Element => {
         <h2 className="text-lg sm:text-xl font-semibold mb-4">Reviews</h2>
 
         {product?.reviews?.customers_say ? (
-          <p className="text-sm text-gray-700 mb-4">
-            {String(product.reviews.customers_say)}
-          </p>
+          <p className="text-sm text-gray-700 mb-4">{String(product.reviews.customers_say)}</p>
         ) : null}
 
         {Array.isArray(product?.reviews?.items) && product.reviews.items.length ? (
           <div className="space-y-4 max-w-[900px]">
             {product.reviews.items.slice(0, 8).map((r: any, i: number) => (
-              <div
-                key={i}
-                className="rounded-md border bg-white p-4 space-y-2"
-              >
+              <div key={i} className="rounded-md border bg-white p-4 space-y-2">
                 <div className="flex items-center justify-between gap-3">
                   <div className="text-sm font-medium text-gray-900">
                     {String(r?.author || "Customer")}
                   </div>
-                  <div className="text-xs text-gray-500">
-                    {String(r?.date || "")}
-                  </div>
+                  <div className="text-xs text-gray-500">{String(r?.date || "")}</div>
                 </div>
 
                 {r?.title ? (
-                  <div className="text-sm font-semibold text-gray-900">
-                    {String(r.title)}
-                  </div>
+                  <div className="text-sm font-semibold text-gray-900">{String(r.title)}</div>
                 ) : null}
 
                 {r?.body ? (
