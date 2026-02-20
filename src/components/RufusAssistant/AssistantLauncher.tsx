@@ -1,21 +1,26 @@
 import React from "react";
+import { createPortal } from "react-dom";
 
-import { AssistantContextProvider } from "./AssistantContext";
 import { AssistantDrawer } from "./AssistantDrawer";
 import { AssistantInline } from "./AssistantInline";
 
-export type AssistantContextType = "home" | "category" | "product";
+/**
+ * AssistantLauncher
+ *
+ * Renders assistant UI in a portal so it does NOT sit inside layouts/footers.
+ * NOTE: This component assumes an AssistantContextProvider exists ABOVE it
+ * (we mount that once in App.tsx).
+ */
+const AssistantLauncher: React.FC = () => {
+  // Avoid SSR / build-time DOM access
+  if (typeof document === "undefined") return null;
 
-type Props = {
-  context: AssistantContextType;
-};
-
-const AssistantLauncher: React.FC<Props> = ({ context }) => {
-  return (
-    <AssistantContextProvider context={context}>
+  return createPortal(
+    <>
       <AssistantDrawer />
       <AssistantInline />
-    </AssistantContextProvider>
+    </>,
+    document.body
   );
 };
 
