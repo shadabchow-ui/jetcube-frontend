@@ -324,7 +324,7 @@ export const AboutThisItemSection = (): JSX.Element | null => {
 
   return (
     <section id="about" className="scroll-mt-24 px-4 sm:px-6 py-8 sm:py-10">
-      <div className="max-w-[900px]">
+      <div className="max-w-[1200px]">
         <div className="mb-6">
           <AssistantInline product={product} />
         </div>
@@ -419,7 +419,7 @@ export const FromTheBrandSection = (): JSX.Element | null => {
     <section id="aplus" className="scroll-mt-24 px-4 sm:px-6 py-8 sm:py-10">
       <div className="max-w-[900px]">
         <h2 className="text-lg sm:text-xl font-semibold mb-4">From the brand</h2>
-        <div className="space-y-3 text-gray-700 text-sm w-full max-w-none break-words">
+        <div className="space-y-4 text-gray-700 text-sm w-full max-w-none break-words">
           {descriptionParas.map((p, i) => (
             <p key={`d-${i}`}>{p}</p>
           ))}
@@ -429,7 +429,7 @@ export const FromTheBrandSection = (): JSX.Element | null => {
               key={`exp-img-${i}`}
               src={src}
               alt={String(product?.title || "Product image")}
-              className="w-full rounded-md border bg-gray-50"
+              className="w-full max-w-none rounded-md border bg-white"
               loading="lazy"
               decoding="async"
             />
