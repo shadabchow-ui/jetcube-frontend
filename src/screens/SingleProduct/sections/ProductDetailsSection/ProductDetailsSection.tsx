@@ -51,7 +51,8 @@ type LongBlock = { type: "p"; text: string } | { type: "img"; src: string };
 
 function normalizeLongBlocks(product: any): LongBlock[] {
   const blocks: LongBlock[] = [];
-  const src = product?.description_long || product?.long_description || product?.description_blocks;
+  const src =
+    product?.description_long || product?.long_description || product?.description_blocks;
 
   // Some scrapes store blocks in an array, others as html-ish text. We only support:
   // - paragraphs of text
@@ -68,7 +69,11 @@ function normalizeLongBlocks(product: any): LongBlock[] {
         if ((b as any).type === "img" || (b as any).kind === "img") {
           const u = safeUrl((b as any).src || (b as any).url);
           if (u) blocks.push({ type: "img", src: u });
-        } else if ((b as any).type === "p" || (b as any).kind === "p" || (b as any).text) {
+        } else if (
+          (b as any).type === "p" ||
+          (b as any).kind === "p" ||
+          (b as any).text
+        ) {
           const t = String((b as any).text || "").trim();
           if (t) blocks.push({ type: "p", text: t });
         }
@@ -142,11 +147,18 @@ function sanitizeVideos(rawVideos: any[]): { src: string; type: string }[] {
     let type = "";
     const t = typeof v === "object" ? String(v.type || v.mime || "").toLowerCase() : "";
     if (t && (t.includes("video/") || t.includes("mp4") || t.includes("webm") || t.includes("ogg"))) {
-      type = t.includes("video/") ? t : t.includes("webm") ? "video/webm" : t.includes("ogg") ? "video/ogg" : "video/mp4";
+      type = t.includes("video/")
+        ? t
+        : t.includes("webm")
+        ? "video/webm"
+        : t.includes("ogg")
+        ? "video/ogg"
+        : "video/mp4";
     } else {
       // infer by extension
       if (url.toLowerCase().endsWith(".webm")) type = "video/webm";
-      else if (url.toLowerCase().endsWith(".ogv") || url.toLowerCase().endsWith(".ogg")) type = "video/ogg";
+      else if (url.toLowerCase().endsWith(".ogv") || url.toLowerCase().endsWith(".ogg"))
+        type = "video/ogg";
       else type = "video/mp4";
     }
 
@@ -452,9 +464,7 @@ export const CustomerReviewsSection = (): JSX.Element => {
   const avg = useMemo(
     () =>
       formatAvgRating(
-        product?.reviews?.average_rating ??
-          product?.reviews?.avg_rating ??
-          product?.reviews?.rating
+        product?.reviews?.average_rating ?? product?.reviews?.avg_rating ?? product?.reviews?.rating
       ),
     [product?.reviews?.average_rating, product?.reviews?.avg_rating, product?.reviews?.rating]
   );
@@ -462,9 +472,7 @@ export const CustomerReviewsSection = (): JSX.Element => {
   const count = useMemo(
     () =>
       normalizeReviewCount(
-        product?.reviews?.review_count ??
-          product?.reviews?.count ??
-          product?.reviews?.total
+        product?.reviews?.review_count ?? product?.reviews?.count ?? product?.reviews?.total
       ),
     [product?.reviews?.review_count, product?.reviews?.count, product?.reviews?.total]
   );
@@ -513,7 +521,9 @@ export const CustomerReviewsSection = (): JSX.Element => {
                     <div className="flex-1 h-2 rounded bg-gray-200 overflow-hidden">
                       <div className="h-2 bg-orange-500" style={{ width: `${pct}%` }} />
                     </div>
-                    <div className="w-[56px] text-right text-gray-500">{pct}%</div>
+                    <div className="w-[56px] text-right text-gray-500">
+                      {pct}%
+                    </div>
                   </div>
                 );
               })}
@@ -545,7 +555,9 @@ export const CustomerReviewsSection = (): JSX.Element => {
                   )}
 
                   {r?.body ? (
-                    <div className="text-sm text-gray-700 whitespace-pre-wrap">{String(r.body)}</div>
+                    <div className="text-sm text-gray-700 whitespace-pre-wrap">
+                      {String(r.body)}
+                    </div>
                   ) : null}
                 </div>
               );
