@@ -5,6 +5,8 @@ import { useProductPdp } from "../../../pdp/ProductPdpContext";
 import { useCart } from "../../../context/CartContext";
 import { useWishlist } from "../../../context/WishlistContext";
 
+const EMBER = "[font-family:'Amazon_Ember',Arial,sans-serif]";
+
 function stripAmazonSizeModifiers(url: string) {
   if (!url) return url;
   const out = url
@@ -207,7 +209,11 @@ function pickSafeDescription(product: any) {
 }
 
 function BoughtBadge({ text }: { text: string }) {
-  return <div className="text-[13px] text-[#565959]">{text}</div>;
+  return (
+    <div className={`${EMBER} text-[12px] leading-[16px] text-[#CC0C39]`}>
+      {text}
+    </div>
+  );
 }
 
 function detectBoughtLine(product: any) {
@@ -337,31 +343,53 @@ function buildV35Sizes(product: any) {
   return uniqKeepOrder(out);
 }
 
+function parsePriceParts(displayPrice: string) {
+  const s = String(displayPrice || "").trim();
+  if (!s) return null;
+  const num = Number(s.replace(/[^0-9.]/g, ""));
+  if (!Number.isFinite(num) || num <= 0) return null;
+  const fixed = num.toFixed(2);
+  const [dollars, cents] = fixed.split(".");
+  return { dollars, cents };
+}
+
+function PriceAmazon({ displayPrice }: { displayPrice: string }) {
+  const parts = parsePriceParts(displayPrice);
+  if (!parts) {
+    return (
+      <div className={`${EMBER} text-[28px] leading-none text-[#0F1111]`}>
+        {displayPrice}
+      </div>
+    );
+  }
+  return (
+    <div className={`flex items-start ${EMBER} text-[#0F1111]`}>
+      <span className="text-[14px] mt-1 mr-0.5">$</span>
+      <span className="text-[28px] leading-none font-normal">{parts.dollars}</span>
+      <span className="text-[14px] mt-1 ml-0.5">{parts.cents}</span>
+    </div>
+  );
+}
+
 export const ProductHeroSection = (): JSX.Element => {
   const product = useProductPdp();
   const { addToCart, openCart } = useCart();
   const { addToWishlist } = useWishlist();
-
   const navigate = useNavigate();
 
-  // Base images from product (fallback)
   const rawImages = useMemo(() => {
-    // Prefer Gold v35 canonical gallery if present
     const enrichGallery = (product as any)?.pdp_enrichment_v1?.media?.gallery;
     if (Array.isArray(enrichGallery) && enrichGallery.length) {
       return enrichGallery.map(String).filter(Boolean);
     }
-
     const imgs = (product as any)?.images;
     if (Array.isArray(imgs)) return imgs.map(String).filter(Boolean);
-
     const single = (product as any)?.image;
     return single ? [String(single)] : [];
   }, [product]);
 
   const baseImages = useMemo(() => selectBestImageVariant(rawImages), [rawImages]);
 
-  // Variants: prefer v35 variants, then legacy scrape
   const v35Colors = useMemo(() => buildV35Colors(product), [product]);
   const v35Sizes = useMemo(() => buildV35Sizes(product), [product]);
 
@@ -380,23 +408,18 @@ export const ProductHeroSection = (): JSX.Element => {
     return uniqKeepOrder(merged.map((x) => String(x || "").trim()).filter(Boolean));
   }, [v35Sizes.join("|"), scrapedSizesLegacy.join("|")]);
 
-  // Prefer v35 byVariant map, fallback to legacy
   const colorImagesMap =
     (product as any)?.pdp_enrichment_v1?.media?.byVariant || (product as any)?.color_images;
 
-  // Keep legacy key-based matching behavior as-is
   const colorImageKey = (product as any)?.color_image_key;
 
-  // Swatches: prefer v35 swatchImage map, fallback to legacy color_swatches
   const v35Swatches = useMemo(() => buildV35ColorSwatchMap(product), [product]);
   const legacySwatches = (product as any)?.color_swatches;
 
   const colorSwatches = useMemo(() => {
     const out: Record<string, string> = {};
-    // v35 wins
     for (const [k, v] of Object.entries(v35Swatches || {})) out[k] = v;
 
-    // legacy fill-ins
     if (legacySwatches && typeof legacySwatches === "object") {
       for (const [k, v] of Object.entries(legacySwatches)) {
         const key = String(k || "").trim();
@@ -406,7 +429,11 @@ export const ProductHeroSection = (): JSX.Element => {
       }
     }
     return out;
-  }, [product, JSON.stringify(v35Swatches), legacySwatches ? JSON.stringify(legacySwatches) : ""]);
+  }, [
+    product,
+    JSON.stringify(v35Swatches),
+    legacySwatches ? JSON.stringify(legacySwatches) : "",
+  ]);
 
   const swatchKeys = useMemo(() => {
     if (colorSwatches && typeof colorSwatches === "object") {
@@ -417,7 +444,6 @@ export const ProductHeroSection = (): JSX.Element => {
     return [];
   }, [colorSwatches]);
 
-  // Determine whether to show color selector (hide if single color)
   const hasMultipleColors = useMemo(() => {
     if (colors.length > 1) return true;
     if (swatchKeys.length > 1) return true;
@@ -426,20 +452,14 @@ export const ProductHeroSection = (): JSX.Element => {
 
   const [selectedColor, setSelectedColor] = useState<string>("");
   const [selectedSize, setSelectedSize] = useState<string>("");
-
-  // Strict gallery isolation:
-  // - Default gallery uses ONLY base product images.
-  // - Only switch to color_images when user explicitly selects a color.
   const [colorUserSelected, setColorUserSelected] = useState(false);
 
   useEffect(() => {
-    // Initialize selected color deterministically
     const first = (colors[0] || swatchKeys[0] || "").trim();
     setSelectedColor(first);
     setColorUserSelected(false);
   }, [colors.join("|"), swatchKeys.join("|")]);
 
-  // Canonical sizes (fix shoe-size pollution when chart exists)
   const sizes = useMemo(
     () => resolveCanonicalSizes(product, scrapedSizes),
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -450,9 +470,7 @@ export const ProductHeroSection = (): JSX.Element => {
     setSelectedSize(sizes[0] || "");
   }, [sizes.join("|")]);
 
-  // If color_images[selectedColor] exists, use it as the gallery source
   const displayedImages = useMemo(() => {
-    // STRICT: only use color images if a color is selected by the user AND data exists
     if (
       colorUserSelected &&
       selectedColor &&
@@ -472,7 +490,6 @@ export const ProductHeroSection = (): JSX.Element => {
     setActiveImage(displayedImages[0] || "");
   }, [displayedImages.join("|")]);
 
-  // Keep your existing behavior for key-based match as a fallback (DO NOT remove)
   useEffect(() => {
     if (!selectedColor) return;
     if (!colorImageKey || !displayedImages.length) return;
@@ -484,20 +501,18 @@ export const ProductHeroSection = (): JSX.Element => {
       (u) => imageBaseKey(u).includes(key) || imageBaseKey(u) === key
     );
     if (match) setActiveImage(match);
-    // DO NOT change this behavior
   }, [selectedColor, colorImageKey, displayedImages]);
 
   const getColorThumb = (color: string) => {
-    // 1) explicit color_images (v35 byVariant or legacy)
     const fromMap = Array.isArray(colorImagesMap?.[color]) ? colorImagesMap[color][0] : "";
     if (fromMap) return stripAmazonSizeModifiers(String(fromMap));
 
-    // 2) v35/legacy swatch URL
-    const sw = (colorSwatches && typeof colorSwatches === "object" ? colorSwatches[color] : "") as any;
+    const sw = (colorSwatches && typeof colorSwatches === "object"
+      ? colorSwatches[color]
+      : "") as any;
     const swStr = typeof sw === "string" ? sw.trim() : "";
     if (swStr && isLikelyUrl(swStr)) return stripAmazonSizeModifiers(swStr);
 
-    // 3) key-matching fallback (keep)
     const key = colorImageKey?.[color];
     if (key) {
       const match = baseImages.find(
@@ -506,11 +521,9 @@ export const ProductHeroSection = (): JSX.Element => {
       if (match) return match;
     }
 
-    // 4) IMPORTANT: do NOT fallback to baseImages[0] (causes duplicate swatches)
     return "";
   };
 
-  // Reviews
   const reviews = (product as any)?.reviews?.items || [];
   const avg = useMemo(() => {
     const direct = Number((product as any)?.reviews?.average_rating || 0);
@@ -539,10 +552,10 @@ export const ProductHeroSection = (): JSX.Element => {
   const aboutThisItemRaw = useMemo(() => pickSafeDescription(product), [product]);
   const aboutParas = useMemo(() => splitParas(aboutThisItemRaw), [aboutThisItemRaw]);
 
-  // Size chart (ONLY if present in JSON)
   const sizeChart =
     (product as any)?.size_chart || (product as any)?.variations?.size_chart;
   const [sizeChartOpen, setSizeChartOpen] = useState(false);
+
   useEffect(() => {
     setSizeChartOpen(false);
   }, [displayTitle]);
@@ -591,7 +604,6 @@ export const ProductHeroSection = (): JSX.Element => {
     );
   };
 
-  // ✅ Buy Now -> Square checkout (ONLY CHANGE)
   const buyNow = async () => {
     try {
       const p = (product as any)?.price;
@@ -645,8 +657,16 @@ export const ProductHeroSection = (): JSX.Element => {
     }
   };
 
+  const brand = String(
+    (product as any)?.brand ||
+      (product as any)?.brand_name ||
+      (product as any)?.manufacturer ||
+      (product as any)?.sold_by ||
+      ""
+  ).trim();
+
   return (
-    <section className="max-w-[1500px] mx-auto px-3 sm:px-4 py-6 sm:py-10">
+    <section className={`max-w-[1500px] mx-auto px-3 sm:px-4 py-6 sm:py-10 ${EMBER}`}>
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-10">
         {/* Gallery */}
         <div className="grid gap-4 grid-cols-1 lg:grid-cols-[72px_1fr]">
@@ -657,9 +677,11 @@ export const ProductHeroSection = (): JSX.Element => {
                 key={`${u}-${i}`}
                 type="button"
                 onClick={() => setActiveImage(u)}
-                onMouseEnter={() => setActiveImage(u)} // ✅ hover-to-preview (Amazon UX)
-                className={`border rounded overflow-hidden flex items-center justify-center ${
-                  activeImage === u ? "border-black" : "border-gray-200 hover:border-black"
+                onMouseEnter={() => setActiveImage(u)}
+                className={`border rounded overflow-hidden flex items-center justify-center bg-white ${
+                  activeImage === u
+                    ? "border-[#007185]"
+                    : "border-[#D5D9D9] hover:border-[#007185]"
                 }`}
                 style={{ width: 72, height: 72 }}
                 aria-label="Select image"
@@ -675,8 +697,8 @@ export const ProductHeroSection = (): JSX.Element => {
             ))}
           </div>
 
-          {/* Main (DO NOT TOUCH) */}
-          <div className="border rounded bg-gray-50 flex items-center justify-center aspect-[3/4] max-h-[520px] sm:max-h-[640px] overflow-hidden order-1 lg:order-2">
+          {/* Main */}
+          <div className="border border-[#D5D9D9] rounded bg-white flex items-center justify-center aspect-square max-h-[520px] sm:max-h-[640px] overflow-hidden order-1 lg:order-2">
             {activeImage ? (
               <img
                 src={activeImage}
@@ -686,18 +708,33 @@ export const ProductHeroSection = (): JSX.Element => {
                 decoding="sync"
               />
             ) : (
-              <div className="text-sm text-gray-500">No image</div>
+              <div className={`${EMBER} text-[12px] leading-[16px] text-[#565959]`}>
+                No image
+              </div>
             )}
           </div>
         </div>
 
         {/* Right */}
         <div className="space-y-6">
-          <div className="grid grid-cols-1 lg:grid-cols-[1fr_320px] gap-8">
+          <div className="grid grid-cols-1 lg:grid-cols-[1fr_280px] gap-8">
             {/* Info column */}
             <div className="space-y-6">
               <div className="space-y-2">
-                <h1 className="text-2xl font-semibold text-[#0F1111]">
+                {brand ? (
+                  <div className={`${EMBER} text-[12px] leading-[16px] text-[#565959]`}>
+                    Brand:{" "}
+                    <button
+                      type="button"
+                      className="text-[#007185] hover:underline"
+                      onClick={() => {}}
+                    >
+                      {brand}
+                    </button>
+                  </div>
+                ) : null}
+
+                <h1 className={`${EMBER} text-[24px] font-[400] leading-[32px] text-[#0F1111] break-words`}>
                   {displayTitle}
                 </h1>
 
@@ -706,7 +743,7 @@ export const ProductHeroSection = (): JSX.Element => {
                 {avg || reviewCount ? (
                   <button
                     type="button"
-                    className="flex items-center gap-2 text-sm"
+                    className={`flex items-center gap-2 text-[14px] leading-[20px] ${EMBER}`}
                     onClick={() => {
                       document
                         .getElementById("reviews")
@@ -715,7 +752,7 @@ export const ProductHeroSection = (): JSX.Element => {
                     aria-label="Jump to reviews"
                   >
                     {avg ? <Stars value={avg} /> : null}
-                    {avg ? <span className="text-[#0F1111]">{avg.toFixed(1)}</span> : null}
+                    {avg ? <span className="text-[#007185]">{avg.toFixed(1)}</span> : null}
                     {reviewCount ? (
                       <span className="text-[#007185]">
                         ({Number(reviewCount).toLocaleString()})
@@ -724,19 +761,16 @@ export const ProductHeroSection = (): JSX.Element => {
                   </button>
                 ) : null}
 
-                <div className="text-2xl font-bold text-[#0F1111]">{displayPrice}</div>
-
-                <div className="text-[13px] text-[#0F1111]">
-                  <span className="font-semibold">Best Price</span>{" "}
-                  <span className="font-semibold">Guarantee</span>
-                </div>
+                <PriceAmazon displayPrice={displayPrice} />
               </div>
 
               <div className="space-y-5">
-                {/* ✅ Color FIRST */}
+                {/* Color */}
                 {hasMultipleColors ? (
                   <div className="space-y-2">
-                    <div className="text-sm font-semibold">Color</div>
+                    <div className={`${EMBER} text-[14px] leading-[20px] font-semibold text-[#0F1111]`}>
+                      Color
+                    </div>
                     <div className="flex flex-wrap gap-2">
                       {(colors.length ? colors : swatchKeys).map((c) => {
                         const isActive = c === selectedColor;
@@ -754,17 +788,18 @@ export const ProductHeroSection = (): JSX.Element => {
                               setColorUserSelected(true);
                               setSelectedColor(c);
                             }}
-                            className={`flex items-center gap-2 border rounded px-2 py-2 text-sm ${
-                              isActive ? "border-black" : "border-gray-300 hover:border-black"
+                            className={`flex items-center gap-2 border rounded px-2 py-2 text-[14px] leading-[20px] bg-white ${EMBER} ${
+                              isActive
+                                ? "border-[#007185] ring-1 ring-[#007185]"
+                                : "border-[#D5D9D9] hover:border-[#007185]"
                             }`}
                             aria-pressed={isActive}
                           >
-                            {/* Swatch square: image > swatch url > color chip > initials */}
                             {thumb ? (
                               <img
                                 src={thumb}
                                 alt={c}
-                                className="w-10 h-10 object-cover rounded border"
+                                className="w-10 h-10 object-cover rounded border border-[#D5D9D9]"
                                 loading="lazy"
                                 decoding="async"
                               />
@@ -772,43 +807,44 @@ export const ProductHeroSection = (): JSX.Element => {
                               <img
                                 src={stripAmazonSizeModifiers(swStr)}
                                 alt={c}
-                                className="w-10 h-10 object-cover rounded border"
+                                className="w-10 h-10 object-cover rounded border border-[#D5D9D9]"
                                 loading="lazy"
                                 decoding="async"
                               />
                             ) : isLikelyColor(swStr) ? (
                               <span
-                                className="inline-block w-10 h-10 rounded border"
+                                className="inline-block w-10 h-10 rounded border border-[#D5D9D9]"
                                 style={{ backgroundColor: swStr }}
                               />
                             ) : (
-                              <span className="inline-flex w-10 h-10 rounded border items-center justify-center text-[10px] text-[#565959] bg-white">
+                              <span className={`inline-flex w-10 h-10 rounded border border-[#D5D9D9] items-center justify-center text-[10px] text-[#565959] bg-white ${EMBER}`}>
                                 {String(c || "").trim().slice(0, 2).toUpperCase()}
                               </span>
                             )}
 
-                            <span className="whitespace-nowrap">{c}</span>
+                            <span className="whitespace-nowrap text-[#0F1111]">{c}</span>
                           </button>
                         );
                       })}
                     </div>
                   </div>
-                ) : (
-                  // Single-color: no selector UI; show label only
-                  (colors[0] || swatchKeys[0]) ? (
-                    <div className="space-y-2">
-                      <div className="text-sm font-semibold">Color</div>
-                      <div className="text-sm text-[#0F1111]">
-                        {colors[0] || swatchKeys[0]}
-                      </div>
+                ) : (colors[0] || swatchKeys[0]) ? (
+                  <div className="space-y-2">
+                    <div className={`${EMBER} text-[14px] leading-[20px] font-semibold text-[#0F1111]`}>
+                      Color
                     </div>
-                  ) : null
-                )}
+                    <div className={`${EMBER} text-[14px] leading-[20px] text-[#0F1111]`}>
+                      {colors[0] || swatchKeys[0]}
+                    </div>
+                  </div>
+                ) : null}
 
-                {/* ✅ Size */}
+                {/* Size */}
                 {sizes.length ? (
                   <div className="space-y-2">
-                    <div className="text-sm font-semibold">Size</div>
+                    <div className={`${EMBER} text-[14px] leading-[20px] font-semibold text-[#0F1111]`}>
+                      Size
+                    </div>
                     <div className="flex flex-wrap gap-2">
                       {sizes.map((s) => {
                         const isActive = s === selectedSize;
@@ -817,8 +853,10 @@ export const ProductHeroSection = (): JSX.Element => {
                             key={s}
                             type="button"
                             onClick={() => setSelectedSize(s)}
-                            className={`border rounded px-3 py-2 text-sm ${
-                              isActive ? "border-black" : "border-gray-300 hover:border-black"
+                            className={`border rounded px-3 py-2 text-[14px] leading-[20px] bg-white ${EMBER} ${
+                              isActive
+                                ? "border-[#007185] ring-1 ring-[#007185]"
+                                : "border-[#D5D9D9] hover:border-[#007185]"
                             }`}
                             aria-pressed={isActive}
                           >
@@ -830,19 +868,19 @@ export const ProductHeroSection = (): JSX.Element => {
                   </div>
                 ) : null}
 
-                {/* ✅ Size chart link */}
+                {/* Size chart */}
                 {hasSizeChart ? (
                   <div className="space-y-2">
                     <button
                       type="button"
-                      className="text-sm text-[#007185] hover:underline"
+                      className={`${EMBER} text-[14px] leading-[20px] text-[#007185] hover:underline`}
                       onClick={() => setSizeChartOpen((v) => !v)}
                     >
                       Size chart
                     </button>
 
                     {sizeChartOpen ? (
-                      <div className="border rounded p-3 bg-white overflow-x-auto">
+                      <div className="border border-[#D5D9D9] rounded p-3 bg-white overflow-x-auto">
                         {sizeChartImg ? (
                           <img
                             src={sizeChartImg}
@@ -850,13 +888,13 @@ export const ProductHeroSection = (): JSX.Element => {
                             className="max-w-full h-auto"
                           />
                         ) : parsedSizeChart ? (
-                          <table className="min-w-[520px] w-full text-sm">
+                          <table className={`${EMBER} min-w-[520px] w-full text-[14px] leading-[20px]`}>
                             <thead>
                               <tr>
                                 {parsedSizeChart.headers.map((h: string, i: number) => (
                                   <th
                                     key={i}
-                                    className="text-left border-b p-2 font-semibold text-[#0F1111]"
+                                    className="text-left border-b border-[#D5D9D9] p-2 font-semibold text-[#0F1111]"
                                   >
                                     {h}
                                   </th>
@@ -870,12 +908,15 @@ export const ProductHeroSection = (): JSX.Element => {
                                     ci === 0 ? (
                                       <th
                                         key={ci}
-                                        className="text-left border-b p-2 font-semibold"
+                                        className="text-left border-b border-[#D5D9D9] p-2 font-semibold text-[#0F1111]"
                                       >
                                         {cell}
                                       </th>
                                     ) : (
-                                      <td key={ci} className="border-b p-2 text-[#0F1111]">
+                                      <td
+                                        key={ci}
+                                        className="border-b border-[#D5D9D9] p-2 text-[#0F1111]"
+                                      >
                                         {cell}
                                       </td>
                                     )
@@ -885,7 +926,9 @@ export const ProductHeroSection = (): JSX.Element => {
                             </tbody>
                           </table>
                         ) : (
-                          <div className="text-sm text-[#565959]">Size chart unavailable.</div>
+                          <div className={`${EMBER} text-[12px] leading-[16px] text-[#565959]`}>
+                            Size chart unavailable.
+                          </div>
                         )}
                       </div>
                     ) : null}
@@ -895,8 +938,10 @@ export const ProductHeroSection = (): JSX.Element => {
                 {/* About this item */}
                 {aboutParas.length ? (
                   <div className="space-y-2">
-                    <div className="text-sm font-semibold">About this item</div>
-                    <div className="space-y-2 text-sm text-[#0F1111] leading-relaxed">
+                    <div className={`${EMBER} text-[18px] font-bold leading-[24px] text-[#0F1111]`}>
+                      About this item
+                    </div>
+                    <div className={`space-y-2 ${EMBER} text-[14px] leading-[20px] text-[#0F1111]`}>
                       {aboutParas.map((p, i) => (
                         <p key={i}>{p}</p>
                       ))}
@@ -906,22 +951,24 @@ export const ProductHeroSection = (): JSX.Element => {
               </div>
             </div>
 
-            {/* Buy box (DO NOT MOVE / DO NOT CHANGE LAYOUT) */}
-            <div className="border rounded-lg p-5 bg-white space-y-4 lg:sticky lg:top-3 lg:self-start">
-              <div className="text-2xl font-bold text-[#0F1111]">{displayPrice}</div>
+            {/* Buy box */}
+            <div className="border border-[#D5D9D9] rounded-lg p-5 bg-white space-y-4 lg:sticky lg:top-3 lg:self-start">
+              <PriceAmazon displayPrice={displayPrice} />
 
-              <div className="text-[13px] text-[#0F1111]">
+              <div className={`${EMBER} text-[12px] leading-[16px] text-[#0F1111]`}>
                 <span className="font-semibold">FREE delivery</span>{" "}
                 <span className="text-[#565959]">4–8 Days</span>
               </div>
 
-              <div className="text-[#007600] font-semibold">Available now</div>
+              <div className={`${EMBER} text-[#007600] font-semibold text-[16px] leading-[20px]`}>
+                In Stock
+              </div>
 
-              {/* Qty selector */}
-              <div className="flex items-center gap-2 text-sm text-[#0F1111]">
-                <span className="text-[#565959]">Units:</span>
+              {/* Qty */}
+              <div className={`${EMBER} flex items-center gap-2 text-[14px] leading-[20px] text-[#0F1111]`}>
+                <span className="text-[#565959]">Qty:</span>
                 <select
-                  className="border rounded px-2 py-1 bg-white"
+                  className={`${EMBER} border border-[#888C8C] rounded px-2 py-1 bg-white text-[14px] leading-[20px]`}
                   value={qty}
                   onChange={(e) => setQty(Number(e.target.value) || 1)}
                   aria-label="Quantity"
@@ -939,50 +986,50 @@ export const ProductHeroSection = (): JSX.Element => {
 
               <button
                 type="button"
-                className="w-full bg-[#0061c9] hover:bg-[#0061c9] text-[#FFFFFF] font-semibold py-2 rounded-full border border-[#0061c9]"
+                className={`${EMBER} w-full bg-[#FFD814] hover:bg-[#F7CA00] text-[#0F1111] font-semibold py-2 rounded-full border border-[#FCD200] text-[14px] leading-[20px]`}
                 onClick={handleAddToCart}
               >
-                Add to Basket
+                Add to cart
               </button>
 
               <button
                 type="button"
-                className="w-full bg-[#0571e3] hover:bg-[#0571e3] text-[#FFFFFF] font-semibold py-2 rounded-full border border-[#0061c9]"
+                className={`${EMBER} w-full bg-[#FFA41C] hover:bg-[#F59A12] text-[#0F1111] font-semibold py-2 rounded-full border border-[#E39317] text-[14px] leading-[20px]`}
                 onClick={buyNow}
               >
-                Pay now
+                Buy now
               </button>
 
-              <div className="text-sm text-[#0F1111] space-y-1">
+              <div className={`${EMBER} text-[12px] leading-[16px] text-[#0F1111] space-y-2`}>
                 <div className="flex justify-between">
                   <span className="text-[#565959]">Ships from</span>
                   <span className="text-[#0F1111]">Our Warehouse</span>
                 </div>
 
                 <div className="flex justify-between">
-                  <span className="text-[#565959]">Direct from</span>
+                  <span className="text-[#565959]">Sold by</span>
                   <span className="text-[#0F1111]">
                     {String((product as any)?.sold_by || "Ventari")}
                   </span>
                 </div>
-              </div>
 
-              <div className="flex justify-between">
-                <span className="text-[#565959]">Returns</span>
-                <div className="text-right text-[#2162a1] leading-snug">
-                  <div>Refund or replace — on us</div>
-                  <div>30-day return window</div>
+                <div className="flex justify-between">
+                  <span className="text-[#565959]">Returns</span>
+                  <div className="text-right text-[#007185] leading-snug">
+                    <div>FREE Returns</div>
+                    <div>30-day return window</div>
+                  </div>
                 </div>
-              </div>
 
-              <div className="text-[13px] text-[#0F1111]">
-                <span className="text-[#565959]">Gift options</span>{" "}
-                <span>Available at checkout</span>
+                <div>
+                  <span className="text-[#565959]">Gift options</span>{" "}
+                  <span>Available at checkout</span>
+                </div>
               </div>
 
               <button
                 type="button"
-                className="w-full flex items-center justify-center gap-2 border rounded py-2 text-sm"
+                className={`${EMBER} w-full flex items-center justify-center gap-2 border border-[#D5D9D9] hover:border-[#007185] rounded py-2 text-[14px] leading-[20px] bg-white`}
                 onClick={() => {
                   const p = (product as any)?.price;
                   const priceNum =
@@ -996,7 +1043,9 @@ export const ProductHeroSection = (): JSX.Element => {
                     id: String((product as any)?.id || (product as any)?.handle),
                     name: displayTitle,
                     price: Number.isFinite(priceNum) && priceNum > 0 ? priceNum : 0,
-                    image: String((product as any)?.image || activeImage || displayedImages[0] || ""),
+                    image: String(
+                      (product as any)?.image || activeImage || displayedImages[0] || ""
+                    ),
                   });
 
                   window.dispatchEvent(
@@ -1007,15 +1056,15 @@ export const ProductHeroSection = (): JSX.Element => {
                 }}
               >
                 <Heart className="w-4 h-4" />
-                Add to Wishlist
+                Add to List
               </button>
 
               <button
                 type="button"
-                className="w-full border rounded py-2 text-sm"
+                className={`${EMBER} w-full border border-[#D5D9D9] hover:border-[#007185] rounded py-2 text-[14px] leading-[20px] bg-white`}
                 onClick={() => navigate("/shop")}
               >
-                Continue Shopping
+                Continue shopping
               </button>
             </div>
           </div>
