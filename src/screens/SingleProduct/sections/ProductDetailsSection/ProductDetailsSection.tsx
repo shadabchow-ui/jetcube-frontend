@@ -19,7 +19,7 @@ function stripAmazonSizeModifiers(url: string) {
     .replace(/\._UY\d+_\./g, ".")
     .replace(/\._UL\d+_\./g, ".")
     .replace(/\._SR\d+,\d+_\./g, ".")
-    .replace(/\._SS\d+_\./g, ".");
+    .replace(/\._SS\d+,\d+_\./g, ".");
   return out;
 }
 
@@ -134,7 +134,10 @@ function sanitizeVideos(rawVideos: any[]): { src: string; type: string }[] {
 
     let type = "";
     const t = typeof v === "object" ? String(v.type || v.mime || "").toLowerCase() : "";
-    if (t && (t.includes("video/") || t.includes("mp4") || t.includes("webm") || t.includes("ogg"))) {
+    if (
+      t &&
+      (t.includes("video/") || t.includes("mp4") || t.includes("webm") || t.includes("ogg"))
+    ) {
       type = t.includes("video/")
         ? t
         : t.includes("webm")
@@ -378,12 +381,31 @@ export const FromTheBrandSection = (): JSX.Element | null => {
     return keys;
   }, [product?.description_images, product?.aplus_images]);
 
+  const explicitDescriptionImages = useMemo(() => {
+    const merged = [
+      ...(Array.isArray(product?.description_images) ? product.description_images : []),
+      ...(Array.isArray(product?.aplus_images) ? product.aplus_images : []),
+    ]
+      .map((u) => safeUrl(u))
+      .filter(Boolean);
+
+    // de-dupe (case-insensitive)
+    const seen = new Set<string>();
+    return merged.filter((u) => {
+      const k = u.toLowerCase();
+      if (seen.has(k)) return false;
+      seen.add(k);
+      return true;
+    });
+  }, [product?.description_images, product?.aplus_images]);
+
   const longBlocks = useMemo(() => normalizeLongBlocks(product), [product]);
   const descriptionText = useMemo(() => pickSafeDescriptionText(product), [product]);
   const descriptionParas = useMemo(() => splitParagraphs(descriptionText), [descriptionText]);
 
   const hasAny =
     descriptionParas.length > 0 ||
+    explicitDescriptionImages.length > 0 ||
     longBlocks.some((b) => b.type === "img" && !!urlKey((b as any).src));
 
   if (!hasAny) return null;
@@ -395,6 +417,17 @@ export const FromTheBrandSection = (): JSX.Element | null => {
         <div className="space-y-3 text-gray-700 text-sm w-full max-w-none break-words">
           {descriptionParas.map((p, i) => (
             <p key={`d-${i}`}>{p}</p>
+          ))}
+
+          {explicitDescriptionImages.map((src, i) => (
+            <img
+              key={`exp-img-${i}`}
+              src={src}
+              alt={String(product?.title || "Product image")}
+              className="w-full rounded-md border bg-gray-50"
+              loading="lazy"
+              decoding="async"
+            />
           ))}
 
           {longBlocks.map((b, i) => {
@@ -436,7 +469,12 @@ export const VideosSection = (): JSX.Element | null => {
         <h2 className="text-lg sm:text-xl font-semibold mb-4">Videos</h2>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           {videos.map((v, i) => (
-            <video key={i} controls preload="metadata" className="w-full rounded-md border bg-black">
+            <video
+              key={i}
+              controls
+              preload="metadata"
+              className="w-full rounded-md border bg-black"
+            >
               <source src={v.src} type={v.type} />
             </video>
           ))}
