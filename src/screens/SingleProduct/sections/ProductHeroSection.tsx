@@ -264,6 +264,7 @@ function resolveCanonicalSizes(product: any, scrapedSizes: string[]) {
   const chart =
     (product as any)?.size_chart ||
     (product as any)?.variations?.size_chart ||
+    (product as any)?.pdp_enrichment_v1?.sizeChart ||
     null;
 
   const rawHtml =
@@ -299,6 +300,43 @@ function isLikelyColor(v: string) {
   return false;
 }
 
+function buildV35ColorSwatchMap(product: any) {
+  const out: Record<string, string> = {};
+  const vals = (product as any)?.pdp_enrichment_v1?.variants?.values?.color_name;
+  if (Array.isArray(vals)) {
+    for (const it of vals) {
+      const name = String(it?.value ?? "").trim();
+      const sw = String(it?.swatchImage ?? "").trim();
+      if (name && sw && isLikelyUrl(sw)) out[name] = stripAmazonSizeModifiers(sw);
+    }
+  }
+  return out;
+}
+
+function buildV35Colors(product: any) {
+  const out: string[] = [];
+  const vals = (product as any)?.pdp_enrichment_v1?.variants?.values?.color_name;
+  if (Array.isArray(vals)) {
+    for (const it of vals) {
+      const name = String(it?.value ?? "").trim();
+      if (name) out.push(name);
+    }
+  }
+  return uniqKeepOrder(out);
+}
+
+function buildV35Sizes(product: any) {
+  const out: string[] = [];
+  const vals = (product as any)?.pdp_enrichment_v1?.variants?.values?.size_name;
+  if (Array.isArray(vals)) {
+    for (const it of vals) {
+      const name = String(it?.value ?? "").trim();
+      if (name) out.push(name);
+    }
+  }
+  return uniqKeepOrder(out);
+}
+
 export const ProductHeroSection = (): JSX.Element => {
   const product = useProductPdp();
   const { addToCart, openCart } = useCart();
@@ -308,24 +346,73 @@ export const ProductHeroSection = (): JSX.Element => {
 
   // Base images from product (fallback)
   const rawImages = useMemo(() => {
+    // Prefer Gold v35 canonical gallery if present
+    const enrichGallery = (product as any)?.pdp_enrichment_v1?.media?.gallery;
+    if (Array.isArray(enrichGallery) && enrichGallery.length) {
+      return enrichGallery.map(String).filter(Boolean);
+    }
+
     const imgs = (product as any)?.images;
     if (Array.isArray(imgs)) return imgs.map(String).filter(Boolean);
+
     const single = (product as any)?.image;
     return single ? [String(single)] : [];
   }, [product]);
 
   const baseImages = useMemo(() => selectBestImageVariant(rawImages), [rawImages]);
 
-  // Variants
-  const { colors, sizes: scrapedSizes } = useMemo(() => extractOptions(product), [product]);
+  // Variants: prefer v35 variants, then legacy scrape
+  const v35Colors = useMemo(() => buildV35Colors(product), [product]);
+  const v35Sizes = useMemo(() => buildV35Sizes(product), [product]);
 
-  const colorImagesMap = (product as any)?.color_images;
+  const { colors: legacyColors, sizes: scrapedSizesLegacy } = useMemo(
+    () => extractOptions(product),
+    [product]
+  );
+
+  const colors = useMemo(() => {
+    const merged = [...(v35Colors || []), ...(legacyColors || [])];
+    return uniqKeepOrder(merged.map((x) => String(x || "").trim()).filter(Boolean));
+  }, [v35Colors.join("|"), legacyColors.join("|")]);
+
+  const scrapedSizes = useMemo(() => {
+    const merged = [...(v35Sizes || []), ...(scrapedSizesLegacy || [])];
+    return uniqKeepOrder(merged.map((x) => String(x || "").trim()).filter(Boolean));
+  }, [v35Sizes.join("|"), scrapedSizesLegacy.join("|")]);
+
+  // Prefer v35 byVariant map, fallback to legacy
+  const colorImagesMap =
+    (product as any)?.pdp_enrichment_v1?.media?.byVariant || (product as any)?.color_images;
+
+  // Keep legacy key-based matching behavior as-is
   const colorImageKey = (product as any)?.color_image_key;
-  const colorSwatches = (product as any)?.color_swatches;
+
+  // Swatches: prefer v35 swatchImage map, fallback to legacy color_swatches
+  const v35Swatches = useMemo(() => buildV35ColorSwatchMap(product), [product]);
+  const legacySwatches = (product as any)?.color_swatches;
+
+  const colorSwatches = useMemo(() => {
+    const out: Record<string, string> = {};
+    // v35 wins
+    for (const [k, v] of Object.entries(v35Swatches || {})) out[k] = v;
+
+    // legacy fill-ins
+    if (legacySwatches && typeof legacySwatches === "object") {
+      for (const [k, v] of Object.entries(legacySwatches)) {
+        const key = String(k || "").trim();
+        const val = typeof v === "string" ? v.trim() : "";
+        if (!key || !val) continue;
+        if (!(key in out)) out[key] = val;
+      }
+    }
+    return out;
+  }, [product, JSON.stringify(v35Swatches), legacySwatches ? JSON.stringify(legacySwatches) : ""]);
 
   const swatchKeys = useMemo(() => {
     if (colorSwatches && typeof colorSwatches === "object") {
-      return Object.keys(colorSwatches).map((k) => String(k || "").trim()).filter(Boolean);
+      return Object.keys(colorSwatches)
+        .map((k) => String(k || "").trim())
+        .filter(Boolean);
     }
     return [];
   }, [colorSwatches]);
@@ -339,6 +426,7 @@ export const ProductHeroSection = (): JSX.Element => {
 
   const [selectedColor, setSelectedColor] = useState<string>("");
   const [selectedSize, setSelectedSize] = useState<string>("");
+
   // Strict gallery isolation:
   // - Default gallery uses ONLY base product images.
   // - Only switch to color_images when user explicitly selects a color.
@@ -354,7 +442,6 @@ export const ProductHeroSection = (): JSX.Element => {
   // Canonical sizes (fix shoe-size pollution when chart exists)
   const sizes = useMemo(
     () => resolveCanonicalSizes(product, scrapedSizes),
-    // scrapedSizes is array; join for stable dep
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [product, scrapedSizes.join("|")]
   );
@@ -401,15 +488,16 @@ export const ProductHeroSection = (): JSX.Element => {
   }, [selectedColor, colorImageKey, displayedImages]);
 
   const getColorThumb = (color: string) => {
-    // 1) explicit color_images
+    // 1) explicit color_images (v35 byVariant or legacy)
     const fromMap = Array.isArray(colorImagesMap?.[color]) ? colorImagesMap[color][0] : "";
     if (fromMap) return stripAmazonSizeModifiers(String(fromMap));
 
-    // 2) if color_swatches[color] is a URL thumbnail, use it
-    const sw = colorSwatches?.[color];
-    if (typeof sw === "string" && isLikelyUrl(sw)) return stripAmazonSizeModifiers(sw);
+    // 2) v35/legacy swatch URL
+    const sw = (colorSwatches && typeof colorSwatches === "object" ? colorSwatches[color] : "") as any;
+    const swStr = typeof sw === "string" ? sw.trim() : "";
+    if (swStr && isLikelyUrl(swStr)) return stripAmazonSizeModifiers(swStr);
 
-    // 3) key-matching fallback
+    // 3) key-matching fallback (keep)
     const key = colorImageKey?.[color];
     if (key) {
       const match = baseImages.find(
@@ -418,7 +506,8 @@ export const ProductHeroSection = (): JSX.Element => {
       if (match) return match;
     }
 
-    return baseImages[0] || "";
+    // 4) IMPORTANT: do NOT fallback to baseImages[0] (causes duplicate swatches)
+    return "";
   };
 
   // Reviews
@@ -568,6 +657,7 @@ export const ProductHeroSection = (): JSX.Element => {
                 key={`${u}-${i}`}
                 type="button"
                 onClick={() => setActiveImage(u)}
+                onMouseEnter={() => setActiveImage(u)} // ✅ hover-to-preview (Amazon UX)
                 className={`border rounded overflow-hidden flex items-center justify-center ${
                   activeImage === u ? "border-black" : "border-gray-200 hover:border-black"
                 }`}
@@ -651,7 +741,9 @@ export const ProductHeroSection = (): JSX.Element => {
                       {(colors.length ? colors : swatchKeys).map((c) => {
                         const isActive = c === selectedColor;
                         const thumb = getColorThumb(c);
-                        const sw = colorSwatches?.[c];
+                        const sw = (colorSwatches && typeof colorSwatches === "object"
+                          ? (colorSwatches as any)?.[c]
+                          : "") as any;
                         const swStr = typeof sw === "string" ? sw.trim() : "";
 
                         return (
@@ -667,6 +759,7 @@ export const ProductHeroSection = (): JSX.Element => {
                             }`}
                             aria-pressed={isActive}
                           >
+                            {/* Swatch square: image > swatch url > color chip > initials */}
                             {thumb ? (
                               <img
                                 src={thumb}
@@ -688,7 +781,11 @@ export const ProductHeroSection = (): JSX.Element => {
                                 className="inline-block w-10 h-10 rounded border"
                                 style={{ backgroundColor: swStr }}
                               />
-                            ) : null}
+                            ) : (
+                              <span className="inline-flex w-10 h-10 rounded border items-center justify-center text-[10px] text-[#565959] bg-white">
+                                {String(c || "").trim().slice(0, 2).toUpperCase()}
+                              </span>
+                            )}
 
                             <span className="whitespace-nowrap">{c}</span>
                           </button>
