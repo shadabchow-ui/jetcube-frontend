@@ -80,7 +80,7 @@ const Checkout = lazyCompat(() => import("./screens/Checkout"), [
   "default",
   "Checkout",
 ]);
-const Cart = lazyCompat(() => import("./pages/Cart"), ["default", "Cart"]);
+const Cart = lazyCompat(() => import("./screens/Cart"), ["default", "Cart"]);
 
 /* ============================
    Product Fetch Wrapper
