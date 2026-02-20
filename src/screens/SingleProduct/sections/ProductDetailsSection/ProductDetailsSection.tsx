@@ -87,9 +87,7 @@ function normalizeLongBlocks(product: any): LongBlock[] {
     if (!t) return blocks;
 
     // extract image URLs if present
-    const imgUrls = Array.from(t.matchAll(/https?:\/\/[^\s"'<>]+/gi)).map((m) =>
-      safeUrl(m[0])
-    );
+    const imgUrls = Array.from(t.matchAll(/https?:\/\/[^\s"'<>]+/gi)).map((m) => safeUrl(m[0]));
     const paragraphs = splitParagraphs(
       t
         .replace(/<[^>]*>/g, " ")
@@ -136,10 +134,7 @@ function sanitizeVideos(rawVideos: any[]): { src: string; type: string }[] {
 
     let type = "";
     const t = typeof v === "object" ? String(v.type || v.mime || "").toLowerCase() : "";
-    if (
-      t &&
-      (t.includes("video/") || t.includes("mp4") || t.includes("webm") || t.includes("ogg"))
-    ) {
+    if (t && (t.includes("video/") || t.includes("mp4") || t.includes("webm") || t.includes("ogg"))) {
       type = t.includes("video/")
         ? t
         : t.includes("webm")
@@ -496,11 +491,7 @@ export const CustomerReviewsSection = (): JSX.Element => {
           product?.reviews?.avg_rating ??
           product?.reviews?.rating
       ),
-    [
-      product?.reviews?.average_rating,
-      product?.reviews?.avg_rating,
-      product?.reviews?.rating,
-    ]
+    [product?.reviews?.average_rating, product?.reviews?.avg_rating, product?.reviews?.rating]
   );
 
   const count = useMemo(
@@ -510,11 +501,7 @@ export const CustomerReviewsSection = (): JSX.Element => {
           product?.reviews?.count ??
           product?.reviews?.total
       ),
-    [
-      product?.reviews?.review_count,
-      product?.reviews?.count,
-      product?.reviews?.total,
-    ]
+    [product?.reviews?.review_count, product?.reviews?.count, product?.reviews?.total]
   );
 
   const dist = useMemo(() => normalizeRatingDistribution(product), [product]);
@@ -801,7 +788,10 @@ export const CustomerReviewsSection = (): JSX.Element => {
                           >
                             Helpful
                           </button>
-                          <button type="button" className="text-[14px] text-[#565959] hover:underline">
+                          <button
+                            type="button"
+                            className="text-[14px] text-[#565959] hover:underline"
+                          >
                             Report
                           </button>
                         </div>
