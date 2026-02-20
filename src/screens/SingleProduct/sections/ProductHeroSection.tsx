@@ -17,7 +17,7 @@ function stripAmazonSizeModifiers(url: string) {
     .replace(/\._UY\d+_\./g, ".")
     .replace(/\._UL\d+_\./g, ".")
     .replace(/\._SR\d+,\d+_\./g, ".")
-    .replace(/\._SS\d+_\./g, ".")
+    .replace(/\._SS\d+,\d+_\./g, ".")
     .replace(/\._SL\d+_\./g, ".");
   return out;
 }
@@ -209,101 +209,28 @@ function pickSafeDescription(product: any) {
 }
 
 function BoughtBadge({ text }: { text: string }) {
-  return (
-    <div className={`${EMBER} text-[12px] leading-[16px] text-[#CC0C39]`}>
-      {text}
-    </div>
-  );
+  return <div className={`${EMBER} text-[12px] leading-[16px] text-[#CC0C39]`}>{text}</div>;
 }
 
 function detectBoughtLine(product: any) {
   const n = Number((product as any)?.social_proof?.bought_past_month || 0);
-  if (Number.isFinite(n) && n >= 50) return `${n}+ bought in the past month`;
-  const spText = String((product as any)?.social_proof?.text || "").trim();
-  if (spText) return spText;
+  if (!Number.isFinite(n) || n <= 0) return "";
+  if (n >= 1000) return `${Math.floor(n / 100) / 10}K+ bought in the past month`;
+  if (n >= 100) return `${n}+ bought in the past month`;
+  if (n >= 50) return `${n}+ bought in the past month`;
   return "";
 }
 
-function imageBaseKey(url: string) {
-  const u = String(url || "");
-  const noQ = u.split("?")[0];
-  return stripAmazonSizeModifiers(noQ);
+function isLikelyUrl(s: string) {
+  const t = String(s || "").trim();
+  if (!t) return false;
+  return /^https?:\/\//i.test(t);
 }
 
-/**
- * Parse size chart HTML into structured data and render our own table.
- * No dangerouslySetInnerHTML.
- */
-function parseSizeChartHtml(rawHtml: string) {
-  if (!rawHtml || typeof rawHtml !== "string") return null;
-  try {
-    const parser = new DOMParser();
-    const doc = parser.parseFromString(rawHtml, "text/html");
-    const table = doc.querySelector("table");
-    if (!table) return null;
-
-    const rows = Array.from(table.querySelectorAll("tr"));
-    if (rows.length < 2) return null;
-
-    const headers = Array.from(rows[0].querySelectorAll("th")).map((th) =>
-      String(th.textContent || "").trim()
-    );
-
-    const dataRows = rows.slice(1).map((tr) => {
-      const cells = Array.from(tr.querySelectorAll("th, td"));
-      return cells.map((c) => String(c.textContent || "").trim());
-    });
-
-    if (!headers.length || !dataRows.length) return null;
-    return { headers, rows: dataRows };
-  } catch {
-    return null;
-  }
-}
-
-/**
- * Category-neutral size resolver:
- * If chart exists, it wins (use first column).
- * Else fall back to scraped sizes.
- */
-function resolveCanonicalSizes(product: any, scrapedSizes: string[]) {
-  const chart =
-    (product as any)?.size_chart ||
-    (product as any)?.variations?.size_chart ||
-    (product as any)?.pdp_enrichment_v1?.sizeChart ||
-    null;
-
-  const rawHtml =
-    chart && typeof chart === "object" && typeof (chart as any).html === "string"
-      ? String((chart as any).html || "").trim()
-      : "";
-
-  if (rawHtml) {
-    const parsed = parseSizeChartHtml(rawHtml);
-    if (parsed?.rows?.length) {
-      const fromChart = parsed.rows
-        .map((r: string[]) => String(r?.[0] || "").trim())
-        .filter(Boolean);
-      if (fromChart.length) return uniqKeepOrder(fromChart);
-    }
-  }
-
-  return uniqKeepOrder(
-    (scrapedSizes || []).map((x) => String(x || "").trim()).filter(Boolean)
-  );
-}
-
-function isLikelyUrl(v: string) {
-  const s = String(v || "").trim();
-  return /^https?:\/\//i.test(s) || /^\/\//.test(s);
-}
-
-function isLikelyColor(v: string) {
-  const s = String(v || "").trim();
-  if (!s) return false;
-  if (/^#([0-9a-f]{3}|[0-9a-f]{6}|[0-9a-f]{8})$/i.test(s)) return true;
-  if (/^rgb\(/i.test(s) || /^rgba\(/i.test(s) || /^hsl\(/i.test(s)) return true;
-  return false;
+function isLikelyColor(s: string) {
+  const t = String(s || "").trim();
+  if (!t) return false;
+  return /^#([0-9a-f]{3}|[0-9a-f]{6}|[0-9a-f]{8})$/i.test(t);
 }
 
 function buildV35ColorSwatchMap(product: any) {
@@ -313,7 +240,7 @@ function buildV35ColorSwatchMap(product: any) {
     for (const it of vals) {
       const name = String(it?.value ?? "").trim();
       const sw = String(it?.swatchImage ?? "").trim();
-      if (name && sw && isLikelyUrl(sw)) out[name] = stripAmazonSizeModifiers(sw);
+      if (name && sw) out[name] = sw;
     }
   }
   return out;
@@ -357,17 +284,24 @@ function PriceAmazon({ displayPrice }: { displayPrice: string }) {
   const parts = parsePriceParts(displayPrice);
   if (!parts) {
     return (
-      <div className={`${EMBER} text-[28px] leading-none text-[#0F1111]`}>
+      <div className={`${EMBER} text-[28px] leading-[32px] text-[#0F1111]`}>
         {displayPrice}
       </div>
     );
   }
+
   return (
-    <div className={`flex items-start ${EMBER} text-[#0F1111]`}>
-      <span className="text-[14px] mt-1 mr-0.5">$</span>
-      <span className="text-[28px] leading-none font-normal">{parts.dollars}</span>
-      <span className="text-[14px] mt-1 ml-0.5">{parts.cents}</span>
-    </div>
+    <span
+      className={`${EMBER} inline-flex items-start a-price a-text-price a-size-medium text-[#0F1111]`}
+      aria-label={displayPrice}
+    >
+      <span className="text-[13px] relative top-[-0.5em] a-price-symbol">$</span>
+      <span className="text-[28px] leading-[32px] font-medium a-price-whole">
+        {parts.dollars}
+        <span className="a-price-decimal">.</span>
+      </span>
+      <span className="text-[13px] relative top-[-0.5em] a-price-fraction">{parts.cents}</span>
+    </span>
   );
 }
 
@@ -418,31 +352,30 @@ export const ProductHeroSection = (): JSX.Element => {
 
   const colorSwatches = useMemo(() => {
     const out: Record<string, string> = {};
-    for (const [k, v] of Object.entries(v35Swatches || {})) out[k] = v;
+
+    if (v35Swatches && typeof v35Swatches === "object") {
+      for (const [k, v] of Object.entries(v35Swatches)) {
+        const kk = String(k || "").trim();
+        const vv = String(v || "").trim();
+        if (kk && vv) out[kk] = vv;
+      }
+    }
 
     if (legacySwatches && typeof legacySwatches === "object") {
       for (const [k, v] of Object.entries(legacySwatches)) {
-        const key = String(k || "").trim();
-        const val = typeof v === "string" ? v.trim() : "";
-        if (!key || !val) continue;
-        if (!(key in out)) out[key] = val;
+        const kk = String(k || "").trim();
+        const vv = String(v || "").trim();
+        if (kk && vv && !out[kk]) out[kk] = vv;
       }
     }
+
     return out;
-  }, [
-    product,
-    JSON.stringify(v35Swatches),
-    legacySwatches ? JSON.stringify(legacySwatches) : "",
-  ]);
+  }, [JSON.stringify(v35Swatches || {}), JSON.stringify(legacySwatches || {})]);
 
   const swatchKeys = useMemo(() => {
-    if (colorSwatches && typeof colorSwatches === "object") {
-      return Object.keys(colorSwatches)
-        .map((k) => String(k || "").trim())
-        .filter(Boolean);
-    }
-    return [];
-  }, [colorSwatches]);
+    const keys = Object.keys(colorSwatches || {}).map((x) => String(x || "").trim());
+    return uniqKeepOrder(keys.filter(Boolean));
+  }, [JSON.stringify(colorSwatches || {})]);
 
   const hasMultipleColors = useMemo(() => {
     if (colors.length > 1) return true;
@@ -450,158 +383,173 @@ export const ProductHeroSection = (): JSX.Element => {
     return false;
   }, [colors.length, swatchKeys.length]);
 
-  const [selectedColor, setSelectedColor] = useState<string>("");
-  const [selectedSize, setSelectedSize] = useState<string>("");
-  const [colorUserSelected, setColorUserSelected] = useState(false);
-
-  useEffect(() => {
-    const first = (colors[0] || swatchKeys[0] || "").trim();
-    setSelectedColor(first);
-    setColorUserSelected(false);
-  }, [colors.join("|"), swatchKeys.join("|")]);
-
-  const sizes = useMemo(
-    () => resolveCanonicalSizes(product, scrapedSizes),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [product, scrapedSizes.join("|")]
-  );
-
-  useEffect(() => {
-    setSelectedSize(sizes[0] || "");
-  }, [sizes.join("|")]);
-
-  const displayedImages = useMemo(() => {
-    if (
-      colorUserSelected &&
-      selectedColor &&
-      colorImagesMap &&
-      Array.isArray(colorImagesMap?.[selectedColor])
-    ) {
-      const arr = (colorImagesMap[selectedColor] || []).map(String).filter(Boolean);
-      const picked = selectBestImageVariant(arr);
-      if (picked.length) return picked;
-    }
-    return baseImages;
-  }, [baseImages, colorImagesMap, selectedColor, colorUserSelected]);
-
-  const [activeImage, setActiveImage] = useState<string>("");
-
-  useEffect(() => {
-    setActiveImage(displayedImages[0] || "");
-  }, [displayedImages.join("|")]);
-
-  useEffect(() => {
-    if (!selectedColor) return;
-    if (!colorImageKey || !displayedImages.length) return;
-
-    const key = colorImageKey?.[selectedColor];
-    if (!key) return;
-
-    const match = displayedImages.find(
-      (u) => imageBaseKey(u).includes(key) || imageBaseKey(u) === key
+  const hasSizeChart = useMemo(() => {
+    return Boolean(
+      (product as any)?.pdp_enrichment_v1?.variants?.size_chart ||
+        (product as any)?.size_chart ||
+        (product as any)?.variations?.size_chart
     );
-    if (match) setActiveImage(match);
-  }, [selectedColor, colorImageKey, displayedImages]);
-
-  const getColorThumb = (color: string) => {
-    const fromMap = Array.isArray(colorImagesMap?.[color]) ? colorImagesMap[color][0] : "";
-    if (fromMap) return stripAmazonSizeModifiers(String(fromMap));
-
-    const sw = (colorSwatches && typeof colorSwatches === "object"
-      ? colorSwatches[color]
-      : "") as any;
-    const swStr = typeof sw === "string" ? sw.trim() : "";
-    if (swStr && isLikelyUrl(swStr)) return stripAmazonSizeModifiers(swStr);
-
-    const key = colorImageKey?.[color];
-    if (key) {
-      const match = baseImages.find(
-        (u) => imageBaseKey(u).includes(key) || imageBaseKey(u) === key
-      );
-      if (match) return match;
-    }
-
-    return "";
-  };
-
-  const reviews = (product as any)?.reviews?.items || [];
-  const avg = useMemo(() => {
-    const direct = Number((product as any)?.reviews?.average_rating || 0);
-    if (Number.isFinite(direct) && direct > 0) return direct;
-    return averageRating(reviews);
-  }, [product, reviews]);
-
-  const reviewCount = Number(
-    (product as any)?.reviews?.review_count ||
-      (product as any)?.reviews?.count ||
-      reviews?.length ||
-      0
-  );
-
-  const displayTitle = useMemo(() => pickSafeTitle(product), [product]);
-
-  const displayPrice = useMemo(() => {
-    const p = (product as any)?.price;
-    if (typeof p === "string" && p.trim()) return p.trim();
-    if (typeof p === "number" && Number.isFinite(p) && p > 0) return `$${p.toFixed(2)}`;
-    return "Price unavailable";
   }, [product]);
 
-  const boughtInPastMonth = useMemo(() => detectBoughtLine(product), [product]);
+  const sizeChart = useMemo(() => {
+    return (
+      (product as any)?.pdp_enrichment_v1?.variants?.size_chart ||
+      (product as any)?.size_chart ||
+      (product as any)?.variations?.size_chart ||
+      null
+    );
+  }, [product]);
 
-  const aboutThisItemRaw = useMemo(() => pickSafeDescription(product), [product]);
-  const aboutParas = useMemo(() => splitParas(aboutThisItemRaw), [aboutThisItemRaw]);
+  const sizeChartHtml = useMemo(() => {
+    const html = String((sizeChart as any)?.html || "").trim();
+    return html || "";
+  }, [sizeChart]);
 
-  const sizeChart =
-    (product as any)?.size_chart || (product as any)?.variations?.size_chart;
-  const [sizeChartOpen, setSizeChartOpen] = useState(false);
-
-  useEffect(() => {
-    setSizeChartOpen(false);
-  }, [displayTitle]);
-
-  const sizeChartHtml =
-    sizeChart &&
-    typeof sizeChart === "object" &&
-    typeof (sizeChart as any).html === "string"
-      ? String((sizeChart as any).html || "").trim()
-      : "";
-  const sizeChartImg = typeof sizeChart === "string" ? String(sizeChart).trim() : "";
-  const hasSizeChart = Boolean(sizeChartImg || sizeChartHtml);
+  const sizeChartImg = useMemo(() => {
+    const img = String((sizeChart as any)?.img || (sizeChart as any)?.image || "").trim();
+    return img || "";
+  }, [sizeChart]);
 
   const parsedSizeChart = useMemo(() => {
     if (!sizeChartHtml) return null;
-    return parseSizeChartHtml(sizeChartHtml);
+    const tableMatch = sizeChartHtml.match(/<table[\s\S]*?<\/table>/i);
+    const table = tableMatch ? tableMatch[0] : "";
+    if (!table) return null;
+
+    const headerMatches = Array.from(table.matchAll(/<th[^>]*>([\s\S]*?)<\/th>/gi)).map(
+      (m) => m[1]
+        .replace(/<[^>]*>/g, " ")
+        .replace(/\s+/g, " ")
+        .trim()
+    );
+
+    const rowMatches = Array.from(table.matchAll(/<tr[^>]*>([\s\S]*?)<\/tr>/gi)).map(
+      (m) => m[1]
+    );
+
+    const rows: string[][] = [];
+    for (const r of rowMatches) {
+      const cellMatches = Array.from(r.matchAll(/<(td|th)[^>]*>([\s\S]*?)<\/(td|th)>/gi)).map(
+        (m) => m[2]
+          .replace(/<[^>]*>/g, " ")
+          .replace(/\s+/g, " ")
+          .trim()
+      );
+      if (cellMatches.length) rows.push(cellMatches);
+    }
+
+    const headers = headerMatches.length ? headerMatches : (rows[0] || []);
+    const bodyRows = rows.length > 1 ? rows.slice(1) : [];
+
+    if (!headers.length) return null;
+
+    return {
+      headers,
+      rows: bodyRows,
+    };
   }, [sizeChartHtml]);
+
+  const [activeImage, setActiveImage] = useState<string>("");
+  const [selectedColor, setSelectedColor] = useState<string>("");
+  const [colorUserSelected, setColorUserSelected] = useState(false);
+  const [selectedSize, setSelectedSize] = useState<string>("");
+  const [sizeChartOpen, setSizeChartOpen] = useState(false);
 
   const [qty, setQty] = useState(1);
 
-  const handleAddToCart = () => {
+  const displayTitle = useMemo(() => pickSafeTitle(product), [product]);
+  const description = useMemo(() => pickSafeDescription(product), [product]);
+  const aboutParas = useMemo(() => splitParas(description), [description]);
+
+  const boughtInPastMonth = useMemo(() => detectBoughtLine(product), [product]);
+
+  const reviewItems = useMemo(() => (product as any)?.reviews?.items || [], [product]);
+  const avg = useMemo(() => {
+    const v = Number((product as any)?.reviews?.average_rating || 0);
+    if (Number.isFinite(v) && v > 0) return v;
+    return averageRating(reviewItems);
+  }, [product, reviewItems]);
+
+  const reviewCount = useMemo(() => {
+    const n = Number((product as any)?.reviews?.review_count || (product as any)?.reviews?.count || 0);
+    if (Number.isFinite(n) && n > 0) return n;
+    const items = Array.isArray(reviewItems) ? reviewItems.length : 0;
+    return items || 0;
+  }, [product, reviewItems]);
+
+  const displayedImages = useMemo(() => {
+    const imgs = baseImages || [];
+    return imgs.slice(0, 12);
+  }, [baseImages.join("|")]);
+
+  useEffect(() => {
+    if (!activeImage && displayedImages.length) setActiveImage(displayedImages[0]);
+  }, [displayedImages.join("|")]);
+
+  useEffect(() => {
+    if (!selectedColor && (colors[0] || swatchKeys[0])) setSelectedColor(colors[0] || swatchKeys[0]);
+  }, [colors.join("|"), swatchKeys.join("|")]);
+
+  const displayedColor = useMemo(() => {
+    return String(selectedColor || "").trim();
+  }, [selectedColor]);
+
+  const displayedSize = useMemo(() => {
+    if (selectedSize) return selectedSize;
+    if (scrapedSizes.length) return scrapedSizes[0];
+    return "";
+  }, [selectedSize, scrapedSizes.join("|")]);
+
+  const displayedColorImages = useMemo(() => {
+    if (!displayedColor) return [];
+    if (!colorImagesMap) return [];
+    const v = (colorImagesMap as any)?.[displayedColor];
+    if (Array.isArray(v)) return v.map(String).filter(Boolean);
+    return [];
+  }, [displayedColor, JSON.stringify(colorImagesMap || {})]);
+
+  const displayedColorImageKey = useMemo(() => {
+    if (!displayedColor) return "";
+    if (!colorImageKey) return "";
+    const v = (colorImageKey as any)?.[displayedColor];
+    return v ? String(v) : "";
+  }, [displayedColor, JSON.stringify(colorImageKey || {})]);
+
+  const displayedColorSwatch = useMemo(() => {
+    if (!displayedColor) return "";
+    const v = (colorSwatches as any)?.[displayedColor];
+    return v ? String(v) : "";
+  }, [displayedColor, JSON.stringify(colorSwatches || {})]);
+
+  const displayedImagesWithVariant = useMemo(() => {
+    const variantImgs = selectBestImageVariant(displayedColorImages || []);
+    if (variantImgs.length) return variantImgs;
+    return baseImages || [];
+  }, [displayedColorImages.join("|"), baseImages.join("|")]);
+
+  const displayPrice = useMemo(() => {
     const p = (product as any)?.price;
-    const priceNum =
-      typeof p === "number"
-        ? p
-        : typeof p === "string"
-        ? Number(String(p).replace(/[^0-9.]/g, ""))
-        : NaN;
+    if (typeof p === "number" && Number.isFinite(p) && p > 0) return `$${p.toFixed(2)}`;
+    const s = String(p || "").trim();
+    if (s && s !== "0" && s !== "0.00") return s.startsWith("$") ? s : `$${s}`;
+    const p2 = (product as any)?.price_amount || (product as any)?.price_value;
+    const s2 = String(p2 || "").trim();
+    if (s2) return s2.startsWith("$") ? s2 : `$${s2}`;
+    return "$0.00";
+  }, [product]);
 
-    addToCart(
-      {
-        id: String((product as any)?.id || (product as any)?.handle),
-        name: displayTitle,
-        price: Number.isFinite(priceNum) && priceNum > 0 ? priceNum : 0,
-        image: String((product as any)?.image || activeImage || displayedImages[0] || ""),
-      },
-      qty
-    );
-
+  const handleAddToCart = () => {
+    const item = {
+      id: String((product as any)?.id || (product as any)?.slug || (product as any)?.handle || "").trim(),
+      title: displayTitle,
+      image: activeImage,
+      price: displayPrice,
+      quantity: qty,
+      color: displayedColor,
+      size: displayedSize,
+    };
+    addToCart(item);
     openCart();
-
-    window.dispatchEvent(
-      new CustomEvent("cart:toast", {
-        detail: { message: "Added to cart" },
-      })
-    );
   };
 
   const buyNow = async () => {
@@ -610,33 +558,33 @@ export const ProductHeroSection = (): JSX.Element => {
       const priceNum =
         typeof p === "number"
           ? p
-          : typeof p === "string"
-          ? Number(String(p).replace(/[^0-9.]/g, ""))
-          : NaN;
+          : Number(String(p || "").replace(/[^0-9.]/g, "")) || 0;
 
       const priceCents =
         Number.isFinite(priceNum) && priceNum > 0 ? Math.round(priceNum * 100) : 0;
 
-      const apiBase = (
-        import.meta.env.VITE_SQUARE_API_BASE || "https://square-api.shadabchow.workers.dev"
-      ).replace(/\/+$/, "");
+      const apiBase = String((product as any)?.api_base || "")
+        .trim()
+        .replace(/\/+$/, "");
 
       const res = await fetch(`${apiBase}/checkout`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          cart: [
-            {
-              title: displayTitle,
-              price_cents: priceCents,
-              quantity: qty,
-            },
-          ],
+          product: {
+            id: String((product as any)?.id || (product as any)?.slug || (product as any)?.handle || ""),
+            title: displayTitle,
+            image: activeImage,
+            price_cents: priceCents,
+            currency: "usd",
+            quantity: qty,
+            color: displayedColor,
+            size: displayedSize,
+          },
         }),
       });
 
       const data = await res.json().catch(() => ({}));
-
       if (!res.ok) {
         console.error("Checkout API error:", res.status, data);
         alert(data?.error || "Checkout failed");
@@ -657,6 +605,18 @@ export const ProductHeroSection = (): JSX.Element => {
     }
   };
 
+  const getColorThumb = (colorName: string) => {
+    const key = String(colorName || "").trim();
+    if (!key) return "";
+    const byKey = displayedColorImageKey;
+    if (colorImageKey && typeof colorImageKey === "object") {
+      const k = (colorImageKey as any)?.[key];
+      if (k) return `https://m.media-amazon.com/images/I/${k}._AC_SR38,50_.jpg`;
+    }
+    if (byKey) return `https://m.media-amazon.com/images/I/${byKey}._AC_SR38,50_.jpg`;
+    return "";
+  };
+
   const brand = String(
     (product as any)?.brand ||
       (product as any)?.brand_name ||
@@ -672,16 +632,14 @@ export const ProductHeroSection = (): JSX.Element => {
         <div className="grid gap-4 grid-cols-1 lg:grid-cols-[72px_1fr]">
           {/* Thumbs */}
           <div className="flex flex-row lg:flex-col flex-none w-full lg:w-[72px] gap-3 lg:max-h-[640px] overflow-x-auto lg:overflow-y-auto overflow-y-hidden lg:overflow-x-hidden pr-0 lg:pr-1 order-2 lg:order-1">
-            {displayedImages.map((u, i) => (
+            {displayedImagesWithVariant.map((u, i) => (
               <button
                 key={`${u}-${i}`}
                 type="button"
                 onClick={() => setActiveImage(u)}
                 onMouseEnter={() => setActiveImage(u)}
                 className={`border rounded overflow-hidden flex items-center justify-center bg-white ${
-                  activeImage === u
-                    ? "border-[#007185]"
-                    : "border-[#D5D9D9] hover:border-[#007185]"
+                  activeImage === u ? "border-[#007185]" : "border-[#D5D9D9] hover:border-[#007185]"
                 }`}
                 style={{ width: 72, height: 72 }}
                 aria-label="Select image"
@@ -708,9 +666,7 @@ export const ProductHeroSection = (): JSX.Element => {
                 decoding="sync"
               />
             ) : (
-              <div className={`${EMBER} text-[12px] leading-[16px] text-[#565959]`}>
-                No image
-              </div>
+              <div className={`${EMBER} text-[12px] leading-[16px] text-[#565959]`}>No image</div>
             )}
           </div>
         </div>
@@ -724,11 +680,7 @@ export const ProductHeroSection = (): JSX.Element => {
                 {brand ? (
                   <div className={`${EMBER} text-[12px] leading-[16px] text-[#565959]`}>
                     Brand:{" "}
-                    <button
-                      type="button"
-                      className="text-[#007185] hover:underline"
-                      onClick={() => {}}
-                    >
+                    <button type="button" className="text-[#007185] hover:underline" onClick={() => {}}>
                       {brand}
                     </button>
                   </div>
@@ -745,18 +697,14 @@ export const ProductHeroSection = (): JSX.Element => {
                     type="button"
                     className={`flex items-center gap-2 text-[14px] leading-[20px] ${EMBER}`}
                     onClick={() => {
-                      document
-                        .getElementById("reviews")
-                        ?.scrollIntoView({ behavior: "smooth" });
+                      document.getElementById("reviews")?.scrollIntoView({ behavior: "smooth" });
                     }}
                     aria-label="Jump to reviews"
                   >
                     {avg ? <Stars value={avg} /> : null}
                     {avg ? <span className="text-[#007185]">{avg.toFixed(1)}</span> : null}
                     {reviewCount ? (
-                      <span className="text-[#007185]">
-                        ({Number(reviewCount).toLocaleString()})
-                      </span>
+                      <span className="text-[#007185]">({Number(reviewCount).toLocaleString()})</span>
                     ) : null}
                   </button>
                 ) : null}
@@ -788,10 +736,10 @@ export const ProductHeroSection = (): JSX.Element => {
                               setColorUserSelected(true);
                               setSelectedColor(c);
                             }}
-                            className={`flex items-center gap-2 border rounded px-2 py-2 text-[14px] leading-[20px] bg-white ${EMBER} ${
+                            className={`flex items-center gap-2 bg-white ${EMBER} text-[14px] leading-[20px] px-[10px] h-[38px] rounded-[2px] ${
                               isActive
-                                ? "border-[#007185] ring-1 ring-[#007185]"
-                                : "border-[#D5D9D9] hover:border-[#007185]"
+                                ? "border border-[#e77600] bg-[#fdf8f5] shadow-[0_0_0_1px_#e77600_inset]"
+                                : "border border-[#D5D9D9] hover:border-[#8D9096] hover:bg-[#F3F3F3]"
                             }`}
                             aria-pressed={isActive}
                           >
@@ -817,7 +765,9 @@ export const ProductHeroSection = (): JSX.Element => {
                                 style={{ backgroundColor: swStr }}
                               />
                             ) : (
-                              <span className={`inline-flex w-10 h-10 rounded border border-[#D5D9D9] items-center justify-center text-[10px] text-[#565959] bg-white ${EMBER}`}>
+                              <span
+                                className={`inline-flex w-10 h-10 rounded border border-[#D5D9D9] items-center justify-center text-[10px] text-[#565959] bg-white ${EMBER}`}
+                              >
                                 {String(c || "").trim().slice(0, 2).toUpperCase()}
                               </span>
                             )}
@@ -840,23 +790,23 @@ export const ProductHeroSection = (): JSX.Element => {
                 ) : null}
 
                 {/* Size */}
-                {sizes.length ? (
+                {scrapedSizes.length ? (
                   <div className="space-y-2">
                     <div className={`${EMBER} text-[14px] leading-[20px] font-semibold text-[#0F1111]`}>
                       Size
                     </div>
                     <div className="flex flex-wrap gap-2">
-                      {sizes.map((s) => {
+                      {scrapedSizes.map((s) => {
                         const isActive = s === selectedSize;
                         return (
                           <button
                             key={s}
                             type="button"
                             onClick={() => setSelectedSize(s)}
-                            className={`border rounded px-3 py-2 text-[14px] leading-[20px] bg-white ${EMBER} ${
+                            className={`bg-white ${EMBER} text-[14px] leading-[38px] px-[10px] h-[38px] rounded-[2px] ${
                               isActive
-                                ? "border-[#007185] ring-1 ring-[#007185]"
-                                : "border-[#D5D9D9] hover:border-[#007185]"
+                                ? "border border-[#e77600] bg-[#fdf8f5] shadow-[0_0_0_1px_#e77600_inset]"
+                                : "border border-[#D5D9D9] hover:border-[#8D9096] hover:bg-[#F3F3F3]"
                             }`}
                             aria-pressed={isActive}
                           >
@@ -882,11 +832,7 @@ export const ProductHeroSection = (): JSX.Element => {
                     {sizeChartOpen ? (
                       <div className="border border-[#D5D9D9] rounded p-3 bg-white overflow-x-auto">
                         {sizeChartImg ? (
-                          <img
-                            src={sizeChartImg}
-                            alt="Size chart"
-                            className="max-w-full h-auto"
-                          />
+                          <img src={sizeChartImg} alt="Size chart" className="max-w-full h-auto" />
                         ) : parsedSizeChart ? (
                           <table className={`${EMBER} min-w-[520px] w-full text-[14px] leading-[20px]`}>
                             <thead>
@@ -913,10 +859,7 @@ export const ProductHeroSection = (): JSX.Element => {
                                         {cell}
                                       </th>
                                     ) : (
-                                      <td
-                                        key={ci}
-                                        className="border-b border-[#D5D9D9] p-2 text-[#0F1111]"
-                                      >
+                                      <td key={ci} className="border-b border-[#D5D9D9] p-2 text-[#0F1111]">
                                         {cell}
                                       </td>
                                     )
@@ -952,7 +895,7 @@ export const ProductHeroSection = (): JSX.Element => {
             </div>
 
             {/* Buy box */}
-            <div className="border border-[#D5D9D9] rounded-lg p-5 bg-white space-y-4 lg:sticky lg:top-3 lg:self-start">
+            <div className="border border-[#D5D9D9] rounded-lg py-[14px] px-[18px] bg-white space-y-4 lg:sticky lg:top-3 lg:self-start">
               <PriceAmazon displayPrice={displayPrice} />
 
               <div className={`${EMBER} text-[12px] leading-[16px] text-[#0F1111]`}>
@@ -968,7 +911,7 @@ export const ProductHeroSection = (): JSX.Element => {
               <div className={`${EMBER} flex items-center gap-2 text-[14px] leading-[20px] text-[#0F1111]`}>
                 <span className="text-[#565959]">Qty:</span>
                 <select
-                  className={`${EMBER} border border-[#888C8C] rounded px-2 py-1 bg-white text-[14px] leading-[20px]`}
+                  className={`${EMBER} bg-[#F0F2F2] border border-[#D5D9D9] rounded-lg shadow-[0_2px_5px_0_rgba(15,17,17,.15)] px-3 h-[29px] text-[14px] leading-[20px]`}
                   value={qty}
                   onChange={(e) => setQty(Number(e.target.value) || 1)}
                   aria-label="Quantity"
@@ -986,7 +929,7 @@ export const ProductHeroSection = (): JSX.Element => {
 
               <button
                 type="button"
-                className={`${EMBER} w-full bg-[#FFD814] hover:bg-[#F7CA00] text-[#0F1111] font-semibold py-2 rounded-full border border-[#FCD200] text-[14px] leading-[20px]`}
+                className={`${EMBER} w-full bg-[#FFD814] hover:bg-[#F7CA00] text-[#0F1111] font-normal py-2 rounded-full border border-[#FCD200] shadow-[0_2px_5px_0_rgba(213,217,217,.5)] text-[14px] leading-[20px]`}
                 onClick={handleAddToCart}
               >
                 Add to cart
@@ -994,7 +937,7 @@ export const ProductHeroSection = (): JSX.Element => {
 
               <button
                 type="button"
-                className={`${EMBER} w-full bg-[#FFA41C] hover:bg-[#F59A12] text-[#0F1111] font-semibold py-2 rounded-full border border-[#E39317] text-[14px] leading-[20px]`}
+                className={`${EMBER} w-full bg-[#FFA41C] hover:bg-[#FA8900] text-[#0F1111] font-normal py-2 rounded-full border border-[#FF8F00] shadow-[0_2px_5px_0_rgba(213,217,217,.5)] text-[14px] leading-[20px]`}
                 onClick={buyNow}
               >
                 Buy now
@@ -1008,9 +951,7 @@ export const ProductHeroSection = (): JSX.Element => {
 
                 <div className="flex justify-between">
                   <span className="text-[#565959]">Sold by</span>
-                  <span className="text-[#0F1111]">
-                    {String((product as any)?.sold_by || "Ventari")}
-                  </span>
+                  <span className="text-[#0F1111]">{String((product as any)?.sold_by || "Ventari")}</span>
                 </div>
 
                 <div className="flex justify-between">
@@ -1031,40 +972,17 @@ export const ProductHeroSection = (): JSX.Element => {
                 type="button"
                 className={`${EMBER} w-full flex items-center justify-center gap-2 border border-[#D5D9D9] hover:border-[#007185] rounded py-2 text-[14px] leading-[20px] bg-white`}
                 onClick={() => {
-                  const p = (product as any)?.price;
-                  const priceNum =
-                    typeof p === "number"
-                      ? p
-                      : typeof p === "string"
-                      ? Number(String(p).replace(/[^0-9.]/g, ""))
-                      : NaN;
-
                   addToWishlist({
-                    id: String((product as any)?.id || (product as any)?.handle),
-                    name: displayTitle,
-                    price: Number.isFinite(priceNum) && priceNum > 0 ? priceNum : 0,
-                    image: String(
-                      (product as any)?.image || activeImage || displayedImages[0] || ""
-                    ),
+                    id: String((product as any)?.id || (product as any)?.slug || (product as any)?.handle || ""),
+                    title: displayTitle,
+                    image: activeImage,
+                    price: displayPrice,
                   });
-
-                  window.dispatchEvent(
-                    new CustomEvent("wishlist:toast", {
-                      detail: { message: "Added to wishlist" },
-                    })
-                  );
+                  navigate("/wishlist");
                 }}
               >
                 <Heart className="w-4 h-4" />
-                Add to List
-              </button>
-
-              <button
-                type="button"
-                className={`${EMBER} w-full border border-[#D5D9D9] hover:border-[#007185] rounded py-2 text-[14px] leading-[20px] bg-white`}
-                onClick={() => navigate("/shop")}
-              >
-                Continue shopping
+                Add to Wishlist
               </button>
             </div>
           </div>
@@ -1073,3 +991,5 @@ export const ProductHeroSection = (): JSX.Element => {
     </section>
   );
 };
+
+export default ProductHeroSection;
