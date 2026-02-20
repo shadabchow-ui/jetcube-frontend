@@ -2,7 +2,8 @@ import React from "react";
 import ProductBreadcrumb from "./sections/ProductBreadcrumb";
 import { ProductHeroSection } from "./sections/ProductHeroSection";
 
-// ✅ Import ONLY the default export — avoids named export mismatches.
+// ✅ Build-fix: ONLY import the default export.
+// This avoids missing named exports like AboutThisItemSection.
 import ProductDetailsSection from "./sections/ProductDetailsSection";
 
 import {
@@ -17,6 +18,7 @@ export default function SingleProduct() {
       <ProductBreadcrumb />
       <ProductHeroSection />
 
+      {/* Optional sticky anchor tabs (anchors should exist in ProductDetailsSection) */}
       <div className="sticky top-0 z-30 bg-white border-b border-black/10">
         <div className="max-w-[1200px] mx-auto px-4 sm:px-6">
           <nav className="flex gap-4 sm:gap-6 overflow-x-auto py-3 text-sm whitespace-nowrap">
