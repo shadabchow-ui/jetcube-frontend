@@ -10,10 +10,7 @@ export default {
     const url = new URL(req.url);
     const pathname = url.pathname;
 
-    if (pathname.startsWith("/api/pdp/")) {
-      const slug = pathname.slice("/api/pdp/".length);
-      return handlePDP(slug, env, ctx, req);
-    }
+
 
     if (pathname.startsWith("/api/category/")) {
       const category = pathname.slice("/api/category/".length);
