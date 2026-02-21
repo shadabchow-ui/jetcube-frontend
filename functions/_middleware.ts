@@ -5,14 +5,15 @@ export async function onRequest({ request, env, next }: any) {
   // ----------------------------
   // Helpers
   // ----------------------------
-  const jsonHeaders = (cacheSeconds: number) => ({
+  const jsonHeaders = (cacheSeconds: number, extra: Record<string, string> = {}) => ({
     "Content-Type": "application/json; charset=utf-8",
     "Cache-Control": `public, max-age=${cacheSeconds}`,
     "X-Edge-MW": "hit",
+    ...extra,
   });
 
   function stripSlashes(s: string) {
-    return s.replace(/^\/+|\/+$/g, "");
+    return String(s || "").replace(/^\/+|\/+$/g, "");
   }
 
   function normalizeCategoryPath(input: string): string {
@@ -21,7 +22,11 @@ export async function onRequest({ request, env, next }: any) {
     const idx = s.indexOf("/c/");
     if (idx !== -1) s = s.slice(idx + 3);
     s = s.replace(/^c\//, "");
-    s = decodeURIComponent(s);
+    try {
+      s = decodeURIComponent(s);
+    } catch {
+      // ignore malformed encoding, keep raw string
+    }
     s = stripSlashes(s);
     s = s.toLowerCase();
     s = s.replace(/\s+/g, "-");
@@ -36,6 +41,36 @@ export async function onRequest({ request, env, next }: any) {
     return [];
   }
 
+  function safeDecodeURIComponent(s: string): string {
+    try {
+      return decodeURIComponent(s);
+    } catch {
+      return s;
+    }
+  }
+
+  function normalizeProductKey(productPath: string): string {
+    return String(productPath || "").replace(/^\/+/, "");
+  }
+
+  function canonicalizeProductPath(productPath: string): string {
+    let p = normalizeProductKey(productPath);
+
+    // Standardize legacy products/ -> product/
+    if (p.startsWith("products/")) {
+      p = `product/${p.slice("products/".length)}`;
+    }
+
+    // If caller passed only slug, normalize to product/<slug>.json
+    if (!/\.json(\.gz)?$/i.test(p) && !p.startsWith("product/")) {
+      p = `product/${stripSlashes(p)}.json`;
+    } else if (!/\.json(\.gz)?$/i.test(p) && p.startsWith("product/")) {
+      p = `${p}.json`;
+    }
+
+    return p;
+  }
+
   async function r2GetObject(key: string) {
     const obj = await env.JETCUBE_R2?.get(key);
     return obj || null;
@@ -47,6 +82,9 @@ export async function onRequest({ request, env, next }: any) {
 
     const isGz =
       key.toLowerCase().endsWith(".gz") ||
+      String(obj?.httpMetadata?.contentEncoding || "")
+        .toLowerCase()
+        .includes("gzip") ||
       String(obj?.httpMetadata?.contentType || "")
         .toLowerCase()
         .includes("gzip");
@@ -76,7 +114,7 @@ export async function onRequest({ request, env, next }: any) {
     if (txt == null) return null;
     const s = txt.trim();
     if (!s) return null;
-    // Guard against accidental HTML fallback (should never happen from R2, but keep it safe)
+    // Guard against accidental HTML fallback
     if (s.startsWith("<")) return null;
     try {
       return JSON.parse(s) as T;
@@ -101,22 +139,19 @@ export async function onRequest({ request, env, next }: any) {
     return hit || null;
   }
 
-  function normalizeProductKey(productPath: string): string {
-    return String(productPath || "").replace(/^\/+/, "");
-  }
-
   async function fetchProductJsonWithFallback(productKeyOrPath: string): Promise<any | null> {
-    const base = normalizeProductKey(productKeyOrPath);
+    const base = canonicalizeProductPath(productKeyOrPath);
     const variants: string[] = [];
     const seen = new Set<string>();
 
     const push = (k: string) => {
-      const kk = String(k || "").trim();
+      const kk = normalizeProductKey(k);
       if (!kk || seen.has(kk)) return;
       seen.add(kk);
       variants.push(kk);
     };
 
+    // Strict current standard first
     push(base);
 
     if (base.endsWith(".json")) push(`${base}.gz`);
@@ -127,6 +162,14 @@ export async function onRequest({ request, env, next }: any) {
       push(`${base}.json.gz`);
     }
 
+    // Canonical product/<slug> fallback ordering when caller passed something unexpected
+    const m = base.match(/^product\/(.+?)(?:\.json(?:\.gz)?)?$/i);
+    if (m?.[1]) {
+      const slugPart = m[1];
+      push(`product/${slugPart}.json.gz`);
+      push(`product/${slugPart}.json`);
+    }
+
     for (const k of variants) {
       const data = await r2ReadJson<any>(k);
       if (data != null) return data;
@@ -135,114 +178,143 @@ export async function onRequest({ request, env, next }: any) {
     return null;
   }
 
+  async function resolveProductPathFromIndexes(slug: string): Promise<string | null> {
+    const idx = await r2ReadJsonFromCandidates<any>([
+      "indexes/pdp_path_map.json",
+      "indexes/pdp_path_map.json.gz",
+      "indexes/pdp2/_index.json",
+      "indexes/pdp2/_index.json.gz",
+      "indexes/_index.json",
+      "indexes/_index.json.gz",
+    ]);
+
+    let productPath: string | null = null;
+
+    if (idx && typeof idx === "object") {
+      if (idx[slug]) productPath = String(idx[slug]);
+
+      if (!productPath) {
+        const shardMap =
+          idx?.shards ||
+          idx?.pdp2_shards ||
+          idx?.pdp_shards ||
+          idx?.map ||
+          idx?.paths;
+
+        if (shardMap && typeof shardMap === "object") {
+          const shardKey = resolveShardKeyFromManifest(slug, shardMap as Record<string, string>);
+          if (shardKey) {
+            const shardRel = String((shardMap as any)[shardKey] || "");
+            const shardKeyPath = normalizeProductKey(shardRel);
+            const shardObj = await r2ReadJson<Record<string, string>>(shardKeyPath);
+            if (shardObj && shardObj[slug]) productPath = String(shardObj[slug]);
+          }
+        }
+      }
+    }
+
+    if (!productPath) productPath = `product/${slug}.json`;
+    return canonicalizeProductPath(productPath);
+  }
+
+  async function buildPdpPayload(slugRaw: string) {
+    const slug = safeDecodeURIComponent(String(slugRaw || "").trim());
+    if (!slug) {
+      return {
+        response: new Response(JSON.stringify({ ok: false, error: "missing_slug" }), {
+          status: 400,
+          headers: jsonHeaders(0, { "x-pdp-handler": "functions/_middleware.ts" }),
+        }),
+      };
+    }
+
+    const productPath = await resolveProductPathFromIndexes(slug);
+    const product = productPath ? await fetchProductJsonWithFallback(productPath) : null;
+
+    if (!product) {
+      return {
+        response: new Response(
+          JSON.stringify({
+            ok: false,
+            error: "not_found",
+            slug,
+            tried: [`product/${slug}.json.gz`, `product/${slug}.json`],
+          }),
+          {
+            status: 404,
+            headers: jsonHeaders(60, { "x-pdp-handler": "functions/_middleware.ts" }),
+          }
+        ),
+      };
+    }
+
+    const related: any[] = [];
+    const alsoViewed: any[] = [];
+
+    // Keep lightweight extras; tolerate missing index
+    try {
+      const indexItems = await r2ReadJson<any[]>("products/search_index.enriched.json");
+      if (Array.isArray(indexItems)) {
+        const currentKey =
+          (product as any)?.slug ||
+          (product as any)?.handle ||
+          (product as any)?.asin ||
+          slug;
+
+        const currentCat = (product as any)?.category_slug || "";
+
+        if (currentCat) {
+          for (const p of indexItems) {
+            const key = p?.slug || p?.handle || p?.asin || p?.id || null;
+            if (!key || key === currentKey) continue;
+            if (p?.category_slug && p.category_slug === currentCat) {
+              related.push(p);
+              if (related.length >= 8) break;
+            }
+          }
+        }
+
+        for (const p of indexItems) {
+          const key = p?.slug || p?.handle || p?.asin || p?.id || null;
+          if (!key || key === currentKey) continue;
+          alsoViewed.push(p);
+          if (alsoViewed.length >= 8) break;
+        }
+      }
+    } catch {
+      // ignore optional enrichment errors
+    }
+
+    const payload = {
+      ok: true,
+      slug,
+      data: product,
+      product, // backward compatibility
+      related,
+      alsoViewed,
+    };
+
+    return {
+      response: new Response(JSON.stringify(payload), {
+        status: 200,
+        headers: jsonHeaders(300, { "x-pdp-handler": "functions/_middleware.ts" }),
+      }),
+    };
+  }
+
   // ----------------------------
   // API endpoints (single-request loaders)
   // ----------------------------
   const isApi = pathname.startsWith("/api/");
   if (isApi) {
-    // /api/pdp?slug=...
-    if (pathname === "/api/pdp") {
-      const slug = (url.searchParams.get("slug") || url.searchParams.get("id") || "").trim();
-      if (!slug) {
-        return new Response(JSON.stringify({ error: "Missing slug" }), {
-          status: 400,
-          headers: jsonHeaders(0),
-        });
-      }
-
-      // Index/manifest candidates (mirror frontend)
-      const idx = await r2ReadJsonFromCandidates<any>([
-        "indexes/pdp_path_map.json",
-        "indexes/pdp_path_map.json.gz",
-        "indexes/pdp2/_index.json",
-        "indexes/pdp2/_index.json.gz",
-        "indexes/_index.json",
-        "indexes/_index.json.gz",
-      ]);
-
-      let productPath: string | null = null;
-
-      if (idx && typeof idx === "object") {
-        if (idx[slug]) productPath = String(idx[slug]);
-
-        if (!productPath) {
-          const shardMap =
-            idx?.shards ||
-            idx?.pdp2_shards ||
-            idx?.pdp_shards ||
-            idx?.map ||
-            idx?.paths;
-
-          if (shardMap && typeof shardMap === "object") {
-            const shardKey = resolveShardKeyFromManifest(slug, shardMap as Record<string, string>);
-            if (shardKey) {
-              const shardRel = String((shardMap as any)[shardKey] || "");
-              const shardKeyPath = normalizeProductKey(shardRel);
-              const shardObj = await r2ReadJson<Record<string, string>>(shardKeyPath);
-              if (shardObj && shardObj[slug]) productPath = String(shardObj[slug]);
-            }
-          }
-        }
-      }
-
-      if (!productPath) productPath = `products/${slug}.json`;
-
-      const product = await fetchProductJsonWithFallback(productPath);
-      if (!product) {
-        return new Response(JSON.stringify({ error: "Product not found", slug }), {
-          status: 404,
-          headers: jsonHeaders(60),
-        });
-      }
-
-      // Optional: embed lightweight related arrays so PDP can avoid extra fetches later
-      // (If index missing, just return empty arrays)
-      const related: any[] = [];
-      const alsoViewed: any[] = [];
-
-      try {
-        const indexItems = await r2ReadJson<any[]>("products/search_index.enriched.json");
-        if (Array.isArray(indexItems)) {
-          const currentKey =
-            (product as any)?.slug ||
-            (product as any)?.handle ||
-            (product as any)?.asin ||
-            slug;
-
-          const currentCat = (product as any)?.category_slug || "";
-
-          if (currentCat) {
-            for (const p of indexItems) {
-              const key = p?.slug || p?.handle || p?.asin || p?.id || null;
-              if (!key || key === currentKey) continue;
-              if (p?.category_slug && p.category_slug === currentCat) {
-                related.push(p);
-                if (related.length >= 8) break;
-              }
-            }
-          }
-
-          for (const p of indexItems) {
-            const key = p?.slug || p?.handle || p?.asin || p?.id || null;
-            if (!key || key === currentKey) continue;
-            alsoViewed.push(p);
-            if (alsoViewed.length >= 8) break;
-          }
-        }
-      } catch {
-        // ignore
-      }
-
-      const payload = {
-        product,
-        related,
-        alsoViewed,
-      };
-
-      return new Response(JSON.stringify(payload), {
-        status: 200,
-        headers: jsonHeaders(300),
-      });
+    // Support both /api/pdp?slug=... and /api/pdp/:slug
+    if (pathname === "/api/pdp" || pathname.startsWith("/api/pdp/")) {
+      const slugFromPath = pathname.startsWith("/api/pdp/")
+        ? pathname.slice("/api/pdp/".length)
+        : "";
+      const slug = (slugFromPath || url.searchParams.get("slug") || url.searchParams.get("id") || "").trim();
+      const { response } = await buildPdpPayload(slug);
+      return response;
     }
 
     // /api/category?path=...
@@ -268,7 +340,7 @@ export async function onRequest({ request, env, next }: any) {
       const parts = stripSlashes(normalized)
         .split("/")
         .filter(Boolean)
-        .map(decodeURIComponent);
+        .map((p) => safeDecodeURIComponent(p));
 
       const hyphenName = `${parts.join("-")}.json`;
       const legacyName = `${parts.join("__")}.json`;
@@ -321,7 +393,7 @@ export async function onRequest({ request, env, next }: any) {
             else if (typeof raw === "string") push(raw);
             else if (raw && typeof raw === "object") push(raw.path ?? raw.url ?? raw.slug);
 
-            return candidates.some((c) => c == want || c.startsWith(`${want}/`));
+            return candidates.some((c) => c === want || c.startsWith(`${want}/`));
           });
 
           categoryProductsRaw = filtered;
@@ -408,12 +480,13 @@ export async function onRequest({ request, env, next }: any) {
   // ----------------------------
   // R2 proxy paths
   // ----------------------------
-  // Only intercept these paths (sitemaps + indexes + products)
+  // Only intercept these paths (sitemaps + indexes + product/products)
   const isSitemap = pathname.startsWith("/sitemap");
   const isIndexes = pathname.startsWith("/indexes/");
-  const isProducts = pathname.startsWith("/products/");
+  const isProductSingular = pathname.startsWith("/product/");
+  const isProductsLegacy = pathname.startsWith("/products/");
 
-  if (!isSitemap && !isIndexes && !isProducts) {
+  if (!isSitemap && !isIndexes && !isProductSingular && !isProductsLegacy) {
     return next();
   }
 
@@ -452,7 +525,6 @@ export async function onRequest({ request, env, next }: any) {
   };
 
   // If the object key ends in .gz, advertise it as gzipped to avoid client-side ambiguity.
-  // (Client code also has a fallback decompressor if metadata is missing.)
   if (isGZ) {
     headers["Content-Encoding"] = "gzip";
     headers["Vary"] = "Accept-Encoding";
