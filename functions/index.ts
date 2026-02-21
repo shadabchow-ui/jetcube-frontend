@@ -1,11 +1,6 @@
-
 // functions/index.ts
 // Cloudflare Pages Functions entry.
-//
-// Notes:
-// - In Pages Functions, calling fetch(request) for same-origin URLs can create recursion.
-//   Use context.next() to fall through to static assets / SPA.
-// - This file adds bundled API endpoints so the SPA can load data with 1 request.
+// Keep this as a bundled API handler + direct R2 proxy for indexes/sitemaps.
 
 type R2ObjectBodyLike = {
   body: ReadableStream<Uint8Array>;
@@ -26,57 +21,19 @@ type EnvLike = {
 };
 
 function stripLeadingSlash(s: string) {
-  return s.replace(/^\/+/, "");
+  return String(s || "").replace(/^\/+/, "");
 }
 
 function cacheHeaders(maxAgeSeconds: number) {
   return `public, max-age=${maxAgeSeconds}, s-maxage=${maxAgeSeconds}`;
 }
 
-async function readObjArrayBuffer(obj: R2ObjectBodyLike): Promise<ArrayBuffer> {
-  return await new Response(obj.body).arrayBuffer();
-}
-
-async function gunzipToText(ab: ArrayBuffer): Promise<string> {
-  const DS: any = (globalThis as any).DecompressionStream;
-  if (!DS) throw new Error("DecompressionStream not available");
-  const ds = new DS("gzip");
-  const stream = new Blob([ab]).stream().pipeThrough(ds);
-  return await new Response(stream).text();
-}
-
-function looksGz(key: string, obj?: R2ObjectBodyLike | null) {
-  const k = key.toLowerCase();
-  const enc = String(obj?.httpMetadata?.contentEncoding || "").toLowerCase();
-  const ct = String(obj?.httpMetadata?.contentType || "").toLowerCase();
-  return k.endsWith(".gz") || enc.includes("gzip") || ct.includes("gzip");
-}
-
-async function getTextFromR2(r2: R2BucketLike, key: string): Promise<string | null> {
-  const obj = await r2.get(stripLeadingSlash(key));
-  if (!obj) return null;
-
-  const ab = await readObjArrayBuffer(obj);
-  if (!ab || ab.byteLength === 0) return "";
-
-  if (looksGz(key, obj)) {
-    return await gunzipToText(ab);
-  }
-  return await new Response(ab).text();
-}
-
-async function getJsonFromR2<T = any>(r2: R2BucketLike, key: string): Promise<T | null> {
-  const txt = await getTextFromR2(r2, key);
-  if (txt === null) return null;
-  if (!txt) return null;
-  try {
-    return JSON.parse(txt) as T;
-  } catch (e: any) {
-    throw new Error(`[functions/index] JSON parse failed for ${key}: ${e?.message || e}`);
-  }
-}
-
-function jsonResponse(body: any, status = 200, maxAgeSeconds = 300, extraHeaders: Record<string, string> = {}) {
+function jsonResponse(
+  body: any,
+  status = 200,
+  maxAgeSeconds = 300,
+  extraHeaders: Record<string, string> = {}
+) {
   return new Response(JSON.stringify(body), {
     status,
     headers: {
@@ -97,16 +54,61 @@ function textResponse(body: string, contentType: string, status = 200, maxAgeSec
   });
 }
 
+async function readObjArrayBuffer(obj: R2ObjectBodyLike): Promise<ArrayBuffer> {
+  return await new Response(obj.body).arrayBuffer();
+}
+
+function looksGz(key: string, obj?: R2ObjectBodyLike | null) {
+  const k = String(key || "").toLowerCase();
+  const enc = String(obj?.httpMetadata?.contentEncoding || "").toLowerCase();
+  const ct = String(obj?.httpMetadata?.contentType || "").toLowerCase();
+  return k.endsWith(".gz") || enc.includes("gzip") || ct.includes("gzip");
+}
+
+async function gunzipToText(ab: ArrayBuffer): Promise<string> {
+  const DS: any = (globalThis as any).DecompressionStream;
+  if (!DS) throw new Error("DecompressionStream not available");
+  const ds = new DS("gzip");
+  const stream = new Blob([ab]).stream().pipeThrough(ds);
+  return await new Response(stream).text();
+}
+
+async function getTextFromR2(r2: R2BucketLike, key: string): Promise<string | null> {
+  const obj = await r2.get(stripLeadingSlash(key));
+  if (!obj) return null;
+
+  const ab = await readObjArrayBuffer(obj);
+  if (!ab || ab.byteLength === 0) return "";
+
+  if (looksGz(key, obj)) {
+    return await gunzipToText(ab);
+  }
+
+  return await new Response(ab).text();
+}
+
+async function getJsonFromR2<T = any>(r2: R2BucketLike, key: string): Promise<T | null> {
+  const txt = await getTextFromR2(r2, key);
+  if (txt === null) return null;
+  if (!txt) return null;
+
+  try {
+    return JSON.parse(txt) as T;
+  } catch (e: any) {
+    throw new Error(`[functions/index] JSON parse failed for ${key}: ${e?.message || e}`);
+  }
+}
+
 async function proxyR2Object(
   r2: R2BucketLike,
   key: string,
   contentType: string,
-  maxAgeSeconds: number,
+  maxAgeSeconds: number
 ): Promise<Response> {
   const obj = await r2.get(stripLeadingSlash(key));
   if (!obj) return new Response("Not found", { status: 404 });
 
-  // If the key is gzipped, always return decompressed JSON/text so browsers don't choke on missing headers.
+  // Decompress gz JSON/XML for browser safety if metadata is inconsistent
   if (looksGz(key, obj)) {
     const ab = await readObjArrayBuffer(obj);
     const txt = await gunzipToText(ab);
@@ -114,6 +116,7 @@ async function proxyR2Object(
   }
 
   return new Response(obj.body, {
+    status: 200,
     headers: {
       "Content-Type": obj.httpMetadata?.contentType || contentType,
       "Cache-Control": cacheHeaders(maxAgeSeconds),
@@ -131,6 +134,10 @@ let INDEX_PROMISE: Promise<any | null> | null = null;
 
 const SHARD_CACHE: Record<string, any> = {};
 const SHARD_PROMISE: Record<string, Promise<any | null>> = {};
+
+function normalizeKey(k: string): string {
+  return String(k || "").replace(/^\/+/, "");
+}
 
 async function loadIndexOnce(r2: R2BucketLike): Promise<any | null> {
   if (INDEX_CACHE) return INDEX_CACHE;
@@ -168,12 +175,11 @@ function resolveShardKeyFromManifest(slug: string, shardMap: Record<string, stri
   if (!keys.length) return null;
 
   const lower = slug.toLowerCase();
-  const hit = keys.find((k) => lower.startsWith(k.toLowerCase()));
-  return hit || null;
+  return keys.find((k) => lower.startsWith(k.toLowerCase())) || null;
 }
 
 async function fetchShard(r2: R2BucketLike, shardKey: string): Promise<any | null> {
-  const key = stripLeadingSlash(shardKey);
+  const key = normalizeKey(shardKey);
   if (SHARD_CACHE[key]) return SHARD_CACHE[key];
   if (SHARD_PROMISE[key]) return SHARD_PROMISE[key];
 
@@ -186,52 +192,16 @@ async function fetchShard(r2: R2BucketLike, shardKey: string): Promise<any | nul
   return SHARD_PROMISE[key];
 }
 
-function normalizeKey(k: string): string {
-  return String(k || "").replace(/^\/+/, "");
-}
-
-async function fetchProductJsonWithFallback(r2: R2BucketLike, productKey: string): Promise<any> {
-  const variants: string[] = [];
-  const seen = new Set<string>();
-
-  const push = (k: string) => {
-    const kk = normalizeKey(k);
-    if (!kk || seen.has(kk)) return;
-    seen.add(kk);
-    variants.push(kk);
-  };
-
-  push(productKey);
-
-  if (productKey.endsWith(".json")) push(`${productKey}.gz`);
-  if (productKey.endsWith(".json.gz")) push(productKey.replace(/\.json\.gz$/i, ".json"));
-
-  if (!/\.json(\.gz)?$/i.test(productKey)) {
-    push(`${productKey}.json`);
-    push(`${productKey}.json.gz`);
-  }
-
-  let lastErr: any = null;
-
-  for (const k of variants) {
-    try {
-      const data = await getJsonFromR2<any>(r2, k);
-      if (data != null) return data;
-    } catch (e: any) {
-      lastErr = e;
-    }
-  }
-
-  const tried = variants.join(", ");
-  if (lastErr) throw new Error(`${lastErr?.message || "Product fetch failed"}. Tried: ${tried}`);
-  throw new Error(`Product not found. Tried: ${tried}`);
-}
-
 async function resolveProductKeyFromIndex(r2: R2BucketLike, slug: string): Promise<string | null> {
   const idx = await loadIndexOnce(r2);
   if (!idx || typeof idx !== "object") return null;
 
-  if (idx[slug]) return normalizeKey(String(idx[slug]));
+  if (idx[slug]) {
+    let k = normalizeKey(String(idx[slug]));
+    // Normalize legacy index entries to product/
+    if (k.startsWith("products/")) k = `product/${k.slice("products/".length)}`;
+    return k;
+  }
 
   const shardMap =
     (idx as any).shards ||
@@ -247,7 +217,9 @@ async function resolveProductKeyFromIndex(r2: R2BucketLike, slug: string): Promi
       if (shardRel) {
         const shardObj = await fetchShard(r2, normalizeKey(shardRel));
         if (shardObj && typeof shardObj === "object" && shardObj[slug]) {
-          return normalizeKey(String(shardObj[slug]));
+          let k = normalizeKey(String(shardObj[slug]));
+          if (k.startsWith("products/")) k = `product/${k.slice("products/".length)}`;
+          return k;
         }
       }
     }
@@ -256,31 +228,107 @@ async function resolveProductKeyFromIndex(r2: R2BucketLike, slug: string): Promi
   return null;
 }
 
-async function handlePdpApi(r2: R2BucketLike, slug: string): Promise<Response> {
-  const s = String(slug || "").trim();
-  if (!s) return jsonResponse({ ok: false, error: "Missing slug" }, 400, 0);
+function buildStrictProductCandidates(inputKey: string, slug: string): string[] {
+  const variants: string[] = [];
+  const seen = new Set<string>();
 
-  const resolved =
-    (await resolveProductKeyFromIndex(r2, s)) || normalizeKey(`product/${s}.json`);
+  const push = (k: string) => {
+    const kk = normalizeKey(k);
+    if (!kk || seen.has(kk)) return;
+    seen.add(kk);
+    variants.push(kk);
+  };
 
-  let product: any;
-  try {
-    product = await fetchProductJsonWithFallback(r2, resolved);
-  } catch (e) {
-    // Safety fallback for older uploads/layouts.
-    product = await fetchProductJsonWithFallback(r2, normalizeKey(`products/${s}.json`));
+  let key = normalizeKey(inputKey);
+
+  // Normalize legacy path if index still points to it.
+  if (key.startsWith("products/")) {
+    key = `product/${key.slice("products/".length)}`;
   }
 
-  return jsonResponse(
-    { ok: true, slug: s, data: product, product },
-    200,
-    300,
-    { "x-pdp-handler": "functions/index.ts" },
-  );
+  // If key has no extension, prefer gz then json
+  if (!/\.json(\.gz)?$/i.test(key)) {
+    push(`${key}.json.gz`);
+    push(`${key}.json`);
+  } else if (key.endsWith(".json")) {
+    push(`${key}.gz`);
+    push(key);
+  } else if (key.endsWith(".json.gz")) {
+    push(key);
+    push(key.replace(/\.json\.gz$/i, ".json"));
+  } else {
+    push(key);
+  }
+
+  // Always enforce canonical slug fallbacks too (strict product/* only)
+  push(`product/${slug}.json.gz`);
+  push(`product/${slug}.json`);
+
+  return variants;
+}
+
+async function fetchProductJsonStrict(r2: R2BucketLike, inputKey: string, slug: string) {
+  const candidates = buildStrictProductCandidates(inputKey, slug);
+  let lastErr: any = null;
+
+  for (const k of candidates) {
+    try {
+      const data = await getJsonFromR2<any>(r2, k);
+      if (data != null) {
+        return { data, key: k, tried: candidates };
+      }
+    } catch (e: any) {
+      lastErr = e;
+    }
+  }
+
+  const triedMsg = candidates.join(", ");
+  if (lastErr) {
+    throw new Error(`${lastErr?.message || "Product fetch failed"}. Tried: ${triedMsg}`);
+  }
+  throw new Error(`Product not found. Tried: ${triedMsg}`);
+}
+
+async function handlePdpApi(r2: R2BucketLike, slug: string): Promise<Response> {
+  const s = String(slug || "").trim();
+  if (!s) {
+    return jsonResponse(
+      { ok: false, error: "missing_slug" },
+      400,
+      0,
+      { "x-pdp-handler": "functions/index.ts" }
+    );
+  }
+
+  const resolvedFromIndex = await resolveProductKeyFromIndex(r2, s);
+  const seedKey = resolvedFromIndex || normalizeKey(`product/${s}.json`);
+
+  try {
+    const { data } = await fetchProductJsonStrict(r2, seedKey, s);
+
+    return jsonResponse(
+      { ok: true, slug: s, data, product: data },
+      200,
+      300,
+      { "x-pdp-handler": "functions/index.ts" }
+    );
+  } catch (e: any) {
+    return jsonResponse(
+      {
+        ok: false,
+        error: "not_found",
+        slug: s,
+        detail: e?.message || String(e),
+      },
+      404,
+      60,
+      { "x-pdp-handler": "functions/index.ts" }
+    );
+  }
 }
 
 /* ============================
-   Category/Search bundling (1 request)
+   Category bundling (kept)
    ============================ */
 
 let CAT_URLS_CACHE: any | null = null;
@@ -295,15 +343,11 @@ async function loadCategoryUrlsOnce(r2: R2BucketLike): Promise<any | null> {
 
   CAT_URLS_PROMISE = (async () => {
     const a = await getJsonFromR2<any>(r2, "indexes/_category_urls.json.gz");
-    if (a != null) {
-      CAT_URLS_CACHE = a;
-      return a;
-    }
+    if (a != null) return (CAT_URLS_CACHE = a);
+
     const b = await getJsonFromR2<any>(r2, "indexes/_category_urls.json");
-    if (b != null) {
-      CAT_URLS_CACHE = b;
-      return b;
-    }
+    if (b != null) return (CAT_URLS_CACHE = b);
+
     CAT_URLS_CACHE = null;
     return null;
   })();
@@ -317,15 +361,11 @@ async function loadIndexCardsOnce(r2: R2BucketLike): Promise<any | null> {
 
   INDEX_CARDS_PROMISE = (async () => {
     const a = await getJsonFromR2<any>(r2, "indexes/_index.cards.json.gz");
-    if (a != null) {
-      INDEX_CARDS_CACHE = a;
-      return a;
-    }
+    if (a != null) return (INDEX_CARDS_CACHE = a);
+
     const b = await getJsonFromR2<any>(r2, "indexes/_index.cards.json");
-    if (b != null) {
-      INDEX_CARDS_CACHE = b;
-      return b;
-    }
+    if (b != null) return (INDEX_CARDS_CACHE = b);
+
     INDEX_CARDS_CACHE = null;
     return null;
   })();
@@ -343,13 +383,9 @@ function normalizeCategoryPathInput(path: string) {
   s = s.replace(/^c\//i, "");
   try {
     s = decodeURIComponent(s);
-  } catch {
-    // ignore
-  }
+  } catch {}
   s = s.replace(/^\/+|\/+$/g, "");
-  s = s.toLowerCase();
-  s = s.replace(/\s+/g, "-");
-  s = s.replace(/-+/g, "-");
+  s = s.toLowerCase().replace(/\s+/g, "-").replace(/-+/g, "-");
   return s;
 }
 
@@ -379,7 +415,7 @@ async function loadCategoryProducts(r2: R2BucketLike, categoryPath: string): Pro
 
 async function handleCategoryApi(r2: R2BucketLike, categoryPath: string): Promise<Response> {
   const path = normalizeCategoryPathInput(categoryPath);
-  if (!path) return jsonResponse({ ok: false, error: "Missing category path" }, 400, 0);
+  if (!path) return jsonResponse({ ok: false, error: "missing_category_path" }, 400, 0);
 
   const [categoryUrls, indexCards, categoryProducts] = await Promise.all([
     loadCategoryUrlsOnce(r2),
@@ -396,7 +432,7 @@ async function handleCategoryApi(r2: R2BucketLike, categoryPath: string): Promis
       categoryProducts,
     },
     200,
-    300,
+    300
   );
 }
 
@@ -405,15 +441,26 @@ async function handleCategoryApi(r2: R2BucketLike, categoryPath: string): Promis
    ============================ */
 
 export async function onRequestGet(context: any) {
-  const { request, env, next } = context as { request: Request; env: EnvLike; next: () => Promise<Response> };
+  const { request, env, next } = context as {
+    request: Request;
+    env: EnvLike;
+    next: () => Promise<Response>;
+  };
+
   const url = new URL(request.url);
   const pathname = url.pathname;
-
   const r2 = env.JETCUBE_R2;
 
   // Bundled API: PDP
   if (pathname === "/api/pdp" || pathname.startsWith("/api/pdp/")) {
-    if (!r2) return jsonResponse({ ok: false, error: "R2 binding missing" }, 500, 0);
+    if (!r2) {
+      return jsonResponse(
+        { ok: false, error: "r2_binding_missing" },
+        500,
+        0,
+        { "x-pdp-handler": "functions/index.ts" }
+      );
+    }
 
     const slug =
       pathname.startsWith("/api/pdp/")
@@ -423,16 +470,12 @@ export async function onRequestGet(context: any) {
           url.searchParams.get("handle") ||
           "";
 
-    try {
-      return await handlePdpApi(r2, slug);
-    } catch (e: any) {
-      return jsonResponse({ ok: false, error: e?.message || String(e) }, 500, 0);
-    }
+    return await handlePdpApi(r2, slug);
   }
 
-  // Bundled API: Category/Search (category path)
+  // Bundled API: Category
   if (pathname === "/api/category") {
-    if (!r2) return jsonResponse({ ok: false, error: "R2 binding missing" }, 500, 0);
+    if (!r2) return jsonResponse({ ok: false, error: "r2_binding_missing" }, 500, 0);
 
     const path =
       url.searchParams.get("path") ||
@@ -447,20 +490,18 @@ export async function onRequestGet(context: any) {
     }
   }
 
-  // Serve indexes directly from R2 (keeps old behavior, avoids recursion)
+  // Direct proxy for indexes
   if (pathname.startsWith("/indexes/")) {
     if (!r2) return new Response("Not found", { status: 404 });
-    const key = stripLeadingSlash(pathname);
-    return await proxyR2Object(r2, key, "application/json; charset=utf-8", 86400);
+    return await proxyR2Object(r2, stripLeadingSlash(pathname), "application/json; charset=utf-8", 86400);
   }
 
-  // Serve sitemap files directly from R2
+  // Direct proxy for sitemaps
   if (pathname.startsWith("/sitemap")) {
     if (!r2) return new Response("Not found", { status: 404 });
-    const key = stripLeadingSlash(pathname);
-    return await proxyR2Object(r2, key, "application/xml; charset=utf-8", 86400);
+    return await proxyR2Object(r2, stripLeadingSlash(pathname), "application/xml; charset=utf-8", 86400);
   }
 
-  // FALL THROUGH → static assets / SPA
+  // Fall through to static assets / SPA
   return next();
 }
