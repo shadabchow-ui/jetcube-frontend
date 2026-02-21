@@ -2,14 +2,13 @@ export interface Env {
   JETCUBE_R2: R2Bucket;
 }
 
-function json(body: any, status = 200, extra: Record<string, string> = {}) {
+function json(body: any, status = 200) {
   return new Response(JSON.stringify(body), {
     status,
     headers: {
       "content-type": "application/json; charset=utf-8",
       "cache-control": "public, max-age=300",
       "x-pdp-handler": "functions/api/pdp/[slug].ts",
-      ...extra,
     },
   });
 }
