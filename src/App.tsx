@@ -164,59 +164,24 @@ function resolveShardKeyFromManifest(handle: string, shardMap: Record<string, an
 }
 
 async function fetchProductJson(slug: string) {
-  const defaultRel = `p/${slug}.json`;
-  const defaultUrl = joinUrl(R2_BASE, defaultRel);
+  const url = `/api/pdp/${encodeURIComponent(slug)}`;
+  const res = await fetch(url, {
+    cache: "no-store",
+    headers: { Accept: "application/json" },
+  });
 
-  try {
-    return await fetchJson(defaultUrl);
-  } catch {
-    // fall through to manifest-based resolution
+  if (!res.ok) {
+    throw new Error(`Fetch failed (${res.status})`);
   }
 
-  const idx = await fetchIndexManifest();
-  if (!idx) return null;
+  const json = await res.json();
 
-  const handle = slug;
-  let productPath: string | null =
-    idx?.products?.[handle] ||
-    idx?.pdp?.[handle] ||
-    idx?.pdp2?.[handle] ||
-    idx?.paths?.[handle] ||
-    idx?.map?.[handle] ||
-    null;
-
-  if (!productPath) {
-    try {
-      const shardMap =
-        idx?.shards ||
-        idx?.pdp2_shards ||
-        idx?.pdp_shards ||
-        idx?.map ||
-        idx?.paths;
-
-      if (shardMap && typeof shardMap === "object") {
-        const shardKey = resolveShardKeyFromManifest(handle, shardMap);
-        if (shardKey) {
-          const shardRel = String(shardMap[shardKey]);
-          const shardUrl = joinUrl(R2_BASE, shardRel.replace(/^\/+/, ""));
-          const shardObj = await fetchShard(shardUrl);
-
-          if (shardObj && shardObj[handle]) {
-            productPath = String(shardObj[handle]);
-          }
-        }
-      }
-    } catch {
-      // ignore
-    }
+  // Supports either raw JSON or { ok, data }
+  if (json && typeof json === "object" && "data" in json && (json as any).ok !== false) {
+    return (json as any).data;
   }
 
-  if (!productPath) {
-    productPath = `products/${handle}.json`;
-  }
-
-  const finalUrl = normalizeProductPath(productPath);
-  return await fetchProductJsonWithFallback(finalUrl);
+  return json;
 }
 
 function ProductRoute({ children }: { children: React.ReactNode }) {
