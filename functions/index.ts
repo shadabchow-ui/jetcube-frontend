@@ -260,7 +260,7 @@ async function handlePdpApi(r2: R2BucketLike, slug: string): Promise<Response> {
   if (!s) return jsonResponse({ ok: false, error: "Missing slug" }, 400, 0);
 
   const resolved =
-    (await resolveProductKeyFromIndex(r2, s)) || normalizeKey(`products/${s}.json`);
+    (await resolveProductKeyFromIndex(r2, s)) || normalizeKey(`product/${s}.json`);
 
   const product = await fetchProductJsonWithFallback(r2, resolved);
 
