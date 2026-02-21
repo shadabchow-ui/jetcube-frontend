@@ -311,11 +311,11 @@ async function loadProductDetailPriceOnce(slug: string): Promise<string | null> 
       // Many of your product JSONs are served under /products/<slug>.json
       const enc = encodeURIComponent(key);
       const json =
-        (await fetchJsonStrict<any>(joinUrl(R2_BASE, `products/${enc}.json.gz`), "product json gz", {
+        (await fetchJsonStrict<any>(joinUrl(R2_BASE, `product/${enc}.json.gz`), "product json gz", {
           allow404: true,
           init: { cache: "force-cache" },
         })) ??
-        (await fetchJsonStrict<any>(joinUrl(R2_BASE, `products/${enc}.json`), "product json", {
+        (await fetchJsonStrict<any>(joinUrl(R2_BASE, `product/${enc}.json`), "product json", {
           allow404: true,
           init: { cache: "force-cache" },
         }));
