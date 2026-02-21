@@ -49,33 +49,47 @@ async function handlePDP(slug: string, env: Env, ctx: ExecutionContext, req: Req
   if (cached) return cached;
 
   const cleanSlug = decodeURIComponent(String(slug || "").trim());
-  const base = `product/${cleanSlug}`;
 
-  const productGzKey = `${base}.json.gz`;
-  const productJsonKey = `${base}.json`;
+  const productBase = `product/${cleanSlug}`;
+  const legacyProductsBase = `products/${cleanSlug}`;
 
-  // Product can now be gzipped or plain JSON.
-  let productObj = await env.JETCUBE_R2.get(productGzKey);
-  let productIsGzip = !!productObj;
+  const candidates = [
+    `${productBase}.json.gz`,
+    `${productBase}.json`,
+    `${legacyProductsBase}.json.gz`,
+    `${legacyProductsBase}.json`,
+  ];
 
-  if (!productObj) {
-    productObj = await env.JETCUBE_R2.get(productJsonKey);
-    productIsGzip = false;
+  let productObj: R2ObjectBody | null = null;
+  let productIsGzip = false;
+  let resolvedBase = productBase;
+  let resolvedKey = "";
+
+  for (const key of candidates) {
+    const obj = await env.JETCUBE_R2.get(key);
+    if (obj) {
+      productObj = obj;
+      resolvedKey = key;
+      productIsGzip = key.endsWith(".gz");
+      resolvedBase = key.replace(/\.json(?:\.gz)?$/i, "");
+      break;
+    }
   }
 
   // Optional sidecar files (keep existing behavior)
   const [pricing, reviews, availability] = await Promise.all([
-    env.JETCUBE_R2.get(`${base}.pricing.json`),
-    env.JETCUBE_R2.get(`${base}.reviews.json`),
-    env.JETCUBE_R2.get(`${base}.availability.json`),
+    env.JETCUBE_R2.get(`${resolvedBase}.pricing.json`),
+    env.JETCUBE_R2.get(`${resolvedBase}.reviews.json`),
+    env.JETCUBE_R2.get(`${resolvedBase}.availability.json`),
   ]);
 
   if (!productObj) {
     return new Response(
       JSON.stringify({
+        ok: false,
         error: "Not found",
         slug: cleanSlug,
-        tried: [productGzKey, productJsonKey],
+        tried: candidates,
       }),
       {
         status: 404,
