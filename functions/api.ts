@@ -33,7 +33,7 @@ async function handlePDP(slug: string, env: Env, ctx: ExecutionContext, req: Req
   let cached = await cache.match(cacheKey);
   if (cached) return cached;
 
-  const base = `products/${slug}`;
+  const base = `product/${slug}`;
 
   const [product, pricing, reviews, availability] = await Promise.all([
     env.JETCUBE_R2.get(`${base}.json`),
