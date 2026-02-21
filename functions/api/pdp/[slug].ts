@@ -13,8 +13,8 @@ export const onRequestGet: PagesFunction = async (ctx) => {
   }
 
   try {
-    // R2 key for product JSON
-    const key = `products/${slug}.json`;
+    // R2 key for product JSON (NEW PREFIX)
+    const key = `product/${slug}.json`;
     const obj = await env.JETCUBE_R2?.get(key);
 
     if (!obj) {
