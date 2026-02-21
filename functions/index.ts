@@ -76,12 +76,13 @@ async function getJsonFromR2<T = any>(r2: R2BucketLike, key: string): Promise<T 
   }
 }
 
-function jsonResponse(body: any, status = 200, maxAgeSeconds = 300) {
+function jsonResponse(body: any, status = 200, maxAgeSeconds = 300, extraHeaders: Record<string, string> = {}) {
   return new Response(JSON.stringify(body), {
     status,
     headers: {
       "Content-Type": "application/json; charset=utf-8",
       "Cache-Control": cacheHeaders(maxAgeSeconds),
+      ...extraHeaders,
     },
   });
 }
@@ -262,9 +263,20 @@ async function handlePdpApi(r2: R2BucketLike, slug: string): Promise<Response> {
   const resolved =
     (await resolveProductKeyFromIndex(r2, s)) || normalizeKey(`product/${s}.json`);
 
-  const product = await fetchProductJsonWithFallback(r2, resolved);
+  let product: any;
+  try {
+    product = await fetchProductJsonWithFallback(r2, resolved);
+  } catch (e) {
+    // Safety fallback for older uploads/layouts.
+    product = await fetchProductJsonWithFallback(r2, normalizeKey(`products/${s}.json`));
+  }
 
-  return jsonResponse({ ok: true, slug: s, product }, 200, 300);
+  return jsonResponse(
+    { ok: true, slug: s, data: product, product },
+    200,
+    300,
+    { "x-pdp-handler": "functions/index.ts" },
+  );
 }
 
 /* ============================
