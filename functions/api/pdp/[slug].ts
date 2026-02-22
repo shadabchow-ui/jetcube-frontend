@@ -17,7 +17,7 @@ function jsonRes(body: any, status = 200, extra: Record<string, string> = {}) {
   });
 }
 
-export const onRequestGet: PagesFunction<Env> = async ({ params, env }) => {
+export const onRequest: PagesFunction<Env> = async ({ params, env }) => {
   const slug = decodeURIComponent(String(params?.slug || "")).trim();
 
   if (!slug) {
