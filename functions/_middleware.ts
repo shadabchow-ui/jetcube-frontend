@@ -1,3 +1,8 @@
+// functions/_middleware.ts
+// Cloudflare Pages Functions middleware
+// Purpose: keep your existing edge behavior, but NEVER intercept /api/pdp/*
+// so functions/api/pdp/[slug].ts can own the PDP route.
+
 export async function onRequest({ request, env, next }: any) {
   const url = new URL(request.url);
   const pathname = url.pathname;
@@ -6,14 +11,14 @@ export async function onRequest({ request, env, next }: any) {
   // Helpers
   // ----------------------------
   const jsonHeaders = (cacheSeconds: number, extra: Record<string, string> = {}) => ({
-    "Content-Type": "application/json; charset=utf-8",
-    "Cache-Control": `public, max-age=${cacheSeconds}`,
-    "X-Edge-MW": "hit",
+    'Content-Type': 'application/json; charset=utf-8',
+    'Cache-Control': `public, max-age=${cacheSeconds}`,
+    'X-Edge-MW': 'hit',
     ...extra,
   });
 
   function stripSlashes(s: string) {
-    return String(s || "").replace(/^\/+|\/+$/g, "");
+    return String(s || '').replace(/^\/+|\/+$/g, '');
   }
 
   function safeDecodeURIComponent(s: string): string {
@@ -25,20 +30,20 @@ export async function onRequest({ request, env, next }: any) {
   }
 
   function normalizeKey(s: string): string {
-    return String(s || "").replace(/^\/+/, "");
+    return String(s || '').replace(/^\/+/, '');
   }
 
   function normalizeCategoryPath(input: string): string {
-    if (!input) return "";
+    if (!input) return '';
     let s = String(input).trim();
-    const idx = s.indexOf("/c/");
+    const idx = s.indexOf('/c/');
     if (idx !== -1) s = s.slice(idx + 3);
-    s = s.replace(/^c\//, "");
+    s = s.replace(/^c\//, '');
     s = safeDecodeURIComponent(s);
     s = stripSlashes(s);
     s = s.toLowerCase();
-    s = s.replace(/\s+/g, "-");
-    s = s.replace(/-+/g, "-");
+    s = s.replace(/\s+/g, '-');
+    s = s.replace(/-+/g, '-');
     return s;
   }
 
@@ -50,10 +55,10 @@ export async function onRequest({ request, env, next }: any) {
   }
 
   function looksGzip(key: string, obj?: any): boolean {
-    const k = String(key || "").toLowerCase();
-    const enc = String(obj?.httpMetadata?.contentEncoding || "").toLowerCase();
-    const ct = String(obj?.httpMetadata?.contentType || "").toLowerCase();
-    return k.endsWith(".gz") || enc.includes("gzip") || ct.includes("gzip");
+    const k = String(key || '').toLowerCase();
+    const enc = String(obj?.httpMetadata?.contentEncoding || '').toLowerCase();
+    const ct = String(obj?.httpMetadata?.contentType || '').toLowerCase();
+    return k.endsWith('.gz') || enc.includes('gzip') || ct.includes('gzip');
   }
 
   async function r2GetObject(key: string) {
@@ -68,18 +73,19 @@ export async function onRequest({ request, env, next }: any) {
       return await new Response(obj.body).text();
     }
 
-    // Decompress gz even if metadata is wrong/missing
     try {
       const DS: any = (globalThis as any).DecompressionStream;
       if (!DS) {
+        // If DecompressionStream isn't available, try raw text (may fail for real gz)
         return await new Response(obj.body).text();
       }
+
       const ab = await new Response(obj.body).arrayBuffer();
-      const ds = new DS("gzip");
+      const ds = new DS('gzip');
       const stream = new Blob([ab]).stream().pipeThrough(ds);
       return await new Response(stream).text();
     } catch {
-      // fallback (prevents hard crash)
+      // Soft-fail to raw text so middleware never hard-crashes
       return await new Response(obj.body).text();
     }
   }
@@ -90,8 +96,8 @@ export async function onRequest({ request, env, next }: any) {
     const s = txt.trim();
     if (!s) return null;
 
-    // guard against accidental HTML fallback
-    if (s.startsWith("<!doctype") || s.startsWith("<html") || s.startsWith("<")) return null;
+    // Prevent accidental HTML proxy/SPA response from being parsed as JSON
+    if (s.startsWith('<!doctype') || s.startsWith('<html') || s.startsWith('<')) return null;
 
     try {
       return JSON.parse(s) as T;
@@ -110,7 +116,7 @@ export async function onRequest({ request, env, next }: any) {
 
   function resolveShardKeyFromManifest(slug: string, shardMap: Record<string, string>): string | null {
     const map = shardMap || {};
-    if (typeof map !== "object") return null;
+    if (typeof map !== 'object') return null;
 
     if (map[slug]) return slug;
 
@@ -147,55 +153,55 @@ export async function onRequest({ request, env, next }: any) {
     if (!raw) return out;
 
     const hasExt = /\.json(\.gz)?$/i.test(raw);
-    const startsProduct = raw.startsWith("product/");
-    const startsProducts = raw.startsWith("products/");
+    const startsProduct = raw.startsWith('product/');
+    const startsProducts = raw.startsWith('products/');
 
-    // If only slug passed
+    // slug only
     if (!startsProduct && !startsProducts && !hasExt) {
       for (const k of buildCanonicalPdpCandidatesFromSlug(raw)) push(k);
       return out;
     }
 
-    // If path passed without extension
+    // path without extension
     if ((startsProduct || startsProducts) && !hasExt) {
       push(`${raw}.json.gz`);
       push(`${raw}.json`);
 
       // mirror singular/plural
       if (startsProduct) {
-        const tail = raw.slice("product/".length);
+        const tail = raw.slice('product/'.length);
         push(`products/${tail}.json.gz`);
         push(`products/${tail}.json`);
       }
       if (startsProducts) {
-        const tail = raw.slice("products/".length);
+        const tail = raw.slice('products/'.length);
         push(`product/${tail}.json.gz`);
         push(`product/${tail}.json`);
       }
       return out;
     }
 
-    // Exact key first
+    // exact key first
     push(raw);
 
-    // Twin compression form
-    if (raw.endsWith(".json")) push(`${raw}.gz`);
-    if (raw.endsWith(".json.gz")) push(raw.replace(/\.json\.gz$/i, ".json"));
+    // compression twin
+    if (raw.endsWith('.json')) push(`${raw}.gz`);
+    if (raw.endsWith('.json.gz')) push(raw.replace(/\.json\.gz$/i, '.json'));
 
-    // Mirror singular/plural version of same key
-    if (raw.startsWith("product/")) {
-      const mirrored = `products/${raw.slice("product/".length)}`;
+    // singular/plural mirrored exact
+    if (raw.startsWith('product/')) {
+      const mirrored = `products/${raw.slice('product/'.length)}`;
       push(mirrored);
-      if (mirrored.endsWith(".json")) push(`${mirrored}.gz`);
-      if (mirrored.endsWith(".json.gz")) push(mirrored.replace(/\.json\.gz$/i, ".json"));
-    } else if (raw.startsWith("products/")) {
-      const mirrored = `product/${raw.slice("products/".length)}`;
+      if (mirrored.endsWith('.json')) push(`${mirrored}.gz`);
+      if (mirrored.endsWith('.json.gz')) push(mirrored.replace(/\.json\.gz$/i, '.json'));
+    } else if (raw.startsWith('products/')) {
+      const mirrored = `product/${raw.slice('products/'.length)}`;
       push(mirrored);
-      if (mirrored.endsWith(".json")) push(`${mirrored}.gz`);
-      if (mirrored.endsWith(".json.gz")) push(mirrored.replace(/\.json\.gz$/i, ".json"));
+      if (mirrored.endsWith('.json')) push(`${mirrored}.gz`);
+      if (mirrored.endsWith('.json.gz')) push(mirrored.replace(/\.json\.gz$/i, '.json'));
     }
 
-    // Final canonical slug fallback if we can infer slug
+    // final canonical slug fallback if path allows extracting slug
     const m = raw.match(/^(?:product|products)\/(.+?)(?:\.json(?:\.gz)?)?$/i);
     if (m?.[1]) {
       for (const k of buildCanonicalPdpCandidatesFromSlug(m[1])) push(k);
@@ -204,7 +210,9 @@ export async function onRequest({ request, env, next }: any) {
     return out;
   }
 
-  async function fetchProductJsonWithFallback(productPathOrSlug: string): Promise<{ data: any | null; hitKey: string | null; tried: string[] }> {
+  async function fetchProductJsonWithFallback(
+    productPathOrSlug: string
+  ): Promise<{ data: any | null; hitKey: string | null; tried: string[] }> {
     const tried = buildPdpCandidatesFromPath(productPathOrSlug);
 
     for (const key of tried) {
@@ -219,17 +227,17 @@ export async function onRequest({ request, env, next }: any) {
 
   async function resolveProductPathFromIndexes(slug: string): Promise<string | null> {
     const idx = await r2ReadJsonFromCandidates<any>([
-      "indexes/pdp_path_map.json",
-      "indexes/pdp_path_map.json.gz",
-      "indexes/pdp2/_index.json",
-      "indexes/pdp2/_index.json.gz",
-      "indexes/_index.json",
-      "indexes/_index.json.gz",
+      'indexes/pdp_path_map.json',
+      'indexes/pdp_path_map.json.gz',
+      'indexes/pdp2/_index.json',
+      'indexes/pdp2/_index.json.gz',
+      'indexes/_index.json',
+      'indexes/_index.json.gz',
     ]);
 
     let productPath: string | null = null;
 
-    if (idx && typeof idx === "object") {
+    if (idx && typeof idx === 'object') {
       if (idx[slug]) {
         productPath = String(idx[slug]);
       }
@@ -242,10 +250,10 @@ export async function onRequest({ request, env, next }: any) {
           idx?.map ||
           idx?.paths;
 
-        if (shardMap && typeof shardMap === "object") {
+        if (shardMap && typeof shardMap === 'object') {
           const shardPrefix = resolveShardKeyFromManifest(slug, shardMap as Record<string, string>);
           if (shardPrefix) {
-            const shardPath = normalizeKey(String((shardMap as any)[shardPrefix] || ""));
+            const shardPath = normalizeKey(String((shardMap as any)[shardPrefix] || ''));
             if (shardPath) {
               const shard = await r2ReadJson<Record<string, string>>(shardPath);
               if (shard && shard[slug]) {
@@ -257,25 +265,24 @@ export async function onRequest({ request, env, next }: any) {
       }
     }
 
-    // NOTE: do NOT force singular here. Keep what index gives us (product/ or products/)
+    // Keep whatever the index returns (product/ or products/)
     return productPath ? normalizeKey(productPath) : null;
   }
 
   async function buildPdpPayload(slugRaw: string) {
-    const slug = safeDecodeURIComponent(String(slugRaw || "").trim());
+    const slug = safeDecodeURIComponent(String(slugRaw || '').trim());
 
     if (!slug) {
       return {
-        response: new Response(JSON.stringify({ ok: false, error: "missing_slug" }), {
+        response: new Response(JSON.stringify({ ok: false, error: 'missing_slug' }), {
           status: 400,
           headers: jsonHeaders(0, {
-            "x-pdp-handler": "functions/_middleware.ts",
+            'x-pdp-handler': 'functions/_middleware.ts',
           }),
         }),
       };
     }
 
-    // Try index/shard-resolved path first, then direct canonical slug candidates.
     const indexedPath = await resolveProductPathFromIndexes(slug);
 
     let productResult = indexedPath
@@ -296,7 +303,7 @@ export async function onRequest({ request, env, next }: any) {
         response: new Response(
           JSON.stringify({
             ok: false,
-            error: "not_found",
+            error: 'not_found',
             slug,
             indexedPath,
             tried: Array.from(new Set(productResult.tried)),
@@ -304,7 +311,7 @@ export async function onRequest({ request, env, next }: any) {
           {
             status: 404,
             headers: jsonHeaders(60, {
-              "x-pdp-handler": "functions/_middleware.ts",
+              'x-pdp-handler': 'functions/_middleware.ts',
             }),
           }
         ),
@@ -312,18 +319,18 @@ export async function onRequest({ request, env, next }: any) {
     }
 
     const product = productResult.data;
-    const hitKey = productResult.hitKey || "";
+    const hitKey = productResult.hitKey || '';
 
     const related: any[] = [];
     const alsoViewed: any[] = [];
 
-    // Optional lightweight enrichment
+    // Optional enrichment (safe to fail)
     try {
       const indexItems = await r2ReadJsonFromCandidates<any[]>([
-        "products/search_index.enriched.json",
-        "products/search_index.enriched.json.gz",
-        "indexes/search_index.enriched.json",
-        "indexes/search_index.enriched.json.gz",
+        'products/search_index.enriched.json',
+        'products/search_index.enriched.json.gz',
+        'indexes/search_index.enriched.json',
+        'indexes/search_index.enriched.json.gz',
       ]);
 
       if (Array.isArray(indexItems)) {
@@ -336,7 +343,7 @@ export async function onRequest({ request, env, next }: any) {
         const currentCat =
           (product as any)?.category_slug ||
           (product as any)?.categorySlug ||
-          "";
+          '';
 
         if (currentCat) {
           for (const p of indexItems) {
@@ -357,7 +364,7 @@ export async function onRequest({ request, env, next }: any) {
         }
       }
     } catch {
-      // ignore enrichment failures
+      // ignore optional enrichment errors
     }
 
     const payload = {
@@ -377,8 +384,8 @@ export async function onRequest({ request, env, next }: any) {
       response: new Response(JSON.stringify(payload), {
         status: 200,
         headers: jsonHeaders(300, {
-          "x-pdp-handler": "functions/_middleware.ts",
-          "x-pdp-key": hitKey || "unknown",
+          'x-pdp-handler': 'functions/_middleware.ts',
+          'x-pdp-key': hitKey || 'unknown',
         }),
       }),
     };
@@ -387,22 +394,20 @@ export async function onRequest({ request, env, next }: any) {
   // ----------------------------
   // API endpoints (single-request loaders)
   // ----------------------------
-  if (pathname.startsWith("/api/")) {
-    // Support:
-    //   /api/pdp?slug=...
-    //   /api/pdp/:slug
-    // IMPORTANT: Delegate PDP to functions/api/pdp/[slug].ts
-    if (pathname === "/api/pdp" || pathname.startsWith("/api/pdp/")) {
+  if (pathname.startsWith('/api/')) {
+    // CRITICAL FIX:
+    // Delegate PDP route to functions/api/pdp/[slug].ts
+    if (pathname === '/api/pdp' || pathname.startsWith('/api/pdp/')) {
       return next();
     }
 
     // /api/category?path=...
-    if (pathname === "/api/category") {
-      const rawPath = (url.searchParams.get("path") || "").trim();
+    if (pathname === '/api/category') {
+      const rawPath = (url.searchParams.get('path') || '').trim();
       const normalized = normalizeCategoryPath(rawPath);
 
       if (!normalized) {
-        return new Response(JSON.stringify({ error: "Missing path" }), {
+        return new Response(JSON.stringify({ error: 'Missing path' }), {
           status: 400,
           headers: jsonHeaders(0),
         });
@@ -410,17 +415,17 @@ export async function onRequest({ request, env, next }: any) {
 
       const categoryIndex =
         (await r2ReadJsonFromCandidates<any>([
-          "indexes/_category_urls.json",
-          "indexes/_category_urls.json.gz",
+          'indexes/_category_urls.json',
+          'indexes/_category_urls.json.gz',
         ])) ?? null;
 
       const parts = stripSlashes(normalized)
-        .split("/")
+        .split('/')
         .filter(Boolean)
         .map((p) => safeDecodeURIComponent(p));
 
-      const hyphenName = `${parts.join("-")}.json`;
-      const legacyName = `${parts.join("__")}.json`;
+      const hyphenName = `${parts.join('-')}.json`;
+      const legacyName = `${parts.join('__')}.json`;
 
       const productCandidates = [
         `indexes/category_products/${hyphenName}`,
@@ -439,8 +444,8 @@ export async function onRequest({ request, env, next }: any) {
       if (!categoryProductsRaw) {
         const cards =
           (await r2ReadJsonFromCandidates<any>([
-            "indexes/_index.cards.json",
-            "indexes/_index.cards.json.gz",
+            'indexes/_index.cards.json',
+            'indexes/_index.cards.json.gz',
           ])) ?? null;
 
         const all = pickProductsArray(cards);
@@ -468,8 +473,8 @@ export async function onRequest({ request, env, next }: any) {
             };
 
             if (Array.isArray(raw)) raw.forEach(push);
-            else if (typeof raw === "string") push(raw);
-            else if (raw && typeof raw === "object") push(raw.path ?? raw.url ?? raw.slug);
+            else if (typeof raw === 'string') push(raw);
+            else if (raw && typeof raw === 'object') push(raw.path ?? raw.url ?? raw.slug);
 
             return candidates.some((c) => c === want || c.startsWith(`${want}/`));
           });
@@ -492,8 +497,8 @@ export async function onRequest({ request, env, next }: any) {
     }
 
     // /api/search?q=...
-    if (pathname === "/api/search") {
-      const q = (url.searchParams.get("q") || "").trim();
+    if (pathname === '/api/search') {
+      const q = (url.searchParams.get('q') || '').trim();
 
       if (!q) {
         return new Response(JSON.stringify({ items: [] }), {
@@ -503,34 +508,34 @@ export async function onRequest({ request, env, next }: any) {
       }
 
       function normalize(s: string) {
-        return String(s || "")
+        return String(s || '')
           .toLowerCase()
-          .replace(/[^a-z0-9\s]+/g, " ")
-          .replace(/\s+/g, " ")
+          .replace(/[^a-z0-9\s]+/g, ' ')
+          .replace(/\s+/g, ' ')
           .trim();
       }
 
       function tokenize(s: string) {
-        return normalize(s).split(" ").filter(Boolean);
+        return normalize(s).split(' ').filter(Boolean);
       }
 
       const tokens = tokenize(q);
 
       const indexItems =
         (await r2ReadJsonFromCandidates<any[]>([
-          "indexes/search_index.enriched.json",
-          "indexes/search_index.enriched.json.gz",
-          "products/search_index.enriched.json",
-          "products/search_index.enriched.json.gz",
+          'indexes/search_index.enriched.json',
+          'indexes/search_index.enriched.json.gz',
+          'products/search_index.enriched.json',
+          'products/search_index.enriched.json.gz',
         ])) ?? [];
 
       const results = Array.isArray(indexItems)
         ? indexItems
             .map((it: any) => {
-              const titleN = normalize(it?.title || "");
-              const brandN = normalize(it?.brand || "");
-              const categoryN = normalize(it?.category || "");
-              const searchableN = normalize(it?.searchable || "");
+              const titleN = normalize(it?.title || '');
+              const brandN = normalize(it?.brand || '');
+              const categoryN = normalize(it?.category || '');
+              const searchableN = normalize(it?.searchable || '');
 
               let score = 0;
               for (const t of tokens) {
@@ -553,7 +558,7 @@ export async function onRequest({ request, env, next }: any) {
       });
     }
 
-    return new Response(JSON.stringify({ error: "Unknown API route" }), {
+    return new Response(JSON.stringify({ error: 'Unknown API route' }), {
       status: 404,
       headers: jsonHeaders(60),
     });
@@ -563,10 +568,10 @@ export async function onRequest({ request, env, next }: any) {
   // R2 proxy paths
   // ----------------------------
   // Only intercept these paths (sitemaps + indexes + product/products)
-  const isSitemap = pathname.startsWith("/sitemap");
-  const isIndexes = pathname.startsWith("/indexes/");
-  const isProductSingular = pathname.startsWith("/product/");
-  const isProductsLegacy = pathname.startsWith("/products/");
+  const isSitemap = pathname.startsWith('/sitemap');
+  const isIndexes = pathname.startsWith('/indexes/');
+  const isProductSingular = pathname.startsWith('/product/');
+  const isProductsLegacy = pathname.startsWith('/products/');
 
   if (!isSitemap && !isIndexes && !isProductSingular && !isProductsLegacy) {
     return next();
@@ -577,37 +582,36 @@ export async function onRequest({ request, env, next }: any) {
 
   // CRITICAL: never fall back to SPA for these
   if (!obj) {
-    return new Response("Not found", {
+    return new Response('Not found', {
       status: 404,
       headers: {
-        "Content-Type": "text/plain; charset=utf-8",
-        "Cache-Control": "no-store",
-        "X-Edge-MW": "hit-notfound",
+        'Content-Type': 'text/plain; charset=utf-8',
+        'Cache-Control': 'no-store',
+        'X-Edge-MW': 'hit-notfound',
       },
     });
   }
 
   const lowerKey = key.toLowerCase();
-  const isXML = lowerKey.endsWith(".xml");
-  const isJSON = lowerKey.endsWith(".json") || lowerKey.endsWith(".json.gz");
-  const isGZ = lowerKey.endsWith(".gz");
+  const isXML = lowerKey.endsWith('.xml');
+  const isJSON = lowerKey.endsWith('.json') || lowerKey.endsWith('.json.gz');
+  const isGZ = lowerKey.endsWith('.gz');
 
   const contentType = isXML
-    ? "application/xml; charset=utf-8"
+    ? 'application/xml; charset=utf-8'
     : isJSON
-      ? "application/json; charset=utf-8"
-      : "application/octet-stream";
+      ? 'application/json; charset=utf-8'
+      : 'application/octet-stream';
 
   const headers: Record<string, string> = {
-    "Content-Type": contentType,
-    "Cache-Control": "public, max-age=86400",
-    "X-Edge-MW": "hit",
+    'Content-Type': contentType,
+    'Cache-Control': 'public, max-age=86400',
+    'X-Edge-MW': 'hit',
   };
 
-  // If the object key ends in .gz, advertise gz
   if (isGZ) {
-    headers["Content-Encoding"] = "gzip";
-    headers["Vary"] = "Accept-Encoding";
+    headers['Content-Encoding'] = 'gzip';
+    headers['Vary'] = 'Accept-Encoding';
   }
 
   return new Response(obj.body, { headers });
