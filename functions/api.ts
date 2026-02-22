@@ -21,10 +21,7 @@ export const onRequest: PagesFunction<Env> = async (ctx) => {
   const url = new URL(request.url);
   const pathname = url.pathname;
 
-  // IMPORTANT:
-  // PDP is handled exclusively by Pages Functions:
-  //   functions/api/pdp/[slug].ts
-  // Do NOT route /api/pdp/* here.
+  // Let the dedicated PDP route file handle this
   if (pathname === "/api/pdp" || pathname.startsWith("/api/pdp/")) {
     return ctx.next();
   }
@@ -35,26 +32,15 @@ export const onRequest: PagesFunction<Env> = async (ctx) => {
     return handleCategory(category, env, ctx as any, request);
   }
 
-  // Assistant or other APIs can live here
+  // Assistant health route
   if (pathname.startsWith("/api/assistant")) {
     return json({ ok: true, message: "assistant endpoint alive" });
   }
 
-  // Let other specific API route files handle their own paths.
+  // Pass through unknown API routes so nested handlers can run
   return ctx.next();
 };
 
-async function readR2Json(obj: R2ObjectBody, isGzip = false): Promise<any> {
-  if (!isGzip) return await obj.json();
-
-  const compressed = await obj.arrayBuffer();
-  const ds = new DecompressionStream("gzip");
-  const stream = new Response(compressed).body?.pipeThrough(ds);
-  if (!stream) throw new Error("gzip stream failed");
-  return await new Response(stream).json();
-}
-
-// Kept intact for current category behavior.
 async function handleCategory(category: string, env: Env, ctx: ExecutionContext, req: Request) {
   if (!category) {
     return json({ ok: false, error: "missing_category" }, 400);
@@ -66,7 +52,6 @@ async function handleCategory(category: string, env: Env, ctx: ExecutionContext,
   const cached = await cache.match(cacheKey);
   if (cached) return cached;
 
-  // You can adjust these keys to your real category index layout
   const indexKey = `indexes/${category}.json`;
   const productsKey = `indexes/${category}.products.json`;
 
