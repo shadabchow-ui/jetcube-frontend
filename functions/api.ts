@@ -1,3 +1,6 @@
+// functions/api.ts
+// Cloudflare Pages Functions (NOT Worker module syntax)
+
 export interface Env {
   JETCUBE_R2: R2Bucket;
 }
@@ -8,9 +11,9 @@ function json(body: any, status = 200, extra: Record<string, string> = {}) {
   return new Response(JSON.stringify(body), {
     status,
     headers: {
-      "content-type": "application/json; charset=utf-8",
-      "cache-control": "public, max-age=300",
-      "x-api-handler": "functions/api.ts",
+      'content-type': 'application/json; charset=utf-8',
+      'cache-control': 'public, max-age=300',
+      'x-api-handler': 'functions/api.ts',
       ...extra,
     },
   });
@@ -21,29 +24,36 @@ export const onRequest: PagesFunction<Env> = async (ctx) => {
   const url = new URL(request.url);
   const pathname = url.pathname;
 
-  // Let the dedicated PDP route file handle this
-  if (pathname === "/api/pdp" || pathname.startsWith("/api/pdp/")) {
+  // IMPORTANT:
+  // Let the dedicated route file handle PDP:
+  // functions/api/pdp/[slug].ts
+  if (pathname === '/api/pdp' || pathname.startsWith('/api/pdp/')) {
     return ctx.next();
   }
 
-  // Category aggregation
-  if (pathname.startsWith("/api/category/")) {
-    const category = decodeURIComponent(pathname.replace("/api/category/", "").trim());
+  // /api/category/:category
+  if (pathname.startsWith('/api/category/')) {
+    const category = decodeURIComponent(pathname.replace('/api/category/', '').trim());
     return handleCategory(category, env, ctx as any, request);
   }
 
-  // Assistant health route
-  if (pathname.startsWith("/api/assistant")) {
-    return json({ ok: true, message: "assistant endpoint alive" });
+  // /api/assistant (simple health check)
+  if (pathname.startsWith('/api/assistant')) {
+    return json({ ok: true, message: 'assistant endpoint alive' });
   }
 
-  // Pass through unknown API routes so nested handlers can run
+  // Let nested/specific API route files handle the rest
   return ctx.next();
 };
 
-async function handleCategory(category: string, env: Env, ctx: ExecutionContext, req: Request) {
+async function handleCategory(
+  category: string,
+  env: Env,
+  ctx: ExecutionContext,
+  req: Request
+) {
   if (!category) {
-    return json({ ok: false, error: "missing_category" }, 400);
+    return json({ ok: false, error: 'missing_category' }, 400);
   }
 
   const cacheKey = new Request(req.url, req);
@@ -52,6 +62,7 @@ async function handleCategory(category: string, env: Env, ctx: ExecutionContext,
   const cached = await cache.match(cacheKey);
   if (cached) return cached;
 
+  // Keep your existing index-based category logic
   const indexKey = `indexes/${category}.json`;
   const productsKey = `indexes/${category}.products.json`;
 
@@ -61,7 +72,7 @@ async function handleCategory(category: string, env: Env, ctx: ExecutionContext,
   ]);
 
   if (!indexObj) {
-    return json({ ok: false, error: "category_not_found", category }, 404);
+    return json({ ok: false, error: 'category_not_found', category }, 404);
   }
 
   const payload = {
@@ -73,9 +84,9 @@ async function handleCategory(category: string, env: Env, ctx: ExecutionContext,
 
   const res = new Response(JSON.stringify(payload), {
     headers: {
-      "content-type": "application/json; charset=utf-8",
-      "cache-control": `public, max-age=${CATEGORY_TTL}, stale-while-revalidate=3600`,
-      "x-api-handler": "functions/api.ts",
+      'content-type': 'application/json; charset=utf-8',
+      'cache-control': `public, max-age=${CATEGORY_TTL}, stale-while-revalidate=3600`,
+      'x-api-handler': 'functions/api.ts',
     },
   });
 
