@@ -1,22 +1,15 @@
-import { StrictMode } from "react";
-import { createRoot } from "react-dom/client";
-import App from "./App";
-import "./index.css";
+export const onRequestGet: PagesFunction = async (context) => {
+  // Let Pages serve index.html / static content normally.
+  return context.next();
+};
 
-const el = document.getElementById("app") || document.getElementById("root");
+export const onRequest: PagesFunction = async (context) => {
+  if (context.request.method === 'GET' || context.request.method === 'HEAD') {
+    return context.next();
+  }
 
-if (!el) {
-  throw new Error(
-    'Root container missing: expected <div id="app"></div> or <div id="root"></div> in index.html',
-  );
-}
-
-createRoot(el).render(
-  <StrictMode>
-    <App />
-  </StrictMode>,
-);
-
+  return context.next();
+};
 
 
 
