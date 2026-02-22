@@ -391,13 +391,9 @@ export async function onRequest({ request, env, next }: any) {
     // Support:
     //   /api/pdp?slug=...
     //   /api/pdp/:slug
+    // IMPORTANT: Delegate PDP to functions/api/pdp/[slug].ts
     if (pathname === "/api/pdp" || pathname.startsWith("/api/pdp/")) {
-      const slugFromPath = pathname.startsWith("/api/pdp/")
-        ? pathname.slice("/api/pdp/".length)
-        : "";
-      const slug = (slugFromPath || url.searchParams.get("slug") || url.searchParams.get("id") || "").trim();
-      const { response } = await buildPdpPayload(slug);
-      return response;
+      return next();
     }
 
     // /api/category?path=...
