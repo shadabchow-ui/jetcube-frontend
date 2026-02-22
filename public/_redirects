@@ -1,13 +1,15 @@
-/robots.txt /robots.txt 200
-/sitemap.xml /sitemap.xml 200
+# Cloudflare Pages routing contract
+# 1) API stays on Functions (never SPA fallback)
+/api/*  /api/:splat  200
 
-/sitemaps /index.html 200
+# 2) Static category directory index/files stay static
+/category-directory  /category-directory/index.html  200
+/category-directory/*  /category-directory/:splat  200
 
-/category-directory /category-directory/index.html 200
-/category-directory/* /category-directory/:splat 200
+# 3) Pass through common SEO files explicitly
+/robots.txt  /robots.txt  200
+/sitemap.xml  /sitemap.xml  200
+/sitemap-*.xml  /sitemap-:splat.xml  200
 
-/p/* /index.html 200
-/* /index.html 200
- 
-
-
+# 4) SPA fallback for everything else
+/*  /index.html  200
