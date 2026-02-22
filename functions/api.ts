@@ -1,95 +1,27 @@
-// functions/api.ts
-// Cloudflare Pages Functions (NOT Worker module syntax)
-
-export interface Env {
-  JETCUBE_R2: R2Bucket;
-}
-
-const CATEGORY_TTL = 60 * 10; // 10 minutes
-
-function json(body: any, status = 200, extra: Record<string, string> = {}) {
-  return new Response(JSON.stringify(body), {
-    status,
-    headers: {
-      'content-type': 'application/json; charset=utf-8',
-      'cache-control': 'public, max-age=300',
-      'x-api-handler': 'functions/api.ts',
-      ...extra,
-    },
-  });
-}
-
-export const onRequest: PagesFunction<Env> = async (ctx) => {
-  const { request, env } = ctx;
-  const url = new URL(request.url);
-  const pathname = url.pathname;
-
-  // IMPORTANT:
-  // Let the dedicated route file handle PDP:
-  // functions/api/pdp/[slug].ts
-  if (pathname === '/api/pdp' || pathname.startsWith('/api/pdp/')) {
-    return ctx.next();
-  }
-
-  // /api/category/:category
-  if (pathname.startsWith('/api/category/')) {
-    const category = decodeURIComponent(pathname.replace('/api/category/', '').trim());
-    return handleCategory(category, env, ctx as any, request);
-  }
-
-  // /api/assistant (simple health check)
-  if (pathname.startsWith('/api/assistant')) {
-    return json({ ok: true, message: 'assistant endpoint alive' });
-  }
-
-  // Let nested/specific API route files handle the rest
-  return ctx.next();
+export const onRequestGet: PagesFunction = async () => {
+  return new Response(
+    JSON.stringify({
+      ok: true,
+      route: '/api',
+      message: 'API root is live',
+    }),
+    {
+      headers: {
+        'content-type': 'application/json; charset=UTF-8',
+        'cache-control': 'no-store',
+      },
+    }
+  );
 };
 
-async function handleCategory(
-  category: string,
-  env: Env,
-  ctx: ExecutionContext,
-  req: Request
-) {
-  if (!category) {
-    return json({ ok: false, error: 'missing_category' }, 400);
+// Optional: handle other methods cleanly
+export const onRequest: PagesFunction = async (context) => {
+  if (context.request.method === 'GET') {
+    return onRequestGet(context);
   }
 
-  const cacheKey = new Request(req.url, req);
-  const cache = caches.default;
-
-  const cached = await cache.match(cacheKey);
-  if (cached) return cached;
-
-  // Keep your existing index-based category logic
-  const indexKey = `indexes/${category}.json`;
-  const productsKey = `indexes/${category}.products.json`;
-
-  const [indexObj, productsObj] = await Promise.all([
-    env.JETCUBE_R2.get(indexKey),
-    env.JETCUBE_R2.get(productsKey),
-  ]);
-
-  if (!indexObj) {
-    return json({ ok: false, error: 'category_not_found', category }, 404);
-  }
-
-  const payload = {
-    ok: true,
-    category,
-    meta: await indexObj.json(),
-    products: productsObj ? await productsObj.json() : [],
-  };
-
-  const res = new Response(JSON.stringify(payload), {
-    headers: {
-      'content-type': 'application/json; charset=utf-8',
-      'cache-control': `public, max-age=${CATEGORY_TTL}, stale-while-revalidate=3600`,
-      'x-api-handler': 'functions/api.ts',
-    },
+  return new Response('Method Not Allowed', {
+    status: 405,
+    headers: { Allow: 'GET' },
   });
-
-  ctx.waitUntil(cache.put(cacheKey, res.clone()));
-  return res;
-}
+};
