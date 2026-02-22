@@ -16,36 +16,32 @@ function json(body: any, status = 200, extra: Record<string, string> = {}) {
   });
 }
 
-export default {
-  async fetch(req: Request, env: Env, ctx: ExecutionContext) {
-    const url = new URL(req.url);
-    const pathname = url.pathname;
+export const onRequest: PagesFunction<Env> = async (ctx) => {
+  const { request, env } = ctx;
+  const url = new URL(request.url);
+  const pathname = url.pathname;
 
-    // IMPORTANT:
-    // PDP is handled exclusively by Pages Functions:
-    //   functions/api/pdp/[slug].ts
-    // Do NOT route /api/pdp/* here.
+  // IMPORTANT:
+  // PDP is handled exclusively by Pages Functions:
+  //   functions/api/pdp/[slug].ts
+  // Do NOT route /api/pdp/* here.
+  if (pathname === "/api/pdp" || pathname.startsWith("/api/pdp/")) {
+    return ctx.next();
+  }
 
-    // Category aggregation
-    if (pathname.startsWith("/api/category/")) {
-      const category = decodeURIComponent(pathname.replace("/api/category/", "").trim());
-      return handleCategory(category, env, ctx, req);
-    }
+  // Category aggregation
+  if (pathname.startsWith("/api/category/")) {
+    const category = decodeURIComponent(pathname.replace("/api/category/", "").trim());
+    return handleCategory(category, env, ctx as any, request);
+  }
 
-    // Assistant or other APIs can live here
-    if (pathname.startsWith("/api/assistant")) {
-      return json({ ok: true, message: "assistant endpoint alive" });
-    }
+  // Assistant or other APIs can live here
+  if (pathname.startsWith("/api/assistant")) {
+    return json({ ok: true, message: "assistant endpoint alive" });
+  }
 
-    return json(
-      {
-        ok: false,
-        error: "not_found",
-        path: pathname,
-      },
-      404
-    );
-  },
+  // Let other specific API route files handle their own paths.
+  return ctx.next();
 };
 
 async function readR2Json(obj: R2ObjectBody, isGzip = false): Promise<any> {
@@ -58,6 +54,7 @@ async function readR2Json(obj: R2ObjectBody, isGzip = false): Promise<any> {
   return await new Response(stream).json();
 }
 
+// Kept intact for current category behavior.
 async function handleCategory(category: string, env: Env, ctx: ExecutionContext, req: Request) {
   if (!category) {
     return json({ ok: false, error: "missing_category" }, 400);
