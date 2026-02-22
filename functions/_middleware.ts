@@ -1,12 +1,12 @@
 // functions/_middleware.ts
-export const onRequest = async (ctx: any) => {
-  const url = new URL(ctx.request.url);
+export const onRequest = async ({ request, next }: any) => {
+  const url = new URL(request.url);
 
-  // NUCLEAR TRAP: Intercept the exact PDP route immediately
+  // NUCLEAR TRAP: Hijack the PDP route immediately
   if (url.pathname.startsWith('/api/pdp/')) {
      return new Response(JSON.stringify({
        ok: true,
-       message: "MIDDLEWARE TRAP SUCCESS - THE WORKER IS ALIVE",
+       message: "TRAP SUCCESS - THE FUNCTIONS ENGINE IS ALIVE",
        url: url.pathname
      }), {
        status: 200,
@@ -17,6 +17,6 @@ export const onRequest = async (ctx: any) => {
      });
   }
 
-  // Let everything else pass through normally
-  return ctx.next();
+  // Let all other pages and assets load normally
+  return next();
 }
