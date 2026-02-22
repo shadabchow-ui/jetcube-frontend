@@ -1,59 +1,81 @@
 export interface Env {
   JETCUBE_R2: R2Bucket;
+  VITE_R2_BASE_URL?: string;
 }
 
-function json(body: any, status = 200, extra: Record<string, string> = {}) {
-  return new Response(JSON.stringify(body), {
+function json(data: unknown, init: ResponseInit = {}) {
+  const headers = new Headers(init.headers);
+  if (!headers.has('content-type')) {
+    headers.set('content-type', 'application/json; charset=UTF-8');
+  }
+  headers.set('cache-control', 'public, max-age=60');
+  return new Response(JSON.stringify(data), { ...init, headers });
+}
+
+function text(message: string, status = 200, headers?: HeadersInit) {
+  return new Response(message, {
     status,
     headers: {
-      "content-type": "application/json; charset=utf-8",
-      "cache-control": "public, max-age=300",
-      "x-pdp-handler": "functions/api/pdp/[slug].ts",
-      ...extra,
+      'content-type': 'text/plain; charset=UTF-8',
+      ...headers,
     },
   });
 }
 
-async function readJson(obj: R2ObjectBody, isGzip: boolean) {
-  if (!isGzip) {
-    return JSON.parse(await obj.text());
-  }
+async function tryReadGzipJson(bucket: R2Bucket, key: string): Promise<Response | null> {
+  const obj = await bucket.get(key);
+  if (!obj) return null;
 
-  const ab = await obj.arrayBuffer();
-  const DS: any = (globalThis as any).DecompressionStream;
-  if (!DS) {
-    // Fallback if DecompressionStream unavailable
-    return JSON.parse(await obj.text());
-  }
+  const headers = new Headers();
+  headers.set('content-type', 'application/json; charset=UTF-8');
+  headers.set('content-encoding', 'gzip');
+  headers.set('cache-control', 'public, max-age=300');
 
-  const ds = new DS("gzip");
-  const stream = new Blob([ab]).stream().pipeThrough(ds);
-  return JSON.parse(await new Response(stream).text());
+  if (obj.httpEtag) headers.set('etag', obj.httpEtag);
+
+  return new Response(obj.body, { status: 200, headers });
 }
 
-export const onRequestGet: PagesFunction<Env> = async ({ params, env }) => {
-  const slug = decodeURIComponent(String(params?.slug || "")).trim();
+export const onRequestGet: PagesFunction<Env> = async (context) => {
+  const slug = context.params?.slug;
 
-  if (!slug) {
-    return json({ ok: false, error: "missing_slug" }, 400);
+  if (!slug || typeof slug !== 'string') {
+    return json({ error: 'Missing slug param' }, { status: 400 });
   }
 
-  const keys = [`product/${slug}.json.gz`, `product/${slug}.json`];
-
-  for (const key of keys) {
-    const obj = await env.JETCUBE_R2.get(key);
-    if (!obj) continue;
-
-    const data = await readJson(obj, key.endsWith(".gz"));
+  const bucket = context.env?.JETCUBE_R2;
+  if (!bucket) {
+    // This is the exact local error you saw before; now it fails cleanly.
     return json(
-      { ok: true, slug, data, product: data },
-      200,
-      { "x-pdp-key": key }
+      {
+        error: 'R2 binding JETCUBE_R2 is not available',
+        hint: 'Check Cloudflare Pages > Settings > Bindings and local wrangler config.',
+      },
+      { status: 500 }
     );
   }
 
+  // Primary key (your raw R2 URL proves this convention exists)
+  const directKey = `product/${slug}.json.gz`;
+
+  // Keep index-based fallback behavior (minimal/non-breaking)
+  // If your current implementation uses a richer index strategy, keep it and just leave the binding guards above.
+  const candidateKeys = [
+    directKey,
+    `products/${slug}.json.gz`, // compatibility fallback if older uploads used "products/"
+  ];
+
+  for (const key of candidateKeys) {
+    const res = await tryReadGzipJson(bucket, key);
+    if (res) return res;
+  }
+
   return json(
-    { ok: false, error: "not_found", slug, tried: keys },
-    404
+    {
+      error: 'PDP not found',
+      slug,
+      tried: candidateKeys,
+    },
+    { status: 404 }
   );
 };
