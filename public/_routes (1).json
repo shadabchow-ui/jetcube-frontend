@@ -1,0 +1,14 @@
+{
+  "version": 1,
+  "include": [
+    "/api/*",
+    "/product/*",
+    "/products/*",
+    "/indexes/*",
+    "/sitemap*",
+    "/*"
+  ],
+  "exclude": [
+    "/category-directory.html"
+  ]
+}
