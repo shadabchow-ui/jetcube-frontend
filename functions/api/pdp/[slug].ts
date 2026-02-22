@@ -1,6 +1,7 @@
+import type { PagesFunction } from '@cloudflare/workers-types';
+
 export interface Env {
-  JETCUBE_R2: R2Bucket;
-  VITE_R2_BASE_URL?: string;
+  JETCUBE_R2?: R2Bucket;
 }
 
 function json(data: unknown, init: ResponseInit = {}) {
@@ -8,74 +9,68 @@ function json(data: unknown, init: ResponseInit = {}) {
   if (!headers.has('content-type')) {
     headers.set('content-type', 'application/json; charset=UTF-8');
   }
-  headers.set('cache-control', 'public, max-age=60');
+  if (!headers.has('cache-control')) {
+    headers.set('cache-control', 'public, max-age=300');
+  }
   return new Response(JSON.stringify(data), { ...init, headers });
 }
 
-function text(message: string, status = 200, headers?: HeadersInit) {
-  return new Response(message, {
-    status,
-    headers: {
-      'content-type': 'text/plain; charset=UTF-8',
-      ...headers,
-    },
-  });
-}
-
-async function tryReadGzipJson(bucket: R2Bucket, key: string): Promise<Response | null> {
+async function readR2Json(bucket: R2Bucket, key: string): Promise<Response | null> {
   const obj = await bucket.get(key);
   if (!obj) return null;
 
   const headers = new Headers();
   headers.set('content-type', 'application/json; charset=UTF-8');
-  headers.set('content-encoding', 'gzip');
   headers.set('cache-control', 'public, max-age=300');
-
   if (obj.httpEtag) headers.set('etag', obj.httpEtag);
+  if (key.endsWith('.gz')) headers.set('content-encoding', 'gzip');
 
   return new Response(obj.body, { status: 200, headers });
 }
 
-export const onRequestGet: PagesFunction<Env> = async (context) => {
-  const slug = context.params?.slug;
+export const onRequestGet: PagesFunction<Env> = async ({ params, env }) => {
+  const slug = params?.slug;
 
   if (!slug || typeof slug !== 'string') {
-    return json({ error: 'Missing slug param' }, { status: 400 });
+    return json({ error: 'Missing slug' }, { status: 400 });
   }
 
-  const bucket = context.env?.JETCUBE_R2;
+  const bucket = env?.JETCUBE_R2;
   if (!bucket) {
-    // This is the exact local error you saw before; now it fails cleanly.
     return json(
       {
-        error: 'R2 binding JETCUBE_R2 is not available',
-        hint: 'Check Cloudflare Pages > Settings > Bindings and local wrangler config.',
+        error: 'Missing R2 binding',
+        binding: 'JETCUBE_R2',
+        hint: 'Add the JETCUBE_R2 R2 binding in Cloudflare Pages project settings and local wrangler config.',
       },
       { status: 500 }
     );
   }
 
-  // Primary key (your raw R2 URL proves this convention exists)
-  const directKey = `product/${slug}.json.gz`;
-
-  // Keep index-based fallback behavior (minimal/non-breaking)
-  // If your current implementation uses a richer index strategy, keep it and just leave the binding guards above.
   const candidateKeys = [
-    directKey,
-    `products/${slug}.json.gz`, // compatibility fallback if older uploads used "products/"
+    `product/${slug}.json.gz`,
+    `products/${slug}.json.gz`,
+    `pdp/${slug}.json.gz`,
+    `product/${slug}.json`,
+    `products/${slug}.json`,
+    `pdp/${slug}.json`,
   ];
 
   for (const key of candidateKeys) {
-    const res = await tryReadGzipJson(bucket, key);
-    if (res) return res;
+    const hit = await readR2Json(bucket, key);
+    if (hit) return hit;
   }
 
-  return json(
-    {
-      error: 'PDP not found',
-      slug,
-      tried: candidateKeys,
-    },
-    { status: 404 }
-  );
+  return json({ error: 'PDP not found', slug, tried: candidateKeys }, { status: 404 });
+};
+
+export const onRequest: PagesFunction<Env> = async (context) => {
+  if (context.request.method === 'GET' || context.request.method === 'HEAD') {
+    return onRequestGet(context);
+  }
+
+  return new Response('Method Not Allowed', {
+    status: 405,
+    headers: { Allow: 'GET, HEAD' },
+  });
 };
