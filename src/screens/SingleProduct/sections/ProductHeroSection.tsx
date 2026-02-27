@@ -9,7 +9,7 @@ const EMBER = "[font-family:'Amazon_Ember',Arial,sans-serif]";
 
 function stripAmazonSizeModifiers(url: string) {
   if (!url) return url;
-  const out = url
+  return url
     .replace(/\._AC_[A-Z0-9,]+_\./g, ".")
     .replace(/\._S[XY]\d+_\./g, ".")
     .replace(/\._S[XY]\d+_CR,0,0,\d+,\d+_\./g, ".")
@@ -19,7 +19,6 @@ function stripAmazonSizeModifiers(url: string) {
     .replace(/\._SR\d+,\d+_\./g, ".")
     .replace(/\._SS\d+,\d+_\./g, ".")
     .replace(/\._SL\d+_\./g, ".");
-  return out;
 }
 
 function uniqKeepOrder(arr: string[]) {
@@ -120,56 +119,27 @@ function optionToText(v: any): string {
   return String(v).trim();
 }
 
-function extractOptions(product: any) {
-  const variations = (product as any)?.variations;
-  const colors: string[] = [];
-  const sizes: string[] = [];
+// Tokens that indicate a "size/pack/volume" value rather than a true color name.
+// Used to reclassify mis-labeled color lists (e.g. "16 Ounce (Pack of 1)").
+const SIZE_LIKE_TOKENS = [
+  "oz", "ounce", "fl oz", "fl_oz", "pack", "count", "ml",
+  "liter", "litre", "gallon", "quart", "pint", "qt", "pt",
+  "piece", "unit", "set", "roll",
+];
 
-  if (variations && typeof variations === "object") {
-    if (Array.isArray(variations.colors)) {
-      for (const c of variations.colors) {
-        const t = optionToText(c);
-        if (t) colors.push(t);
-      }
-    }
-    if (Array.isArray(variations.sizes)) {
-      for (const s of variations.sizes) {
-        const t = optionToText(s);
-        if (t) sizes.push(t);
-      }
-    }
-    if (Array.isArray(variations.size_options)) {
-      for (const s of variations.size_options) {
-        const t = optionToText(s);
-        if (t) sizes.push(t);
-      }
-    }
-    if (Array.isArray(variations.color_options)) {
-      for (const c of variations.color_options) {
-        const t = optionToText(c);
-        if (t) colors.push(t);
-      }
-    }
-  }
-
-  const colorOptions = (product as any)?.color_options;
-  if (Array.isArray(colorOptions))
-    colorOptions.forEach((c: any) => {
-      const t = optionToText(c);
-      if (t) colors.push(t);
-    });
-
-  const sizeOptions = (product as any)?.size_options;
-  if (Array.isArray(sizeOptions))
-    sizeOptions.forEach((s: any) => {
-      const t = optionToText(s);
-      if (t) sizes.push(t);
-    });
-
-  return {
-    colors: uniqKeepOrder(colors.map((x) => x.trim()).filter(Boolean)),
-    sizes: uniqKeepOrder(sizes.map((x) => x.trim()).filter(Boolean)),
-  };
+/**
+ * Returns true if the majority of strings in the array look like
+ * pack/volume/quantity labels rather than color names.
+ * Threshold: > 50% of non-empty values must match a size-like token.
+ */
+function looksLikeSizeList(items: string[]): boolean {
+  const nonEmpty = items.filter(Boolean);
+  if (!nonEmpty.length) return false;
+  const matches = nonEmpty.filter((s) => {
+    const lower = s.toLowerCase();
+    return SIZE_LIKE_TOKENS.some((t) => lower.includes(t));
+  });
+  return matches.length / nonEmpty.length > 0.5;
 }
 
 function semverGte(version: string, target: string) {
@@ -246,30 +216,6 @@ function buildV35ColorSwatchMap(product: any) {
   return out;
 }
 
-function buildV35Colors(product: any) {
-  const out: string[] = [];
-  const vals = (product as any)?.pdp_enrichment_v1?.variants?.values?.color_name;
-  if (Array.isArray(vals)) {
-    for (const it of vals) {
-      const name = String(it?.value ?? "").trim();
-      if (name) out.push(name);
-    }
-  }
-  return uniqKeepOrder(out);
-}
-
-function buildV35Sizes(product: any) {
-  const out: string[] = [];
-  const vals = (product as any)?.pdp_enrichment_v1?.variants?.values?.size_name;
-  if (Array.isArray(vals)) {
-    for (const it of vals) {
-      const name = String(it?.value ?? "").trim();
-      if (name) out.push(name);
-    }
-  }
-  return uniqKeepOrder(out);
-}
-
 function parsePriceParts(displayPrice: string) {
   const s = String(displayPrice || "").trim();
   if (!s) return null;
@@ -324,23 +270,87 @@ export const ProductHeroSection = (): JSX.Element => {
 
   const baseImages = useMemo(() => selectBestImageVariant(rawImages), [rawImages]);
 
-  const v35Colors = useMemo(() => buildV35Colors(product), [product]);
-  const v35Sizes = useMemo(() => buildV35Sizes(product), [product]);
+  // ── Variation resolution (A, B, C) ──────────────────────────────────────
+  //
+  // Precedence:
+  //   1. variations.colors / variations.sizes  (set by ProductPdpContext normalizer)
+  //   2. pdp_enrichment_v1.variants.values.color_name / size_name  (raw enrichment)
+  //   3. Legacy product.color_options / product.size_options
+  //
+  // After collecting candidate colors, we run looksLikeSizeList() to catch
+  // the case where pack/volume options were mis-classified as colors upstream.
+  // If that heuristic fires AND sizes is currently empty, we move those values
+  // into sizes and clear colors so the UI renders a single "Size" selector.
 
-  const { colors: legacyColors, sizes: scrapedSizesLegacy } = useMemo(
-    () => extractOptions(product),
-    [product]
-  );
+  const { colors: resolvedColors, sizes: resolvedSizes, swatchesActive } = useMemo(() => {
+    // --- Colors ---
+    let rawColors: string[] = [];
 
-  const colors = useMemo(() => {
-    const merged = [...(v35Colors || []), ...(legacyColors || [])];
-    return uniqKeepOrder(merged.map((x) => String(x || "").trim()).filter(Boolean));
-  }, [v35Colors.join("|"), legacyColors.join("|")]);
+    const ctxColors = (product as any)?.variations?.colors;
+    if (Array.isArray(ctxColors) && ctxColors.length) {
+      rawColors = ctxColors.map(optionToText).filter(Boolean);
+    } else {
+      // Fall back to enrichment color_name array
+      const enrichColorVals = (product as any)?.pdp_enrichment_v1?.variants?.values?.color_name;
+      if (Array.isArray(enrichColorVals) && enrichColorVals.length) {
+        rawColors = enrichColorVals.map(optionToText).filter(Boolean);
+      } else {
+        // Legacy color_options
+        const legacyColorOpts = (product as any)?.color_options;
+        if (Array.isArray(legacyColorOpts)) {
+          rawColors = legacyColorOpts.map(optionToText).filter(Boolean);
+        }
+      }
+    }
 
-  const scrapedSizes = useMemo(() => {
-    const merged = [...(v35Sizes || []), ...(scrapedSizesLegacy || [])];
-    return uniqKeepOrder(merged.map((x) => String(x || "").trim()).filter(Boolean));
-  }, [v35Sizes.join("|"), scrapedSizesLegacy.join("|")]);
+    // --- Sizes ---
+    let rawSizes: string[] = [];
+
+    const ctxSizes = (product as any)?.variations?.sizes;
+    if (Array.isArray(ctxSizes) && ctxSizes.length) {
+      rawSizes = ctxSizes.map(optionToText).filter(Boolean);
+    } else {
+      // Fall back to enrichment size_name array
+      const enrichSizeVals = (product as any)?.pdp_enrichment_v1?.variants?.values?.size_name;
+      if (Array.isArray(enrichSizeVals) && enrichSizeVals.length) {
+        rawSizes = enrichSizeVals.map(optionToText).filter(Boolean);
+      } else {
+        // Legacy size_options
+        const legacySizeOpts = (product as any)?.size_options;
+        if (Array.isArray(legacySizeOpts)) {
+          rawSizes = legacySizeOpts.map(optionToText).filter(Boolean);
+        }
+      }
+    }
+
+    // Also absorb variations.size_options / color_options if present and not yet covered
+    if (!rawSizes.length) {
+      const vo = (product as any)?.variations?.size_options;
+      if (Array.isArray(vo) && vo.length)
+        rawSizes = vo.map(optionToText).filter(Boolean);
+    }
+    if (!rawColors.length) {
+      const vo = (product as any)?.variations?.color_options;
+      if (Array.isArray(vo) && vo.length)
+        rawColors = vo.map(optionToText).filter(Boolean);
+    }
+
+    let colors = uniqKeepOrder(rawColors);
+    let sizes = uniqKeepOrder(rawSizes);
+
+    // C) Reclassify: if the color list looks like pack/volume values and
+    //    sizes is currently empty, move them into sizes, clear colors.
+    //    This prevents "16 Ounce (Pack of 1)" from appearing under "Color".
+    if (colors.length > 0 && looksLikeSizeList(colors) && sizes.length === 0) {
+      sizes = colors;
+      colors = [];
+    }
+
+    // Swatches are only meaningful when we have true colors
+    const swatchesActive = colors.length > 0;
+
+    return { colors, sizes, swatchesActive };
+  }, [product]);
 
   const colorImagesMap =
     (product as any)?.pdp_enrichment_v1?.media?.byVariant || (product as any)?.color_images;
@@ -351,8 +361,8 @@ export const ProductHeroSection = (): JSX.Element => {
   const legacySwatches = (product as any)?.color_swatches;
 
   const colorSwatches = useMemo(() => {
+    if (!swatchesActive) return {};
     const out: Record<string, string> = {};
-
     if (v35Swatches && typeof v35Swatches === "object") {
       for (const [k, v] of Object.entries(v35Swatches)) {
         const kk = String(k || "").trim();
@@ -360,7 +370,6 @@ export const ProductHeroSection = (): JSX.Element => {
         if (kk && vv) out[kk] = vv;
       }
     }
-
     if (legacySwatches && typeof legacySwatches === "object") {
       for (const [k, v] of Object.entries(legacySwatches)) {
         const kk = String(k || "").trim();
@@ -368,20 +377,23 @@ export const ProductHeroSection = (): JSX.Element => {
         if (kk && vv && !out[kk]) out[kk] = vv;
       }
     }
-
     return out;
-  }, [JSON.stringify(v35Swatches || {}), JSON.stringify(legacySwatches || {})]);
+  }, [JSON.stringify(v35Swatches || {}), JSON.stringify(legacySwatches || {}), swatchesActive]);
 
   const swatchKeys = useMemo(() => {
     const keys = Object.keys(colorSwatches || {}).map((x) => String(x || "").trim());
     return uniqKeepOrder(keys.filter(Boolean));
   }, [JSON.stringify(colorSwatches || {})]);
 
+  // B) Render guards: only truthy when the list is actually non-empty
+  const hasColors = resolvedColors.length > 0 || swatchKeys.length > 0;
+  const hasSizes = resolvedSizes.length > 0;
+
   const hasMultipleColors = useMemo(() => {
-    if (colors.length > 1) return true;
+    if (resolvedColors.length > 1) return true;
     if (swatchKeys.length > 1) return true;
     return false;
-  }, [colors.length, swatchKeys.length]);
+  }, [resolvedColors.length, swatchKeys.length]);
 
   const hasSizeChart = useMemo(() => {
     return Boolean(
@@ -417,10 +429,7 @@ export const ProductHeroSection = (): JSX.Element => {
     if (!table) return null;
 
     const headerMatches = Array.from(table.matchAll(/<th[^>]*>([\s\S]*?)<\/th>/gi)).map(
-      (m) => m[1]
-        .replace(/<[^>]*>/g, " ")
-        .replace(/\s+/g, " ")
-        .trim()
+      (m) => m[1].replace(/<[^>]*>/g, " ").replace(/\s+/g, " ").trim()
     );
 
     const rowMatches = Array.from(table.matchAll(/<tr[^>]*>([\s\S]*?)<\/tr>/gi)).map(
@@ -430,23 +439,15 @@ export const ProductHeroSection = (): JSX.Element => {
     const rows: string[][] = [];
     for (const r of rowMatches) {
       const cellMatches = Array.from(r.matchAll(/<(td|th)[^>]*>([\s\S]*?)<\/(td|th)>/gi)).map(
-        (m) => m[2]
-          .replace(/<[^>]*>/g, " ")
-          .replace(/\s+/g, " ")
-          .trim()
+        (m) => m[2].replace(/<[^>]*>/g, " ").replace(/\s+/g, " ").trim()
       );
       if (cellMatches.length) rows.push(cellMatches);
     }
 
     const headers = headerMatches.length ? headerMatches : (rows[0] || []);
     const bodyRows = rows.length > 1 ? rows.slice(1) : [];
-
     if (!headers.length) return null;
-
-    return {
-      headers,
-      rows: bodyRows,
-    };
+    return { headers, rows: bodyRows };
   }, [sizeChartHtml]);
 
   const [activeImage, setActiveImage] = useState<string>("");
@@ -454,7 +455,6 @@ export const ProductHeroSection = (): JSX.Element => {
   const [colorUserSelected, setColorUserSelected] = useState(false);
   const [selectedSize, setSelectedSize] = useState<string>("");
   const [sizeChartOpen, setSizeChartOpen] = useState(false);
-
   const [qty, setQty] = useState(1);
 
   const displayTitle = useMemo(() => pickSafeTitle(product), [product]);
@@ -471,15 +471,15 @@ export const ProductHeroSection = (): JSX.Element => {
   }, [product, reviewItems]);
 
   const reviewCount = useMemo(() => {
-    const n = Number((product as any)?.reviews?.review_count || (product as any)?.reviews?.count || 0);
+    const n = Number(
+      (product as any)?.reviews?.review_count || (product as any)?.reviews?.count || 0
+    );
     if (Number.isFinite(n) && n > 0) return n;
-    const items = Array.isArray(reviewItems) ? reviewItems.length : 0;
-    return items || 0;
+    return Array.isArray(reviewItems) ? reviewItems.length : 0;
   }, [product, reviewItems]);
 
   const displayedImages = useMemo(() => {
-    const imgs = baseImages || [];
-    return imgs.slice(0, 12);
+    return (baseImages || []).slice(0, 12);
   }, [baseImages.join("|")]);
 
   useEffect(() => {
@@ -487,30 +487,27 @@ export const ProductHeroSection = (): JSX.Element => {
   }, [displayedImages.join("|")]);
 
   useEffect(() => {
-    if (!selectedColor && (colors[0] || swatchKeys[0])) setSelectedColor(colors[0] || swatchKeys[0]);
-  }, [colors.join("|"), swatchKeys.join("|")]);
+    if (!selectedColor && (resolvedColors[0] || swatchKeys[0]))
+      setSelectedColor(resolvedColors[0] || swatchKeys[0]);
+  }, [resolvedColors.join("|"), swatchKeys.join("|")]);
 
-  const displayedColor = useMemo(() => {
-    return String(selectedColor || "").trim();
-  }, [selectedColor]);
+  const displayedColor = useMemo(() => String(selectedColor || "").trim(), [selectedColor]);
 
   const displayedSize = useMemo(() => {
     if (selectedSize) return selectedSize;
-    if (scrapedSizes.length) return scrapedSizes[0];
+    if (resolvedSizes.length) return resolvedSizes[0];
     return "";
-  }, [selectedSize, scrapedSizes.join("|")]);
+  }, [selectedSize, resolvedSizes.join("|")]);
 
   const displayedColorImages = useMemo(() => {
-    if (!displayedColor) return [];
-    if (!colorImagesMap) return [];
+    if (!displayedColor || !colorImagesMap) return [];
     const v = (colorImagesMap as any)?.[displayedColor];
     if (Array.isArray(v)) return v.map(String).filter(Boolean);
     return [];
   }, [displayedColor, JSON.stringify(colorImagesMap || {})]);
 
   const displayedColorImageKey = useMemo(() => {
-    if (!displayedColor) return "";
-    if (!colorImageKey) return "";
+    if (!displayedColor || !colorImageKey) return "";
     const v = (colorImageKey as any)?.[displayedColor];
     return v ? String(v) : "";
   }, [displayedColor, JSON.stringify(colorImageKey || {})]);
@@ -540,7 +537,9 @@ export const ProductHeroSection = (): JSX.Element => {
 
   const handleAddToCart = () => {
     const item = {
-      id: String((product as any)?.id || (product as any)?.slug || (product as any)?.handle || "").trim(),
+      id: String(
+        (product as any)?.id || (product as any)?.slug || (product as any)?.handle || ""
+      ).trim(),
       title: displayTitle,
       image: activeImage,
       price: displayPrice,
@@ -556,9 +555,7 @@ export const ProductHeroSection = (): JSX.Element => {
     try {
       const p = (product as any)?.price;
       const priceNum =
-        typeof p === "number"
-          ? p
-          : Number(String(p || "").replace(/[^0-9.]/g, "")) || 0;
+        typeof p === "number" ? p : Number(String(p || "").replace(/[^0-9.]/g, "")) || 0;
 
       const priceCents =
         Number.isFinite(priceNum) && priceNum > 0 ? Math.round(priceNum * 100) : 0;
@@ -572,7 +569,9 @@ export const ProductHeroSection = (): JSX.Element => {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           product: {
-            id: String((product as any)?.id || (product as any)?.slug || (product as any)?.handle || ""),
+            id: String(
+              (product as any)?.id || (product as any)?.slug || (product as any)?.handle || ""
+            ),
             title: displayTitle,
             image: activeImage,
             price_cents: priceCents,
@@ -639,7 +638,9 @@ export const ProductHeroSection = (): JSX.Element => {
                 onClick={() => setActiveImage(u)}
                 onMouseEnter={() => setActiveImage(u)}
                 className={`border rounded overflow-hidden flex items-center justify-center bg-white ${
-                  activeImage === u ? "border-[#007185]" : "border-[#D5D9D9] hover:border-[#007185]"
+                  activeImage === u
+                    ? "border-[#007185]"
+                    : "border-[#D5D9D9] hover:border-[#007185]"
                 }`}
                 style={{ width: 72, height: 72 }}
                 aria-label="Select image"
@@ -666,7 +667,9 @@ export const ProductHeroSection = (): JSX.Element => {
                 decoding="sync"
               />
             ) : (
-              <div className={`${EMBER} text-[12px] leading-[16px] text-[#565959]`}>No image</div>
+              <div className={`${EMBER} text-[12px] leading-[16px] text-[#565959]`}>
+                No image
+              </div>
             )}
           </div>
         </div>
@@ -680,13 +683,19 @@ export const ProductHeroSection = (): JSX.Element => {
                 {brand ? (
                   <div className={`${EMBER} text-[12px] leading-[16px] text-[#565959]`}>
                     Brand:{" "}
-                    <button type="button" className="text-[#007185] hover:underline" onClick={() => {}}>
+                    <button
+                      type="button"
+                      className="text-[#007185] hover:underline"
+                      onClick={() => {}}
+                    >
                       {brand}
                     </button>
                   </div>
                 ) : null}
 
-                <h1 className={`${EMBER} text-[24px] font-[400] leading-[32px] text-[#0F1111] break-words`}>
+                <h1
+                  className={`${EMBER} text-[24px] font-[400] leading-[32px] text-[#0F1111] break-words`}
+                >
                   {displayTitle}
                 </h1>
 
@@ -697,14 +706,20 @@ export const ProductHeroSection = (): JSX.Element => {
                     type="button"
                     className={`flex items-center gap-2 text-[14px] leading-[20px] ${EMBER}`}
                     onClick={() => {
-                      document.getElementById("reviews")?.scrollIntoView({ behavior: "smooth" });
+                      document
+                        .getElementById("reviews")
+                        ?.scrollIntoView({ behavior: "smooth" });
                     }}
                     aria-label="Jump to reviews"
                   >
                     {avg ? <Stars value={avg} /> : null}
-                    {avg ? <span className="text-[#007185]">{avg.toFixed(1)}</span> : null}
+                    {avg ? (
+                      <span className="text-[#007185]">{avg.toFixed(1)}</span>
+                    ) : null}
                     {reviewCount ? (
-                      <span className="text-[#007185]">({Number(reviewCount).toLocaleString()})</span>
+                      <span className="text-[#007185]">
+                        ({Number(reviewCount).toLocaleString()})
+                      </span>
                     ) : null}
                   </button>
                 ) : null}
@@ -713,90 +728,102 @@ export const ProductHeroSection = (): JSX.Element => {
               </div>
 
               <div className="space-y-5">
-                {/* Color */}
-                {hasMultipleColors ? (
-                  <div className="space-y-2">
-                    <div className={`${EMBER} text-[14px] leading-[20px] font-semibold text-[#0F1111]`}>
-                      Color
-                    </div>
-                    <div className="flex flex-wrap gap-2">
-                      {(colors.length ? colors : swatchKeys).map((c) => {
-                        const isActive = c === selectedColor;
-                        const thumb = getColorThumb(c);
-                        const sw = (colorSwatches && typeof colorSwatches === "object"
-                          ? (colorSwatches as any)?.[c]
-                          : "") as any;
-                        const swStr = typeof sw === "string" ? sw.trim() : "";
+                {/* Color — only rendered when hasColors is true (B) */}
+                {hasColors ? (
+                  hasMultipleColors ? (
+                    <div className="space-y-2">
+                      <div
+                        className={`${EMBER} text-[14px] leading-[20px] font-semibold text-[#0F1111]`}
+                      >
+                        Color
+                      </div>
+                      <div className="flex flex-wrap gap-2">
+                        {(resolvedColors.length ? resolvedColors : swatchKeys).map((c) => {
+                          const isActive = c === selectedColor;
+                          const thumb = getColorThumb(c);
+                          const sw = (
+                            colorSwatches && typeof colorSwatches === "object"
+                              ? (colorSwatches as any)?.[c]
+                              : ""
+                          ) as any;
+                          const swStr = typeof sw === "string" ? sw.trim() : "";
 
-                        return (
-                          <button
-                            key={c}
-                            type="button"
-                            onClick={() => {
-                              setColorUserSelected(true);
-                              setSelectedColor(c);
-                            }}
-                            className={`flex items-center gap-2 bg-white ${EMBER} text-[14px] leading-[20px] px-[10px] h-[38px] rounded-[2px] ${
-                              isActive
-                                ? "border border-[#e77600] bg-[#fdf8f5] shadow-[0_0_0_1px_#e77600_inset]"
-                                : "border border-[#D5D9D9] hover:border-[#8D9096] hover:bg-[#F3F3F3]"
-                            }`}
-                            aria-pressed={isActive}
-                          >
-                            {thumb ? (
-                              <img
-                                src={thumb}
-                                alt={c}
-                                className="w-10 h-10 object-cover rounded border border-[#D5D9D9]"
-                                loading="lazy"
-                                decoding="async"
-                              />
-                            ) : isLikelyUrl(swStr) ? (
-                              <img
-                                src={stripAmazonSizeModifiers(swStr)}
-                                alt={c}
-                                className="w-10 h-10 object-cover rounded border border-[#D5D9D9]"
-                                loading="lazy"
-                                decoding="async"
-                              />
-                            ) : isLikelyColor(swStr) ? (
-                              <span
-                                className="inline-block w-10 h-10 rounded border border-[#D5D9D9]"
-                                style={{ backgroundColor: swStr }}
-                              />
-                            ) : (
-                              <span
-                                className={`inline-flex w-10 h-10 rounded border border-[#D5D9D9] items-center justify-center text-[10px] text-[#565959] bg-white ${EMBER}`}
-                              >
-                                {String(c || "").trim().slice(0, 2).toUpperCase()}
-                              </span>
-                            )}
-
-                            <span className="whitespace-nowrap text-[#0F1111]">{c}</span>
-                          </button>
-                        );
-                      })}
+                          return (
+                            <button
+                              key={c}
+                              type="button"
+                              onClick={() => {
+                                setColorUserSelected(true);
+                                setSelectedColor(c);
+                              }}
+                              className={`flex items-center gap-2 bg-white ${EMBER} text-[14px] leading-[20px] px-[10px] h-[38px] rounded-[2px] ${
+                                isActive
+                                  ? "border border-[#e77600] bg-[#fdf8f5] shadow-[0_0_0_1px_#e77600_inset]"
+                                  : "border border-[#D5D9D9] hover:border-[#8D9096] hover:bg-[#F3F3F3]"
+                              }`}
+                              aria-pressed={isActive}
+                            >
+                              {thumb ? (
+                                <img
+                                  src={thumb}
+                                  alt={c}
+                                  className="w-10 h-10 object-cover rounded border border-[#D5D9D9]"
+                                  loading="lazy"
+                                  decoding="async"
+                                />
+                              ) : isLikelyUrl(swStr) ? (
+                                <img
+                                  src={stripAmazonSizeModifiers(swStr)}
+                                  alt={c}
+                                  className="w-10 h-10 object-cover rounded border border-[#D5D9D9]"
+                                  loading="lazy"
+                                  decoding="async"
+                                />
+                              ) : isLikelyColor(swStr) ? (
+                                <span
+                                  className="inline-block w-10 h-10 rounded border border-[#D5D9D9]"
+                                  style={{ backgroundColor: swStr }}
+                                />
+                              ) : (
+                                <span
+                                  className={`inline-flex w-10 h-10 rounded border border-[#D5D9D9] items-center justify-center text-[10px] text-[#565959] bg-white ${EMBER}`}
+                                >
+                                  {String(c || "")
+                                    .trim()
+                                    .slice(0, 2)
+                                    .toUpperCase()}
+                                </span>
+                              )}
+                              <span className="whitespace-nowrap text-[#0F1111]">{c}</span>
+                            </button>
+                          );
+                        })}
+                      </div>
                     </div>
-                  </div>
-                ) : (colors[0] || swatchKeys[0]) ? (
-                  <div className="space-y-2">
-                    <div className={`${EMBER} text-[14px] leading-[20px] font-semibold text-[#0F1111]`}>
-                      Color
+                  ) : (
+                    <div className="space-y-2">
+                      <div
+                        className={`${EMBER} text-[14px] leading-[20px] font-semibold text-[#0F1111]`}
+                      >
+                        Color
+                      </div>
+                      <div className={`${EMBER} text-[14px] leading-[20px] text-[#0F1111]`}>
+                        {resolvedColors[0] || swatchKeys[0]}
+                      </div>
                     </div>
-                    <div className={`${EMBER} text-[14px] leading-[20px] text-[#0F1111]`}>
-                      {colors[0] || swatchKeys[0]}
-                    </div>
-                  </div>
+                  )
                 ) : null}
 
-                {/* Size */}
-                {scrapedSizes.length ? (
+                {/* Size — only rendered when hasSizes is true (B) */}
+                {hasSizes ? (
                   <div className="space-y-2">
-                    <div className={`${EMBER} text-[14px] leading-[20px] font-semibold text-[#0F1111]`}>
+                    <div
+                      className={`${EMBER} text-[14px] leading-[20px] font-semibold text-[#0F1111]`}
+                    >
                       Size
                     </div>
                     <div className="flex flex-wrap gap-2">
-                      {scrapedSizes.map((s) => {
+                      {resolvedSizes.map((s) => {
                         const isActive = s === selectedSize;
                         return (
                           <button
@@ -832,9 +859,15 @@ export const ProductHeroSection = (): JSX.Element => {
                     {sizeChartOpen ? (
                       <div className="border border-[#D5D9D9] rounded p-3 bg-white overflow-x-auto">
                         {sizeChartImg ? (
-                          <img src={sizeChartImg} alt="Size chart" className="max-w-full h-auto" />
+                          <img
+                            src={sizeChartImg}
+                            alt="Size chart"
+                            className="max-w-full h-auto"
+                          />
                         ) : parsedSizeChart ? (
-                          <table className={`${EMBER} min-w-[520px] w-full text-[14px] leading-[20px]`}>
+                          <table
+                            className={`${EMBER} min-w-[520px] w-full text-[14px] leading-[20px]`}
+                          >
                             <thead>
                               <tr>
                                 {parsedSizeChart.headers.map((h: string, i: number) => (
@@ -859,7 +892,10 @@ export const ProductHeroSection = (): JSX.Element => {
                                         {cell}
                                       </th>
                                     ) : (
-                                      <td key={ci} className="border-b border-[#D5D9D9] p-2 text-[#0F1111]">
+                                      <td
+                                        key={ci}
+                                        className="border-b border-[#D5D9D9] p-2 text-[#0F1111]"
+                                      >
                                         {cell}
                                       </td>
                                     )
@@ -869,7 +905,9 @@ export const ProductHeroSection = (): JSX.Element => {
                             </tbody>
                           </table>
                         ) : (
-                          <div className={`${EMBER} text-[12px] leading-[16px] text-[#565959]`}>
+                          <div
+                            className={`${EMBER} text-[12px] leading-[16px] text-[#565959]`}
+                          >
                             Size chart unavailable.
                           </div>
                         )}
@@ -881,10 +919,14 @@ export const ProductHeroSection = (): JSX.Element => {
                 {/* About this item */}
                 {aboutParas.length ? (
                   <div className="space-y-2">
-                    <div className={`${EMBER} text-[18px] font-bold leading-[24px] text-[#0F1111]`}>
+                    <div
+                      className={`${EMBER} text-[18px] font-bold leading-[24px] text-[#0F1111]`}
+                    >
                       About this item
                     </div>
-                    <div className={`space-y-2 ${EMBER} text-[14px] leading-[20px] text-[#0F1111]`}>
+                    <div
+                      className={`space-y-2 ${EMBER} text-[14px] leading-[20px] text-[#0F1111]`}
+                    >
                       {aboutParas.map((p, i) => (
                         <p key={i}>{p}</p>
                       ))}
@@ -903,12 +945,16 @@ export const ProductHeroSection = (): JSX.Element => {
                 <span className="text-[#565959]">4–8 Days</span>
               </div>
 
-              <div className={`${EMBER} text-[#007600] font-semibold text-[16px] leading-[20px]`}>
+              <div
+                className={`${EMBER} text-[#007600] font-semibold text-[16px] leading-[20px]`}
+              >
                 In Stock
               </div>
 
               {/* Qty */}
-              <div className={`${EMBER} flex items-center gap-2 text-[14px] leading-[20px] text-[#0F1111]`}>
+              <div
+                className={`${EMBER} flex items-center gap-2 text-[14px] leading-[20px] text-[#0F1111]`}
+              >
                 <span className="text-[#565959]">Qty:</span>
                 <select
                   className={`${EMBER} bg-[#F0F2F2] border border-[#D5D9D9] rounded-lg shadow-[0_2px_5px_0_rgba(15,17,17,.15)] px-3 h-[29px] text-[14px] leading-[20px]`}
@@ -951,7 +997,9 @@ export const ProductHeroSection = (): JSX.Element => {
 
                 <div className="flex justify-between">
                   <span className="text-[#565959]">Sold by</span>
-                  <span className="text-[#0F1111]">{String((product as any)?.sold_by || "Ventari")}</span>
+                  <span className="text-[#0F1111]">
+                    {String((product as any)?.sold_by || "Ventari")}
+                  </span>
                 </div>
 
                 <div className="flex justify-between">
@@ -973,7 +1021,12 @@ export const ProductHeroSection = (): JSX.Element => {
                 className={`${EMBER} w-full flex items-center justify-center gap-2 border border-[#D5D9D9] hover:border-[#007185] rounded py-2 text-[14px] leading-[20px] bg-white`}
                 onClick={() => {
                   addToWishlist({
-                    id: String((product as any)?.id || (product as any)?.slug || (product as any)?.handle || ""),
+                    id: String(
+                      (product as any)?.id ||
+                        (product as any)?.slug ||
+                        (product as any)?.handle ||
+                        ""
+                    ),
                     title: displayTitle,
                     image: activeImage,
                     price: displayPrice,
