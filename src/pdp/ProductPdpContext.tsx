@@ -1,6 +1,12 @@
 import React, { createContext, useContext } from "react";
 import { R2_BASE, joinUrl, fetchJsonStrict } from "../config/r2";
 
+// CHANGED SECTIONS:
+// A) variations.colors/sizes are only set when the computed list is non-empty
+// B) Default apparel size fallback removed entirely — only real data from enrichment is used
+// C) Dimension classification tightened: pack/oz/count/volume → sizes, not colors
+// D) A+ images deduplicated against gallery Set after both are computed
+
 type IndexItem = {
   slug: string;
   path: string;
@@ -28,37 +34,41 @@ const ProductPdpContext = createContext<Ctx | null>(null);
 
 const ProductDataContext = createContext<any | null>(null);
 
-// Dimension classification helpers
-const COLOR_TERMS = ["color", "colour", "shade", "finish", "pattern"];
-const SIZE_TERMS = [
-  "size", "size_name", "pack", "oz", "fl oz", "fl_oz", "ounce",
-  "count", "volume", "quantity", "liter", "litre", "ml", "gallon",
+// ── Dimension classification ────────────────────────────────────────────────
+const COLOR_DIM_TERMS = ["color", "colour", "shade", "finish", "pattern"];
+const SIZE_DIM_TERMS = [
+  "size", "size_name", "pack", "count", "qty", "ounce", "oz",
+  "fl", "gallon", "ml", "liter", "litre", "volume",
 ];
 
 function isColorDimension(name: string): boolean {
   const lower = name.toLowerCase();
-  return COLOR_TERMS.some((t) => lower.includes(t));
+  return COLOR_DIM_TERMS.some((t) => lower.includes(t));
 }
 
 function isSizeDimension(name: string): boolean {
   const lower = name.toLowerCase();
-  return SIZE_TERMS.some((t) => lower.includes(t));
+  return SIZE_DIM_TERMS.some((t) => lower.includes(t));
 }
 
-const APPAREL_SIGNALS = [
-  "clothing", "apparel", "shirt", "pants", "dress", "jacket", "coat",
-  "hoodie", "sweater", "shorts", "skirt", "blouse", "jeans", "leggings",
-  "socks", "underwear", "bra", "swimsuit", "swimwear", "activewear",
-  "fashion", "shoe", "boot", "sneaker", "footwear",
+// ── Conservative apparel detector ───────────────────────────────────────────
+const APPAREL_KEYWORDS = [
+  "apparel", "clothing", "shoes", "footwear", "sneaker", "boot", "sandal",
+  "dress", "shirt", "pants", "jeans", "jacket", "hoodie", "sweater",
+  "socks", "underwear", "bra", "legging", "tshirt", "t-shirt",
 ];
 
 function isApparelProduct(raw: any): boolean {
-  const haystack = [
+  const signals = [
+    raw?.title,
+    raw?.title_original,
     raw?.category,
-    raw?.family,
+    raw?.category_path,
+    raw?.category_leaf,
+    raw?.handle,
     raw?.product_type,
     raw?.department,
-    raw?.breadcrumb,
+    raw?.family,
     raw?.pdp_enrichment_v1?.category,
     raw?.pdp_enrichment_v1?.family,
   ]
@@ -66,7 +76,13 @@ function isApparelProduct(raw: any): boolean {
     .join(" ")
     .toLowerCase();
 
-  return APPAREL_SIGNALS.some((s) => haystack.includes(s));
+  return APPAREL_KEYWORDS.some((kw) => signals.includes(kw));
+}
+
+// ── Dedup helper ─────────────────────────────────────────────────────────────
+function dedupUrls(urls: string[]): string[] {
+  const seen = new Set<string>();
+  return urls.filter((u) => (seen.has(u) ? false : (seen.add(u), true)));
 }
 
 function normalizePdpForUi(raw: any) {
@@ -75,7 +91,7 @@ function normalizePdpForUi(raw: any) {
   const gold = (raw as any).pdp_enrichment_v1;
   const out: any = { ...(raw as any) };
 
-  // Titles
+  // Titles (existing UI reads .title_seo and .title)
   const titleOriginal = String((raw as any).title_original || "").trim();
   const titleSeo = String((raw as any).title_seo || "").trim();
   const title = String((raw as any).title || "").trim();
@@ -83,17 +99,21 @@ function normalizePdpForUi(raw: any) {
   if (!out.title) out.title = title || titleSeo || titleOriginal;
   if (!out.title_seo) out.title_seo = titleSeo || titleOriginal || out.title;
 
-  // Images: prefer gold media gallery (HD), fall back to legacy images/image
+  // ── Images: prefer gold media gallery (HD), fall back to legacy ────────────
   const gallery = gold?.media?.gallery;
   let gallerySet = new Set<string>();
 
   if (Array.isArray(gallery) && gallery.length) {
-    out.images = gallery.map(String).filter(Boolean);
+    const deduped = dedupUrls(gallery.map(String).filter(Boolean));
+    out.images = deduped;
     if (!out.image) out.image = out.images[0] || null;
     gallerySet = new Set(out.images);
+  } else if (Array.isArray(out.images) && out.images.length) {
+    // Build gallerySet from legacy images if gold gallery absent
+    gallerySet = new Set(out.images.map(String).filter(Boolean));
   }
 
-  // Specs
+  // ── Specs ─────────────────────────────────────────────────────────────────
   const normalizedSpecs = gold?.specs?.normalized;
   if (
     normalizedSpecs &&
@@ -108,7 +128,7 @@ function normalizePdpForUi(raw: any) {
     out.specs = { ...legacySpecs, ...normalizedSpecs };
   }
 
-  // Size chart
+  // ── Size chart ────────────────────────────────────────────────────────────
   if (gold?.sizeChart) {
     if (gold.sizeChart.tables && !out.size_chart_tables)
       out.size_chart_tables = gold.sizeChart.tables;
@@ -116,24 +136,24 @@ function normalizePdpForUi(raw: any) {
       out.size_chart_html = gold.sizeChart.htmlSafe;
   }
 
-  // A+: deduplicate against gallery images (Fix #3)
+  // ── A+ ────────────────────────────────────────────────────────────────────
   if (gold?.aplus) {
     if (!out.aplus) out.aplus = gold.aplus;
     if (!out.aplus_blocks) out.aplus_blocks = gold.aplus.blocks;
 
-    // Strip gallery images from aplus_images
-    const rawAplusImages: string[] = Array.isArray(gold.aplus.images)
-      ? gold.aplus.images.map(String).filter(Boolean)
-      : [];
-    const filteredAplusImages =
-      gallerySet.size > 0
-        ? rawAplusImages.filter((u) => !gallerySet.has(u))
-        : rawAplusImages;
-
-    if (!out.aplus_images) out.aplus_images = filteredAplusImages;
+    if (!out.aplus_images) {
+      const rawAplusImages: string[] = Array.isArray(gold.aplus.images)
+        ? dedupUrls(gold.aplus.images.map(String).filter(Boolean))
+        : [];
+      // D) Remove any URLs that are already in the gallery
+      out.aplus_images =
+        gallerySet.size > 0
+          ? rawAplusImages.filter((u) => !gallerySet.has(u))
+          : rawAplusImages;
+    }
   }
 
-  // Variants / Twister (Fix #1 + #2)
+  // ── Variants / Twister: project into legacy-friendly `variations` ─────────
   const variants = gold?.variants;
   if (variants && typeof variants === "object") {
     const dims: string[] = Array.isArray(variants.dimensions)
@@ -144,54 +164,61 @@ function normalizePdpForUi(raw: any) {
     const matrix: any[] = Array.isArray(variants.matrix) ? variants.matrix : [];
 
     const variations: any =
-      out.variations && typeof out.variations === "object" ? { ...out.variations } : {};
+      out.variations && typeof out.variations === "object"
+        ? { ...out.variations }
+        : {};
 
-    // Fix #2: classify dimensions correctly
-    // Color = only color-like terms; Size = size-like terms (pack/oz/count/etc.)
+    // C) Classify dimensions strictly
     const colorDim =
-      dims.find((d) => isColorDimension(d)) ?? null;
+      dims.find((d) => isColorDimension(d) && !isSizeDimension(d)) ?? null;
+
+    // Size dim: prefer explicit size terms; fallback to any non-color dim
     const sizeDim =
       dims.find((d) => isSizeDimension(d)) ??
-      // Fallback: any dim that isn't color
-      (dims.find((d) => !isColorDimension(d)) ?? null);
+      dims.find((d) => !isColorDimension(d)) ??
+      null;
 
+    // Colors
     if (colorDim) {
-      const colorList = Array.isArray(values[colorDim]) ? values[colorDim] : [];
+      const colorList: any[] = Array.isArray(values[colorDim])
+        ? values[colorDim]
+        : [];
+      // A) Only set when non-empty; never overwrite existing populated array
       if (
-        !variations.colors ||
-        !Array.isArray(variations.colors) ||
-        !variations.colors.length
+        colorList.length > 0 &&
+        (!variations.colors ||
+          !Array.isArray(variations.colors) ||
+          !variations.colors.length)
       ) {
         variations.colors = colorList;
       }
     }
 
+    // Sizes
     if (sizeDim) {
-      const sizeList = Array.isArray(values[sizeDim]) ? values[sizeDim] : [];
+      const sizeList: any[] = Array.isArray(values[sizeDim])
+        ? values[sizeDim]
+        : [];
+
       if (
         !variations.sizes ||
         !Array.isArray(variations.sizes) ||
         !variations.sizes.length
       ) {
-        // Fix #1: only inject default apparel sizes if product is apparel
-        // If sizeList is empty, don't fabricate sizes for non-apparel
+        // A+B) Only inject when source data is non-empty; never fabricate defaults
         if (sizeList.length > 0) {
           variations.sizes = sizeList;
         }
-        // (intentionally no else — do not fabricate sizes)
+        // B) No fallback to S/M/L/XL — not even for apparel unless data provides it
       }
-    }
-
-    // Fix #1: never fabricate colors either when only size dimension exists
-    if (!colorDim && !variations.colors) {
-      // leave variations.colors undefined — don't inject empty or fake colors
     }
 
     out.variations = variations;
 
-    // Color → images map
+    // Color → images map (only when color dim is genuinely a color)
     if (colorDim && Array.isArray(matrix) && matrix.length) {
       const colorImages: Record<string, string[]> = {};
+
       for (const row of matrix) {
         const selections =
           row?.selections && typeof row.selections === "object"
@@ -202,7 +229,9 @@ function normalizePdpForUi(raw: any) {
 
         const img = row?.image || row?.image_url || row?.img;
         const colorVal =
-          selections && typeof selections === "object" ? selections[colorDim] : null;
+          selections && typeof selections === "object"
+            ? selections[colorDim]
+            : null;
 
         if (!colorVal || !img) continue;
 
@@ -213,11 +242,9 @@ function normalizePdpForUi(raw: any) {
         (colorImages[key] ||= []).push(url);
       }
 
+      // De-dupe within each color bucket
       for (const k of Object.keys(colorImages)) {
-        const seen = new Set<string>();
-        colorImages[k] = colorImages[k].filter((u) =>
-          seen.has(u) ? false : (seen.add(u), true)
-        );
+        colorImages[k] = dedupUrls(colorImages[k]);
       }
 
       if (!out.color_images && Object.keys(colorImages).length)
@@ -308,8 +335,8 @@ export function ProductPdpProvider({
     const relCandidates = [
       `indexes/pdp2/${shardKey}.json.gz`,
       `indexes/pdp2/${shardKey}.json`,
-      `indexes/pdp_paths/${shardKey}.json.gz`,
-      `indexes/pdp_paths/${shardKey}.json`,
+      `indexes/pdp_paths/${shardKey}.json.gz`, // legacy
+      `indexes/pdp_paths/${shardKey}.json`, // legacy
     ];
 
     const urls = relCandidates.map((rel) => joinUrl(R2_BASE, rel));
