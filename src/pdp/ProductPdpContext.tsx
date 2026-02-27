@@ -26,23 +26,56 @@ type Ctx = {
 
 const ProductPdpContext = createContext<Ctx | null>(null);
 
-/* ────────────────────────────────────────────────────────
-   NEW: Product DATA context (consumed by useProductPdp)
-   ──────────────────────────────────────────────────────── */
 const ProductDataContext = createContext<any | null>(null);
 
-/* ────────────────────────────────────────────────────────
-   v31.3-gold PDP normalization (UI compatibility layer)
-   Goal: keep existing UI components unchanged by projecting
-   gold fields into the legacy keys they already read.
-   ──────────────────────────────────────────────────────── */
+// Dimension classification helpers
+const COLOR_TERMS = ["color", "colour", "shade", "finish", "pattern"];
+const SIZE_TERMS = [
+  "size", "size_name", "pack", "oz", "fl oz", "fl_oz", "ounce",
+  "count", "volume", "quantity", "liter", "litre", "ml", "gallon",
+];
+
+function isColorDimension(name: string): boolean {
+  const lower = name.toLowerCase();
+  return COLOR_TERMS.some((t) => lower.includes(t));
+}
+
+function isSizeDimension(name: string): boolean {
+  const lower = name.toLowerCase();
+  return SIZE_TERMS.some((t) => lower.includes(t));
+}
+
+const APPAREL_SIGNALS = [
+  "clothing", "apparel", "shirt", "pants", "dress", "jacket", "coat",
+  "hoodie", "sweater", "shorts", "skirt", "blouse", "jeans", "leggings",
+  "socks", "underwear", "bra", "swimsuit", "swimwear", "activewear",
+  "fashion", "shoe", "boot", "sneaker", "footwear",
+];
+
+function isApparelProduct(raw: any): boolean {
+  const haystack = [
+    raw?.category,
+    raw?.family,
+    raw?.product_type,
+    raw?.department,
+    raw?.breadcrumb,
+    raw?.pdp_enrichment_v1?.category,
+    raw?.pdp_enrichment_v1?.family,
+  ]
+    .filter(Boolean)
+    .join(" ")
+    .toLowerCase();
+
+  return APPAREL_SIGNALS.some((s) => haystack.includes(s));
+}
+
 function normalizePdpForUi(raw: any) {
   if (!raw || typeof raw !== "object") return raw;
 
   const gold = (raw as any).pdp_enrichment_v1;
   const out: any = { ...(raw as any) };
 
-  // Titles (existing UI reads .title_seo and .title)
+  // Titles
   const titleOriginal = String((raw as any).title_original || "").trim();
   const titleSeo = String((raw as any).title_seo || "").trim();
   const title = String((raw as any).title || "").trim();
@@ -52,12 +85,15 @@ function normalizePdpForUi(raw: any) {
 
   // Images: prefer gold media gallery (HD), fall back to legacy images/image
   const gallery = gold?.media?.gallery;
+  let gallerySet = new Set<string>();
+
   if (Array.isArray(gallery) && gallery.length) {
     out.images = gallery.map(String).filter(Boolean);
     if (!out.image) out.image = out.images[0] || null;
+    gallerySet = new Set(out.images);
   }
 
-  // Specs: keep legacy specs, add normalized specs when present
+  // Specs
   const normalizedSpecs = gold?.specs?.normalized;
   if (
     normalizedSpecs &&
@@ -65,17 +101,14 @@ function normalizePdpForUi(raw: any) {
     !Array.isArray(normalizedSpecs)
   ) {
     out.specs_normalized = { ...normalizedSpecs };
-    // Merge into legacy specs map for sections that only read `specs`
     const legacySpecs =
-      out.specs &&
-      typeof out.specs === "object" &&
-      !Array.isArray(out.specs)
+      out.specs && typeof out.specs === "object" && !Array.isArray(out.specs)
         ? out.specs
         : {};
     out.specs = { ...legacySpecs, ...normalizedSpecs };
   }
 
-  // Size chart: keep both structured + safe HTML if present
+  // Size chart
   if (gold?.sizeChart) {
     if (gold.sizeChart.tables && !out.size_chart_tables)
       out.size_chart_tables = gold.sizeChart.tables;
@@ -83,14 +116,24 @@ function normalizePdpForUi(raw: any) {
       out.size_chart_html = gold.sizeChart.htmlSafe;
   }
 
-  // A+: expose blocks/images for downstream sections (even if currently unused)
+  // A+: deduplicate against gallery images (Fix #3)
   if (gold?.aplus) {
     if (!out.aplus) out.aplus = gold.aplus;
     if (!out.aplus_blocks) out.aplus_blocks = gold.aplus.blocks;
-    if (!out.aplus_images) out.aplus_images = gold.aplus.images;
+
+    // Strip gallery images from aplus_images
+    const rawAplusImages: string[] = Array.isArray(gold.aplus.images)
+      ? gold.aplus.images.map(String).filter(Boolean)
+      : [];
+    const filteredAplusImages =
+      gallerySet.size > 0
+        ? rawAplusImages.filter((u) => !gallerySet.has(u))
+        : rawAplusImages;
+
+    if (!out.aplus_images) out.aplus_images = filteredAplusImages;
   }
 
-  // Variants / Twister: project into legacy-friendly `variations`
+  // Variants / Twister (Fix #1 + #2)
   const variants = gold?.variants;
   if (variants && typeof variants === "object") {
     const dims: string[] = Array.isArray(variants.dimensions)
@@ -103,13 +146,14 @@ function normalizePdpForUi(raw: any) {
     const variations: any =
       out.variations && typeof out.variations === "object" ? { ...out.variations } : {};
 
-    // Find color/size dimension names (case-insensitive)
+    // Fix #2: classify dimensions correctly
+    // Color = only color-like terms; Size = size-like terms (pack/oz/count/etc.)
     const colorDim =
-      dims.find((d) => d.toLowerCase() === "color") ||
-      dims.find((d) => d.toLowerCase().includes("color"));
+      dims.find((d) => isColorDimension(d)) ?? null;
     const sizeDim =
-      dims.find((d) => d.toLowerCase() === "size") ||
-      dims.find((d) => d.toLowerCase().includes("size"));
+      dims.find((d) => isSizeDimension(d)) ??
+      // Fallback: any dim that isn't color
+      (dims.find((d) => !isColorDimension(d)) ?? null);
 
     if (colorDim) {
       const colorList = Array.isArray(values[colorDim]) ? values[colorDim] : [];
@@ -124,15 +168,28 @@ function normalizePdpForUi(raw: any) {
 
     if (sizeDim) {
       const sizeList = Array.isArray(values[sizeDim]) ? values[sizeDim] : [];
-      if (!variations.sizes || !Array.isArray(variations.sizes) || !variations.sizes.length) {
-        variations.sizes = sizeList;
+      if (
+        !variations.sizes ||
+        !Array.isArray(variations.sizes) ||
+        !variations.sizes.length
+      ) {
+        // Fix #1: only inject default apparel sizes if product is apparel
+        // If sizeList is empty, don't fabricate sizes for non-apparel
+        if (sizeList.length > 0) {
+          variations.sizes = sizeList;
+        }
+        // (intentionally no else — do not fabricate sizes)
       }
     }
 
-    if (!out.variations) out.variations = variations;
+    // Fix #1: never fabricate colors either when only size dimension exists
+    if (!colorDim && !variations.colors) {
+      // leave variations.colors undefined — don't inject empty or fake colors
+    }
 
-    // Optional: color → images map if matrix includes an image per variant.
-    // (Your sample matrix uses { values: {...} } and currently has no image field.)
+    out.variations = variations;
+
+    // Color → images map
     if (colorDim && Array.isArray(matrix) && matrix.length) {
       const colorImages: Record<string, string[]> = {};
       for (const row of matrix) {
@@ -156,7 +213,6 @@ function normalizePdpForUi(raw: any) {
         (colorImages[key] ||= []).push(url);
       }
 
-      // De-dupe while preserving order
       for (const k of Object.keys(colorImages)) {
         const seen = new Set<string>();
         colorImages[k] = colorImages[k].filter((u) =>
@@ -164,7 +220,8 @@ function normalizePdpForUi(raw: any) {
         );
       }
 
-      if (!out.color_images && Object.keys(colorImages).length) out.color_images = colorImages;
+      if (!out.color_images && Object.keys(colorImages).length)
+        out.color_images = colorImages;
       if (!out.color_image_key) out.color_image_key = colorDim;
     }
   }
@@ -219,7 +276,6 @@ export function ProductPdpProvider({
 
       console.log("[ProductPdpContext] Index loaded:", usedUrl);
 
-      // Support both array format and manifest { base, shards }
       if (Array.isArray(data)) {
         INDEX_CACHE = data as IndexItem[];
       } else if (
@@ -252,8 +308,8 @@ export function ProductPdpProvider({
     const relCandidates = [
       `indexes/pdp2/${shardKey}.json.gz`,
       `indexes/pdp2/${shardKey}.json`,
-      `indexes/pdp_paths/${shardKey}.json.gz`, // legacy
-      `indexes/pdp_paths/${shardKey}.json`, // legacy
+      `indexes/pdp_paths/${shardKey}.json.gz`,
+      `indexes/pdp_paths/${shardKey}.json`,
     ];
 
     const urls = relCandidates.map((rel) => joinUrl(R2_BASE, rel));
