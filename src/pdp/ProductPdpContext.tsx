@@ -6,6 +6,8 @@ import { R2_BASE, joinUrl, fetchJsonStrict } from "../config/r2";
 // B) Default apparel size fallback removed entirely — only real data from enrichment is used
 // C) Dimension classification tightened: pack/oz/count/volume → sizes, not colors
 // D) A+ images deduplicated against gallery Set after both are computed
+// E) NEW: Bad legacy clothing sizes (S/M/L/XL etc.) are stripped from non-apparel products
+//         before enrichment projection runs, so enrichment values always win.
 
 type IndexItem = {
   slug: string;
@@ -77,6 +79,28 @@ function isApparelProduct(raw: any): boolean {
     .toLowerCase();
 
   return APPAREL_KEYWORDS.some((kw) => signals.includes(kw));
+}
+
+// ── Clothing size sentinel set ───────────────────────────────────────────────
+// These are the default clothing sizes that scrapers sometimes inject for any
+// product. For non-apparel products we must purge them so enrichment data wins.
+const CLOTHING_SIZE_TOKENS = new Set([
+  "xs", "s", "m", "l", "xl", "xxl", "xxxl", "2xl", "3xl", "4xl",
+  "small", "medium", "large", "x-large", "xx-large",
+  "one size", "one size fits all", "os",
+]);
+
+/**
+ * Returns true if EVERY non-empty entry in the array is a standard clothing
+ * size label. A single non-clothing value (e.g. "16 oz") makes it return false
+ * so we never accidentally wipe real variant data.
+ */
+function isDefaultClothingSizeList(sizes: any[]): boolean {
+  const strings = sizes
+    .map((v) => String(v?.value ?? v?.label ?? v ?? "").trim().toLowerCase())
+    .filter(Boolean);
+  if (!strings.length) return false;
+  return strings.every((s) => CLOTHING_SIZE_TOKENS.has(s));
 }
 
 // ── Dedup helper ─────────────────────────────────────────────────────────────
@@ -155,6 +179,26 @@ function normalizePdpForUi(raw: any) {
 
   // ── Variants / Twister: project into legacy-friendly `variations` ─────────
   const variants = gold?.variants;
+
+  // Start with whatever was already on the raw object
+  const variations: any =
+    out.variations && typeof out.variations === "object"
+      ? { ...out.variations }
+      : {};
+
+  // E) Strip bad legacy clothing sizes from non-apparel products BEFORE
+  //    enrichment projection. This prevents scraped S/M/L/XL from winning
+  //    precedence over real pack/volume/count values from the enrichment layer.
+  if (!isApparelProduct(raw)) {
+    if (
+      Array.isArray(variations.sizes) &&
+      isDefaultClothingSizeList(variations.sizes)
+    ) {
+      // Wipe the phantom clothing sizes; enrichment will fill in real values below
+      variations.sizes = [];
+    }
+  }
+
   if (variants && typeof variants === "object") {
     const dims: string[] = Array.isArray(variants.dimensions)
       ? variants.dimensions.map(String)
@@ -162,11 +206,6 @@ function normalizePdpForUi(raw: any) {
     const values: any =
       variants.values && typeof variants.values === "object" ? variants.values : {};
     const matrix: any[] = Array.isArray(variants.matrix) ? variants.matrix : [];
-
-    const variations: any =
-      out.variations && typeof out.variations === "object"
-        ? { ...out.variations }
-        : {};
 
     // C) Classify dimensions strictly
     const colorDim =
@@ -251,6 +290,10 @@ function normalizePdpForUi(raw: any) {
         out.color_images = colorImages;
       if (!out.color_image_key) out.color_image_key = colorDim;
     }
+  } else {
+    // No enrichment variants block — still persist the cleaned variations object
+    // (may have had clothing sizes stripped above)
+    out.variations = variations;
   }
 
   return out;
