@@ -8,6 +8,10 @@ import { R2_BASE, joinUrl, fetchJsonStrict } from "../config/r2";
 // D) A+ images deduplicated against gallery Set after both are computed
 // E) NEW: Bad legacy clothing sizes (S/M/L/XL etc.) are stripped from non-apparel products
 //         before enrichment projection runs, so enrichment values always win.
+// F) NEW: schema_inputs.twister is explicitly preserved through normalization so
+//         ProductHeroSection can read it for pack/count ASIN-switching selectors.
+// G) NEW: variations.size_chart is nulled for non-fashion products so the UI never
+//         renders a clothing size chart on beauty/electronics/appliance pages.
 
 type IndexItem = {
   slug: string;
@@ -53,11 +57,25 @@ function isSizeDimension(name: string): boolean {
   return SIZE_DIM_TERMS.some((t) => lower.includes(t));
 }
 
-// ── Conservative apparel detector ───────────────────────────────────────────
+// ── Conservative apparel/fashion detector ───────────────────────────────────
+// Used for two guards:
+//   1. Whether to strip phantom clothing sizes from variations.sizes  (existing, E)
+//   2. Whether to preserve or null out variations.size_chart          (new, G)
+//
+// NON_FASHION wins over FASHION when both match (e.g. "beauty hair styling tools").
 const APPAREL_KEYWORDS = [
   "apparel", "clothing", "shoes", "footwear", "sneaker", "boot", "sandal",
   "dress", "shirt", "pants", "jeans", "jacket", "hoodie", "sweater",
   "socks", "underwear", "bra", "legging", "tshirt", "t-shirt",
+];
+
+// Categories that must never receive a clothing size chart even if other signals
+// are ambiguous. Listed here so the check is explicit and easy to extend.
+const NON_FASHION_CATEGORY_HINTS = [
+  "beauty", "personal care", "hair dryer", "hair care", "skin care",
+  "cosmetics", "fragrance", "health & household", "grocery", "automotive",
+  "tools", "electronics", "camera", "computer", "kitchen", "pet supplies",
+  "office", "sports", "outdoor", "toys", "baby", "industrial",
 ];
 
 function isApparelProduct(raw: any): boolean {
@@ -77,6 +95,10 @@ function isApparelProduct(raw: any): boolean {
     .filter(Boolean)
     .join(" ")
     .toLowerCase();
+
+  // Non-fashion hint wins: if the category/title clearly names a non-fashion
+  // domain, treat as non-apparel regardless of any clothing keyword coincidences.
+  if (NON_FASHION_CATEGORY_HINTS.some((h) => signals.includes(h))) return false;
 
   return APPAREL_KEYWORDS.some((kw) => signals.includes(kw));
 }
@@ -177,6 +199,30 @@ function normalizePdpForUi(raw: any) {
     }
   }
 
+  // ── F) Preserve schema_inputs.twister ────────────────────────────────────
+  // schema_inputs (including .twister) is already copied into `out` via the
+  // initial spread above. We make the preservation explicit here so future
+  // refactors don't accidentally drop it, and to mirror twister into the
+  // pdp_enrichment_v1.variants namespace where the UI also looks.
+  //
+  // Shape: { dimensions: string[], values: Record<string, string[]>,
+  //          asin_by_value: Record<string, Record<string, string>> }
+  const twister = (raw as any)?.schema_inputs?.twister;
+  if (twister && typeof twister === "object" && Array.isArray(twister.dimensions)) {
+    // Ensure top-level schema_inputs.twister is intact on the output object.
+    if (!out.schema_inputs) out.schema_inputs = {};
+    out.schema_inputs = { ...out.schema_inputs, twister };
+
+    // Mirror into pdp_enrichment_v1.variants.twister so ProductHeroSection can
+    // read it from either path without conditional branching.
+    if (!out.pdp_enrichment_v1) out.pdp_enrichment_v1 = {};
+    if (!out.pdp_enrichment_v1.variants) out.pdp_enrichment_v1.variants = {};
+    // Only set if not already populated by a richer enrichment source
+    if (!out.pdp_enrichment_v1.variants.twister) {
+      out.pdp_enrichment_v1.variants.twister = twister;
+    }
+  }
+
   // ── Variants / Twister: project into legacy-friendly `variations` ─────────
   const variants = gold?.variants;
 
@@ -189,13 +235,23 @@ function normalizePdpForUi(raw: any) {
   // E) Strip bad legacy clothing sizes from non-apparel products BEFORE
   //    enrichment projection. This prevents scraped S/M/L/XL from winning
   //    precedence over real pack/volume/count values from the enrichment layer.
-  if (!isApparelProduct(raw)) {
+  const isFashion = isApparelProduct(raw);
+
+  if (!isFashion) {
     if (
       Array.isArray(variations.sizes) &&
       isDefaultClothingSizeList(variations.sizes)
     ) {
       // Wipe the phantom clothing sizes; enrichment will fill in real values below
       variations.sizes = [];
+    }
+
+    // G) Clear size_chart for non-fashion products.
+    // Older JSONs in R2 may have a size_chart object inside variations even for
+    // beauty/appliance products (scraper false-positive). Null it out here so
+    // the UI never renders a clothing measurement table for a hair dryer.
+    if (variations.size_chart != null) {
+      variations.size_chart = null;
     }
   }
 
@@ -292,7 +348,7 @@ function normalizePdpForUi(raw: any) {
     }
   } else {
     // No enrichment variants block — still persist the cleaned variations object
-    // (may have had clothing sizes stripped above)
+    // (may have had clothing sizes and size_chart stripped above in E/G)
     out.variations = variations;
   }
 
