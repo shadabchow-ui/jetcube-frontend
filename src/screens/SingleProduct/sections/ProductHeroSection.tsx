@@ -159,6 +159,36 @@ function isMostlyClothingSizes(list: string[]): boolean {
   return nonEmpty.every((s) => isClothingSizeToken(s));
 }
 
+// ── Fashion product guard ────────────────────────────────────────────────────
+// Used to gate size-chart rendering: only apparel/footwear products should
+// ever display a size chart. Mirrors the backend detect_kind() signal but
+// operates on the category/title strings available in the product JSON.
+const FASHION_CATEGORY_HINTS = [
+  "clothing", "apparel", "dress", "dresses", "shirt", "shirts", "top", "tops",
+  "pants", "jeans", "skirt", "skirts", "jacket", "jackets", "coat", "coats",
+  "sweater", "hoodie", "blouse", "legging", "swimwear", "lingerie", "activewear",
+  "sportswear", "footwear", "shoes", "sneakers", "boots", "sandals", "heels",
+  "loafers", "socks", "underwear", "bra", "suit", "suits", "uniform",
+];
+
+const NON_FASHION_CATEGORY_HINTS = [
+  "beauty", "personal care", "hair dryer", "hair care", "skin care",
+  "cosmetics", "fragrance", "health", "grocery", "automotive", "tools",
+  "electronics", "camera", "computer", "kitchen", "pet supplies", "office",
+  "sports", "outdoor", "toys", "baby", "industrial",
+];
+
+function isFashionProduct(product: any): boolean {
+  const cat = String((product as any)?.category || "").toLowerCase();
+  const title = String((product as any)?.title || (product as any)?.title_original || "").toLowerCase();
+  const hay = `${cat} ${title}`;
+
+  // Explicit non-fashion wins first
+  if (NON_FASHION_CATEGORY_HINTS.some((h) => hay.includes(h))) return false;
+  // Then check for positive fashion signals
+  return FASHION_CATEGORY_HINTS.some((h) => hay.includes(h));
+}
+
 function semverGte(version: string, target: string) {
   const parse = (v: string) =>
     String(v || "")
@@ -369,11 +399,56 @@ function PriceAmazon({ displayPrice }: { displayPrice: string }) {
   );
 }
 
+// ── Inline-twister helpers ───────────────────────────────────────────────────
+// schema_inputs.twister is the v31 backend's canonical source for pack/count
+// variant options (e.g. "1 Count (Pack of 1)" / "1 Count (Pack of 3)").
+// These map to real ASINs so selecting one must navigate to the correct PDP.
+
+interface TwisterData {
+  dimensions: string[];
+  values: Record<string, string[]>;
+  asin_by_value: Record<string, Record<string, string>>;
+}
+
+/** Pull the twister block out of schema_inputs, if present. */
+function getTwister(product: any): TwisterData | null {
+  const t = (product as any)?.schema_inputs?.twister;
+  if (!t || !Array.isArray(t.dimensions) || !t.dimensions.length) return null;
+  return t as TwisterData;
+}
+
+/**
+ * Return the first twister dimension key whose name contains "size"
+ * (e.g. "size_name"). Falls back to the first dimension if none match.
+ */
+function pickTwisterSizeDim(twister: TwisterData): string {
+  const sizeDim = twister.dimensions.find((d) => d.toLowerCase().includes("size"));
+  return sizeDim ?? twister.dimensions[0];
+}
+
 export const ProductHeroSection = (): JSX.Element => {
   const product = useProductPdp();
   const { addToCart, openCart } = useCart();
   const { addToWishlist } = useWishlist();
   const navigate = useNavigate();
+
+  // ── Twister (inline pack/count variants from schema_inputs) ─────────────
+  // Primary source for non-fashion variant selectors. When present it takes
+  // precedence over variations.sizes so pack options are always rendered.
+  const twister = useMemo(() => getTwister(product), [product]);
+  const twisterDim = useMemo(
+    () => (twister ? pickTwisterSizeDim(twister) : ""),
+    [twister]
+  );
+  // Labels for the twister dimension (e.g. ["1 Count (Pack of 1)", "1 Count (Pack of 3)"])
+  const twisterLabels = useMemo((): string[] => {
+    if (!twister || !twisterDim) return [];
+    const vals = twister.values[twisterDim];
+    return Array.isArray(vals) ? vals.filter(Boolean) : [];
+  }, [twister, twisterDim]);
+
+  // Current ASIN so we can detect when navigation is needed
+  const currentAsin = String((product as any)?.asin || "").trim();
 
   const rawImages = useMemo(() => {
     const enrichGallery = (product as any)?.pdp_enrichment_v1?.media?.gallery;
@@ -397,6 +472,9 @@ export const ProductHeroSection = (): JSX.Element => {
     [product]
   );
 
+  // ── Fashion guard — gates size-chart rendering ───────────────────────────
+  const isFashion = useMemo(() => isFashionProduct(product), [product]);
+
   // ── Final color/size resolution ──────────────────────────────────────────
   // Precedence: v35 enrichment > legacy scraped values.
   // Extra guard: if legacy sizes are all clothing tokens AND v35 has real values,
@@ -416,6 +494,13 @@ export const ProductHeroSection = (): JSX.Element => {
   }, [v35Colors.join("|"), legacyColors.join("|")]);
 
   const sizes = useMemo(() => {
+    // ── Twister takes highest priority ────────────────────────────────────
+    // When schema_inputs.twister has size_name values, use them exclusively.
+    // This covers non-fashion items like "Pack of 1 / Pack of 3" that would
+    // otherwise fall through to the legacy variations.sizes (often empty or
+    // wrongly populated with clothing tokens).
+    if (twisterLabels.length > 0) return twisterLabels;
+
     let base: string[];
 
     if (v35Sizes.length) {
@@ -434,13 +519,16 @@ export const ProductHeroSection = (): JSX.Element => {
       } else if (isMostlyClothingSizes(legacySizes) && v35Colors.length > 0) {
         // v35 color data exists and legacy sizes look like clothing defaults → drop legacy
         base = [];
+      } else if (isMostlyClothingSizes(legacySizes) && !isFashion) {
+        // Defensive cleanup (req 4): clothing tokens on a non-fashion product → drop
+        base = [];
       } else {
         base = legacySizes;
       }
     }
 
     return uniqKeepOrder(base.map((x) => String(x || "").trim()).filter(Boolean));
-  }, [v35Sizes.join("|"), v35Colors.join("|"), legacySizes.join("|")]);
+  }, [twisterLabels.join("|"), v35Sizes.join("|"), v35Colors.join("|"), legacySizes.join("|"), isFashion]);
 
   const colorImagesMap =
     (product as any)?.pdp_enrichment_v1?.media?.byVariant || (product as any)?.color_images;
@@ -488,22 +576,28 @@ export const ProductHeroSection = (): JSX.Element => {
     return false;
   }, [colors.length, swatchKeys.length]);
 
+  // ── Size chart guard ─────────────────────────────────────────────────────
+  // Only show size chart for fashion products (apparel/footwear).
+  // Non-fashion items (beauty, electronics, etc.) must never display one even
+  // if a size_chart object leaked through from the scraper/backend.
   const hasSizeChart = useMemo(() => {
+    if (!isFashion) return false;
     return Boolean(
       (product as any)?.pdp_enrichment_v1?.variants?.size_chart ||
         (product as any)?.size_chart ||
         (product as any)?.variations?.size_chart
     );
-  }, [product]);
+  }, [product, isFashion]);
 
   const sizeChart = useMemo(() => {
+    if (!isFashion) return null;
     return (
       (product as any)?.pdp_enrichment_v1?.variants?.size_chart ||
       (product as any)?.size_chart ||
       (product as any)?.variations?.size_chart ||
       null
     );
-  }, [product]);
+  }, [product, isFashion]);
 
   const sizeChartHtml = useMemo(() => {
     const html = String((sizeChart as any)?.html || "").trim();
@@ -584,6 +678,19 @@ export const ProductHeroSection = (): JSX.Element => {
       setSelectedColor(colors[0] || swatchKeys[0]);
   }, [colors.join("|"), swatchKeys.join("|")]);
 
+  // Initialise the twister selection to the option that matches the current ASIN,
+  // so the button for the currently-loaded product starts active.
+  useEffect(() => {
+    if (!twister || !twisterDim || !currentAsin) return;
+    const asinMap = twister.asin_by_value[twisterDim] || {};
+    const matching = Object.entries(asinMap).find(([, asin]) => asin === currentAsin);
+    if (matching) {
+      setSelectedSize(matching[0]);
+    } else if (twisterLabels.length && !selectedSize) {
+      setSelectedSize(twisterLabels[0]);
+    }
+  }, [twisterLabels.join("|"), currentAsin]);
+
   const displayedColor = useMemo(() => String(selectedColor || "").trim(), [selectedColor]);
 
   const displayedSize = useMemo(() => {
@@ -621,6 +728,26 @@ export const ProductHeroSection = (): JSX.Element => {
     if (s2) return s2.startsWith("$") ? s2 : `$${s2}`;
     return "$0.00";
   }, [product]);
+
+  // ── Twister size selection handler ───────────────────────────────────────
+  // When the user picks a twister option we:
+  //   1. Update local selectedSize state (instant UI feedback).
+  //   2. Look up the target ASIN in asin_by_value.
+  //   3. If the target ASIN differs from the current page's ASIN, navigate to
+  //      that product using the same /product/:id routing pattern this app uses
+  //      everywhere (e.g. the wishlist navigation below uses navigate("/wishlist")).
+  const handleTwisterSelect = (label: string) => {
+    setSelectedSize(label);
+
+    if (!twister || !twisterDim) return;
+    const asinMap = twister.asin_by_value[twisterDim] || {};
+    const targetAsin = String(asinMap[label] || "").trim();
+    if (!targetAsin || targetAsin === currentAsin) return;
+
+    // Navigate to the target ASIN's PDP. The app mounts product pages at
+    // /product/:handle where handle == asin (the JSON output filename).
+    navigate(`/product/${targetAsin}`);
+  };
 
   const handleAddToCart = () => {
     const item = {
@@ -901,22 +1028,37 @@ export const ProductHeroSection = (): JSX.Element => {
                   )
                 ) : null}
 
-                {/* Size — only rendered when hasSizes is true */}
+                {/* Size / Options selector ─────────────────────────────────────
+                    When twister data is present the label reads "Option" so
+                    pack/count variants don't confusingly say "Size". For true
+                    fashion products the legacy label "Size" is kept.
+                    Clicking a twister option calls handleTwisterSelect which
+                    navigates to the corresponding ASIN if it differs.          */}
                 {hasSizes ? (
                   <div className="space-y-2">
                     <div
                       className={`${EMBER} text-[14px] leading-[20px] font-semibold text-[#0F1111]`}
                     >
-                      Size
+                      {/* Use "Option" label for twister pack/count selectors */}
+                      {twisterLabels.length > 0 ? "Option" : "Size"}
                     </div>
                     <div className="flex flex-wrap gap-2">
                       {sizes.map((s) => {
                         const isActive = s === selectedSize;
+                        const isTwisterOption = twisterLabels.includes(s);
                         return (
                           <button
                             key={s}
                             type="button"
-                            onClick={() => setSelectedSize(s)}
+                            onClick={() => {
+                              // Route through twister handler for ASIN-switching options;
+                              // plain size selection for fashion items.
+                              if (isTwisterOption) {
+                                handleTwisterSelect(s);
+                              } else {
+                                setSelectedSize(s);
+                              }
+                            }}
                             className={`bg-white ${EMBER} text-[14px] leading-[38px] px-[10px] h-[38px] rounded-[2px] ${
                               isActive
                                 ? "border border-[#e77600] bg-[#fdf8f5] shadow-[0_0_0_1px_#e77600_inset]"
@@ -932,7 +1074,9 @@ export const ProductHeroSection = (): JSX.Element => {
                   </div>
                 ) : null}
 
-                {/* Size chart */}
+                {/* Size chart — only for fashion products (apparel/footwear).
+                    isFashion guard is applied upstream in hasSizeChart/sizeChart
+                    so this block will never render for beauty/electronics/etc.  */}
                 {hasSizeChart ? (
                   <div className="space-y-2">
                     <button
