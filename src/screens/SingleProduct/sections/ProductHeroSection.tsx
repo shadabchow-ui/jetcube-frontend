@@ -127,11 +127,6 @@ const SIZE_LIKE_TOKENS = [
   "piece", "unit", "set", "roll",
 ];
 
-/**
- * Returns true if the majority of strings in the array look like
- * pack/volume/quantity labels rather than color names.
- * Threshold: > 50% of non-empty values must match a size-like token.
- */
 function looksLikeSizeList(items: string[]): boolean {
   const nonEmpty = items.filter(Boolean);
   if (!nonEmpty.length) return false;
@@ -140,6 +135,28 @@ function looksLikeSizeList(items: string[]): boolean {
     return SIZE_LIKE_TOKENS.some((t) => lower.includes(t));
   });
   return matches.length / nonEmpty.length > 0.5;
+}
+
+// ── Clothing size guard ───────────────────────────────────────────────────────
+// Scrapers sometimes populate variations.sizes with default clothing sizes for
+// every product regardless of category. We detect and suppress those here in
+// the UI as a last line of defence (context layer does the same, but data may
+// arrive via legacy paths that bypass that cleanup).
+const CLOTHING_SIZE_TOKENS = new Set([
+  "xs", "s", "m", "l", "xl", "xxl", "xxxl", "2xl", "3xl", "4xl",
+  "small", "medium", "large", "x-large", "xx-large", "one size",
+  "one size fits all", "os",
+]);
+
+function isClothingSizeToken(s: string): boolean {
+  return CLOTHING_SIZE_TOKENS.has(s.trim().toLowerCase());
+}
+
+/** Returns true when every entry in the list is a standard clothing size label. */
+function isMostlyClothingSizes(list: string[]): boolean {
+  const nonEmpty = list.filter(Boolean);
+  if (!nonEmpty.length) return false;
+  return nonEmpty.every((s) => isClothingSizeToken(s));
 }
 
 function semverGte(version: string, target: string) {
@@ -203,17 +220,118 @@ function isLikelyColor(s: string) {
   return /^#([0-9a-f]{3}|[0-9a-f]{6}|[0-9a-f]{8})$/i.test(t);
 }
 
-function buildV35ColorSwatchMap(product: any) {
+/**
+ * Extract a label string from a variant value entry that may be either:
+ *   - a plain string:  "16 Ounce (Pack of 1)"
+ *   - an object:       { value: "16 Ounce (Pack of 1)", swatchImage: "..." }
+ * Both shapes are valid in the enrichment data.
+ */
+function variantEntryToLabel(item: any): string {
+  if (item == null) return "";
+  if (typeof item === "string") return item.trim();
+  if (typeof item === "number") return String(item);
+  if (typeof item === "object") {
+    const v =
+      (item as any).value ??
+      (item as any).label ??
+      (item as any).name ??
+      (item as any).text ??
+      "";
+    return String(v || "").trim();
+  }
+  return "";
+}
+
+/**
+ * buildV35Colors — accepts both string[] and { value, swatchImage }[] formats.
+ * Returns deduplicated string labels.
+ */
+function buildV35Colors(product: any): string[] {
+  const vals = (product as any)?.pdp_enrichment_v1?.variants?.values?.color_name;
+  if (!Array.isArray(vals)) return [];
+  const out = vals.map(variantEntryToLabel).filter(Boolean);
+  return uniqKeepOrder(out);
+}
+
+/**
+ * buildV35Sizes — accepts both string[] and { value }[] formats.
+ * Returns deduplicated string labels.
+ */
+function buildV35Sizes(product: any): string[] {
+  const vals = (product as any)?.pdp_enrichment_v1?.variants?.values?.size_name;
+  if (!Array.isArray(vals)) return [];
+  const out = vals.map(variantEntryToLabel).filter(Boolean);
+  return uniqKeepOrder(out);
+}
+
+/**
+ * buildV35ColorSwatchMap — only maps swatch images when items are objects.
+ * If the array contains plain strings there are no swatches to extract.
+ */
+function buildV35ColorSwatchMap(product: any): Record<string, string> {
   const out: Record<string, string> = {};
   const vals = (product as any)?.pdp_enrichment_v1?.variants?.values?.color_name;
-  if (Array.isArray(vals)) {
-    for (const it of vals) {
-      const name = String(it?.value ?? "").trim();
-      const sw = String(it?.swatchImage ?? "").trim();
-      if (name && sw) out[name] = sw;
-    }
+  if (!Array.isArray(vals)) return out;
+  for (const it of vals) {
+    // Only process object entries — plain strings have no swatch data
+    if (!it || typeof it !== "object") continue;
+    const name = String((it as any).value ?? "").trim();
+    const sw = String((it as any).swatchImage ?? "").trim();
+    if (name && sw) out[name] = sw;
   }
   return out;
+}
+
+function extractOptions(product: any) {
+  const variations = (product as any)?.variations;
+  const colors: string[] = [];
+  const sizes: string[] = [];
+
+  if (variations && typeof variations === "object") {
+    if (Array.isArray(variations.colors)) {
+      for (const c of variations.colors) {
+        const t = optionToText(c);
+        if (t) colors.push(t);
+      }
+    }
+    if (Array.isArray(variations.sizes)) {
+      for (const s of variations.sizes) {
+        const t = optionToText(s);
+        if (t) sizes.push(t);
+      }
+    }
+    if (Array.isArray(variations.size_options)) {
+      for (const s of variations.size_options) {
+        const t = optionToText(s);
+        if (t) sizes.push(t);
+      }
+    }
+    if (Array.isArray(variations.color_options)) {
+      for (const c of variations.color_options) {
+        const t = optionToText(c);
+        if (t) colors.push(t);
+      }
+    }
+  }
+
+  const colorOptions = (product as any)?.color_options;
+  if (Array.isArray(colorOptions))
+    colorOptions.forEach((c: any) => {
+      const t = optionToText(c);
+      if (t) colors.push(t);
+    });
+
+  const sizeOptions = (product as any)?.size_options;
+  if (Array.isArray(sizeOptions))
+    sizeOptions.forEach((s: any) => {
+      const t = optionToText(s);
+      if (t) sizes.push(t);
+    });
+
+  return {
+    colors: uniqKeepOrder(colors.map((x) => x.trim()).filter(Boolean)),
+    sizes: uniqKeepOrder(sizes.map((x) => x.trim()).filter(Boolean)),
+  };
 }
 
 function parsePriceParts(displayPrice: string) {
@@ -270,87 +388,59 @@ export const ProductHeroSection = (): JSX.Element => {
 
   const baseImages = useMemo(() => selectBestImageVariant(rawImages), [rawImages]);
 
-  // ── Variation resolution (A, B, C) ──────────────────────────────────────
-  //
-  // Precedence:
-  //   1. variations.colors / variations.sizes  (set by ProductPdpContext normalizer)
-  //   2. pdp_enrichment_v1.variants.values.color_name / size_name  (raw enrichment)
-  //   3. Legacy product.color_options / product.size_options
-  //
-  // After collecting candidate colors, we run looksLikeSizeList() to catch
-  // the case where pack/volume options were mis-classified as colors upstream.
-  // If that heuristic fires AND sizes is currently empty, we move those values
-  // into sizes and clear colors so the UI renders a single "Size" selector.
+  // v35 enrichment values — now handle both string[] and {value}[] formats
+  const v35Colors = useMemo(() => buildV35Colors(product), [product]);
+  const v35Sizes = useMemo(() => buildV35Sizes(product), [product]);
 
-  const { colors: resolvedColors, sizes: resolvedSizes, swatchesActive } = useMemo(() => {
-    // --- Colors ---
-    let rawColors: string[] = [];
+  const { colors: legacyColors, sizes: legacySizes } = useMemo(
+    () => extractOptions(product),
+    [product]
+  );
 
-    const ctxColors = (product as any)?.variations?.colors;
-    if (Array.isArray(ctxColors) && ctxColors.length) {
-      rawColors = ctxColors.map(optionToText).filter(Boolean);
+  // ── Final color/size resolution ──────────────────────────────────────────
+  // Precedence: v35 enrichment > legacy scraped values.
+  // Extra guard: if legacy sizes are all clothing tokens AND v35 has real values,
+  // drop the legacy sizes so the real pack/volume options win.
+  const colors = useMemo(() => {
+    // Prefer enrichment; fall back to legacy
+    const base = v35Colors.length ? v35Colors : legacyColors;
+    let resolved = uniqKeepOrder(base.map((x) => String(x || "").trim()).filter(Boolean));
+
+    // Reclassify pack/volume mis-labeled as colors → move to sizes bucket
+    // (handled below in sizes; just clear here so color selector is suppressed)
+    if (resolved.length > 0 && looksLikeSizeList(resolved)) {
+      resolved = [];
+    }
+
+    return resolved;
+  }, [v35Colors.join("|"), legacyColors.join("|")]);
+
+  const sizes = useMemo(() => {
+    let base: string[];
+
+    if (v35Sizes.length) {
+      // Enrichment has real size data — always prefer it
+      base = v35Sizes;
     } else {
-      // Fall back to enrichment color_name array
-      const enrichColorVals = (product as any)?.pdp_enrichment_v1?.variants?.values?.color_name;
-      if (Array.isArray(enrichColorVals) && enrichColorVals.length) {
-        rawColors = enrichColorVals.map(optionToText).filter(Boolean);
+      // No enrichment sizes. Check legacy, but suppress default clothing sizes
+      // when the product clearly has non-apparel enrichment variation data.
+      // If legacy sizes are ALL clothing tokens and v35Colors has real values
+      // (pack/volume), those colors were reclassified; use them as sizes.
+      const reclassifiedFromColors =
+        v35Colors.length > 0 && looksLikeSizeList(v35Colors) ? v35Colors : [];
+
+      if (reclassifiedFromColors.length) {
+        base = reclassifiedFromColors;
+      } else if (isMostlyClothingSizes(legacySizes) && v35Colors.length > 0) {
+        // v35 color data exists and legacy sizes look like clothing defaults → drop legacy
+        base = [];
       } else {
-        // Legacy color_options
-        const legacyColorOpts = (product as any)?.color_options;
-        if (Array.isArray(legacyColorOpts)) {
-          rawColors = legacyColorOpts.map(optionToText).filter(Boolean);
-        }
+        base = legacySizes;
       }
     }
 
-    // --- Sizes ---
-    let rawSizes: string[] = [];
-
-    const ctxSizes = (product as any)?.variations?.sizes;
-    if (Array.isArray(ctxSizes) && ctxSizes.length) {
-      rawSizes = ctxSizes.map(optionToText).filter(Boolean);
-    } else {
-      // Fall back to enrichment size_name array
-      const enrichSizeVals = (product as any)?.pdp_enrichment_v1?.variants?.values?.size_name;
-      if (Array.isArray(enrichSizeVals) && enrichSizeVals.length) {
-        rawSizes = enrichSizeVals.map(optionToText).filter(Boolean);
-      } else {
-        // Legacy size_options
-        const legacySizeOpts = (product as any)?.size_options;
-        if (Array.isArray(legacySizeOpts)) {
-          rawSizes = legacySizeOpts.map(optionToText).filter(Boolean);
-        }
-      }
-    }
-
-    // Also absorb variations.size_options / color_options if present and not yet covered
-    if (!rawSizes.length) {
-      const vo = (product as any)?.variations?.size_options;
-      if (Array.isArray(vo) && vo.length)
-        rawSizes = vo.map(optionToText).filter(Boolean);
-    }
-    if (!rawColors.length) {
-      const vo = (product as any)?.variations?.color_options;
-      if (Array.isArray(vo) && vo.length)
-        rawColors = vo.map(optionToText).filter(Boolean);
-    }
-
-    let colors = uniqKeepOrder(rawColors);
-    let sizes = uniqKeepOrder(rawSizes);
-
-    // C) Reclassify: if the color list looks like pack/volume values and
-    //    sizes is currently empty, move them into sizes, clear colors.
-    //    This prevents "16 Ounce (Pack of 1)" from appearing under "Color".
-    if (colors.length > 0 && looksLikeSizeList(colors) && sizes.length === 0) {
-      sizes = colors;
-      colors = [];
-    }
-
-    // Swatches are only meaningful when we have true colors
-    const swatchesActive = colors.length > 0;
-
-    return { colors, sizes, swatchesActive };
-  }, [product]);
+    return uniqKeepOrder(base.map((x) => String(x || "").trim()).filter(Boolean));
+  }, [v35Sizes.join("|"), v35Colors.join("|"), legacySizes.join("|")]);
 
   const colorImagesMap =
     (product as any)?.pdp_enrichment_v1?.media?.byVariant || (product as any)?.color_images;
@@ -359,6 +449,9 @@ export const ProductHeroSection = (): JSX.Element => {
 
   const v35Swatches = useMemo(() => buildV35ColorSwatchMap(product), [product]);
   const legacySwatches = (product as any)?.color_swatches;
+
+  // Swatches only meaningful when we have true colors
+  const swatchesActive = colors.length > 0;
 
   const colorSwatches = useMemo(() => {
     if (!swatchesActive) return {};
@@ -385,15 +478,15 @@ export const ProductHeroSection = (): JSX.Element => {
     return uniqKeepOrder(keys.filter(Boolean));
   }, [JSON.stringify(colorSwatches || {})]);
 
-  // B) Render guards: only truthy when the list is actually non-empty
-  const hasColors = resolvedColors.length > 0 || swatchKeys.length > 0;
-  const hasSizes = resolvedSizes.length > 0;
+  // Rendering guards: never show a selector for an empty list
+  const hasColors = colors.length > 0 || swatchKeys.length > 0;
+  const hasSizes = sizes.length > 0;
 
   const hasMultipleColors = useMemo(() => {
-    if (resolvedColors.length > 1) return true;
+    if (colors.length > 1) return true;
     if (swatchKeys.length > 1) return true;
     return false;
-  }, [resolvedColors.length, swatchKeys.length]);
+  }, [colors.length, swatchKeys.length]);
 
   const hasSizeChart = useMemo(() => {
     return Boolean(
@@ -487,17 +580,17 @@ export const ProductHeroSection = (): JSX.Element => {
   }, [displayedImages.join("|")]);
 
   useEffect(() => {
-    if (!selectedColor && (resolvedColors[0] || swatchKeys[0]))
-      setSelectedColor(resolvedColors[0] || swatchKeys[0]);
-  }, [resolvedColors.join("|"), swatchKeys.join("|")]);
+    if (!selectedColor && (colors[0] || swatchKeys[0]))
+      setSelectedColor(colors[0] || swatchKeys[0]);
+  }, [colors.join("|"), swatchKeys.join("|")]);
 
   const displayedColor = useMemo(() => String(selectedColor || "").trim(), [selectedColor]);
 
   const displayedSize = useMemo(() => {
     if (selectedSize) return selectedSize;
-    if (resolvedSizes.length) return resolvedSizes[0];
+    if (sizes.length) return sizes[0];
     return "";
-  }, [selectedSize, resolvedSizes.join("|")]);
+  }, [selectedSize, sizes.join("|")]);
 
   const displayedColorImages = useMemo(() => {
     if (!displayedColor || !colorImagesMap) return [];
@@ -511,12 +604,6 @@ export const ProductHeroSection = (): JSX.Element => {
     const v = (colorImageKey as any)?.[displayedColor];
     return v ? String(v) : "";
   }, [displayedColor, JSON.stringify(colorImageKey || {})]);
-
-  const displayedColorSwatch = useMemo(() => {
-    if (!displayedColor) return "";
-    const v = (colorSwatches as any)?.[displayedColor];
-    return v ? String(v) : "";
-  }, [displayedColor, JSON.stringify(colorSwatches || {})]);
 
   const displayedImagesWithVariant = useMemo(() => {
     const variantImgs = selectBestImageVariant(displayedColorImages || []);
@@ -728,7 +815,7 @@ export const ProductHeroSection = (): JSX.Element => {
               </div>
 
               <div className="space-y-5">
-                {/* Color — only rendered when hasColors is true (B) */}
+                {/* Color — only rendered when hasColors is true */}
                 {hasColors ? (
                   hasMultipleColors ? (
                     <div className="space-y-2">
@@ -738,7 +825,7 @@ export const ProductHeroSection = (): JSX.Element => {
                         Color
                       </div>
                       <div className="flex flex-wrap gap-2">
-                        {(resolvedColors.length ? resolvedColors : swatchKeys).map((c) => {
+                        {(colors.length ? colors : swatchKeys).map((c) => {
                           const isActive = c === selectedColor;
                           const thumb = getColorThumb(c);
                           const sw = (
@@ -808,13 +895,13 @@ export const ProductHeroSection = (): JSX.Element => {
                         Color
                       </div>
                       <div className={`${EMBER} text-[14px] leading-[20px] text-[#0F1111]`}>
-                        {resolvedColors[0] || swatchKeys[0]}
+                        {colors[0] || swatchKeys[0]}
                       </div>
                     </div>
                   )
                 ) : null}
 
-                {/* Size — only rendered when hasSizes is true (B) */}
+                {/* Size — only rendered when hasSizes is true */}
                 {hasSizes ? (
                   <div className="space-y-2">
                     <div
@@ -823,7 +910,7 @@ export const ProductHeroSection = (): JSX.Element => {
                       Size
                     </div>
                     <div className="flex flex-wrap gap-2">
-                      {resolvedSizes.map((s) => {
+                      {sizes.map((s) => {
                         const isActive = s === selectedSize;
                         return (
                           <button
