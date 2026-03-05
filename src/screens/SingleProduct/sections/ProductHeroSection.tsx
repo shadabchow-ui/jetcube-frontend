@@ -584,8 +584,8 @@ export const ProductHeroSection = (): JSX.Element => {
     if (!isFashion) return false;
     return Boolean(
       (product as any)?.pdp_enrichment_v1?.variants?.size_chart ||
-        (product as any)?.size_chart ||
-        (product as any)?.variations?.size_chart
+      (product as any)?.size_chart ||
+      (product as any)?.variations?.size_chart
     );
   }, [product, isFashion]);
 
@@ -746,7 +746,7 @@ export const ProductHeroSection = (): JSX.Element => {
 
     // Navigate to the target ASIN's PDP. The app mounts product pages at
     // /product/:handle where handle == asin (the JSON output filename).
-    navigate(`/product/${targetAsin}`);
+    navigate(`/p/${targetAsin}`);
   };
 
   const handleAddToCart = () => {
@@ -832,10 +832,10 @@ export const ProductHeroSection = (): JSX.Element => {
 
   const brand = String(
     (product as any)?.brand ||
-      (product as any)?.brand_name ||
-      (product as any)?.manufacturer ||
-      (product as any)?.sold_by ||
-      ""
+    (product as any)?.brand_name ||
+    (product as any)?.manufacturer ||
+    (product as any)?.sold_by ||
+    ""
   ).trim();
 
   return (
@@ -851,11 +851,10 @@ export const ProductHeroSection = (): JSX.Element => {
                 type="button"
                 onClick={() => setActiveImage(u)}
                 onMouseEnter={() => setActiveImage(u)}
-                className={`border rounded overflow-hidden flex items-center justify-center bg-white ${
-                  activeImage === u
+                className={`border rounded overflow-hidden flex items-center justify-center bg-white ${activeImage === u
                     ? "border-[#007185]"
                     : "border-[#D5D9D9] hover:border-[#007185]"
-                }`}
+                  }`}
                 style={{ width: 72, height: 72 }}
                 aria-label="Select image"
               >
@@ -900,7 +899,7 @@ export const ProductHeroSection = (): JSX.Element => {
                     <button
                       type="button"
                       className="text-[#007185] hover:underline"
-                      onClick={() => {}}
+                      onClick={() => { }}
                     >
                       {brand}
                     </button>
@@ -970,11 +969,10 @@ export const ProductHeroSection = (): JSX.Element => {
                                 setColorUserSelected(true);
                                 setSelectedColor(c);
                               }}
-                              className={`flex items-center gap-2 bg-white ${EMBER} text-[14px] leading-[20px] px-[10px] h-[38px] rounded-[2px] ${
-                                isActive
+                              className={`flex items-center gap-2 bg-white ${EMBER} text-[14px] leading-[20px] px-[10px] h-[38px] rounded-[2px] ${isActive
                                   ? "border border-[#e77600] bg-[#fdf8f5] shadow-[0_0_0_1px_#e77600_inset]"
                                   : "border border-[#D5D9D9] hover:border-[#8D9096] hover:bg-[#F3F3F3]"
-                              }`}
+                                }`}
                               aria-pressed={isActive}
                             >
                               {thumb ? (
@@ -1059,11 +1057,10 @@ export const ProductHeroSection = (): JSX.Element => {
                                 setSelectedSize(s);
                               }
                             }}
-                            className={`bg-white ${EMBER} text-[14px] leading-[38px] px-[10px] h-[38px] rounded-[2px] ${
-                              isActive
+                            className={`bg-white ${EMBER} text-[14px] leading-[38px] px-[10px] h-[38px] rounded-[2px] ${isActive
                                 ? "border border-[#e77600] bg-[#fdf8f5] shadow-[0_0_0_1px_#e77600_inset]"
                                 : "border border-[#D5D9D9] hover:border-[#8D9096] hover:bg-[#F3F3F3]"
-                            }`}
+                              }`}
                             aria-pressed={isActive}
                           >
                             {s}
@@ -1254,9 +1251,9 @@ export const ProductHeroSection = (): JSX.Element => {
                   addToWishlist({
                     id: String(
                       (product as any)?.id ||
-                        (product as any)?.slug ||
-                        (product as any)?.handle ||
-                        ""
+                      (product as any)?.slug ||
+                      (product as any)?.handle ||
+                      ""
                     ),
                     title: displayTitle,
                     image: activeImage,
