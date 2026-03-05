@@ -669,9 +669,9 @@ export const ProductHeroSection = (): JSX.Element => {
     return (baseImages || []).slice(0, 12);
   }, [baseImages.join("|")]);
 
-  useEffect(() => {
-    if (!activeImage && displayedImages.length) setActiveImage(displayedImages[0]);
-  }, [displayedImages.join("|")]);
+useEffect(() => {
+  if (displayedImages.length) setActiveImage(displayedImages[0]);
+}, [String((product as any)?.asin || (product as any)?.id || ""), displayedImages.join("|")]);
 
   useEffect(() => {
     if (!selectedColor && (colors[0] || swatchKeys[0]))
